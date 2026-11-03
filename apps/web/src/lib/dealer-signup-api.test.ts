@@ -4,13 +4,21 @@ import test from "node:test";
 import {
   DEALER_SIGNUP_REVIEW_BAND_M,
   DealerSignupApiError,
+  checkDealerSignupVerification,
+  confirmDealerSignupPayment,
+  createDealerSignupVerificationSessionId,
   geocodeAddressPhoton,
   getDealerSignupDocumentUrl,
+  getDealerSignupPaymentSettings,
   getDealerSlipStatus,
+  rejectDealerSignupSlip,
   reviewDealerSignup,
+  sendDealerSignupVerification,
+  setDealerSignupPaymentSettings,
   uploadDealerSignedContract,
   uploadDealerSlip,
   type DealerSignupFetcher,
+  type DealerSignupPaymentSettings,
   type PhotonFetcher,
 } from "./dealer-signup-api.ts";
 
@@ -247,4 +255,137 @@ test("uploadDealerSlip supports the link token and the dealer session header", a
     (calls[1].init?.headers as Record<string, string>)["x-dealer-session"],
     "dop_session",
   );
+});
+
+test("confirmDealerSignupPayment and rejectDealerSignupSlip use review actions", async () => {
+  const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const fetcher: DealerSignupFetcher = async (input, init) => {
+    calls.push({
+      url: String(input),
+      body: JSON.parse(String(init?.body || "{}")) as Record<string, unknown>,
+    });
+    return jsonResponse({ success: true, status: "active", already_active: false });
+  };
+
+  await confirmDealerSignupPayment(
+    { applicationId: "app-1" },
+    { accessToken: ACCESS_TOKEN, fetcher, supabaseUrl: SUPABASE_URL },
+  );
+  await rejectDealerSignupSlip(
+    { applicationId: "app-1", reason: "Số tiền chưa khớp" },
+    { accessToken: ACCESS_TOKEN, fetcher, supabaseUrl: SUPABASE_URL },
+  );
+
+  assert.equal(calls[0].url, "https://project.test/functions/v1/dealer-signup-review?action=confirm_payment");
+  assert.deepEqual(calls[0].body, { action: "confirm_payment", application_id: "app-1" });
+  assert.equal(calls[1].url, "https://project.test/functions/v1/dealer-signup-review?action=reject_slip");
+  assert.deepEqual(calls[1].body, {
+    action: "reject_slip",
+    application_id: "app-1",
+    reason: "Số tiền chưa khớp",
+  });
+});
+
+test("payment settings are read and written through the owner-only actions", async () => {
+  const settings: DealerSignupPaymentSettings = {
+    bank_name: "Ngân hàng TMCP Kỹ thương Việt Nam",
+    bank_bin: "970407",
+    account_number: "19001234567890",
+    account_name: "HỘ KINH DOANH BÁNH MÌ BMQ",
+    amount_vnd: 1_000_000,
+    transfer_note_template: "BMQ {application_code}",
+  };
+  const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const fetcher: DealerSignupFetcher = async (input, init) => {
+    calls.push({
+      url: String(input),
+      body: JSON.parse(String(init?.body || "{}")) as Record<string, unknown>,
+    });
+    return jsonResponse({ success: true, payment_settings: settings });
+  };
+
+  const read = await getDealerSignupPaymentSettings({
+    accessToken: ACCESS_TOKEN,
+    fetcher,
+    supabaseUrl: SUPABASE_URL,
+  });
+  const written = await setDealerSignupPaymentSettings(
+    { settings },
+    { accessToken: ACCESS_TOKEN, fetcher, supabaseUrl: SUPABASE_URL },
+  );
+
+  assert.equal(calls[0].url, "https://project.test/functions/v1/dealer-signup-review?action=get_payment_settings");
+  assert.deepEqual(calls[0].body, { action: "get_payment_settings" });
+  assert.equal(calls[1].url, "https://project.test/functions/v1/dealer-signup-review?action=set_payment_settings");
+  assert.deepEqual(calls[1].body, { action: "set_payment_settings", payment_settings: settings });
+  assert.equal(read.payment_settings?.account_number, "19001234567890");
+  assert.equal(written.payment_settings?.amount_vnd, 1_000_000);
+});
+
+test("verification helpers generate a session id and post send/check payloads", async () => {
+  const sessionId = createDealerSignupVerificationSessionId();
+  assert.equal(typeof sessionId, "string");
+  assert.ok(sessionId.length > 10);
+
+  const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const fetcher: DealerSignupFetcher = async (input, init) => {
+    calls.push({
+      url: String(input),
+      body: JSON.parse(String(init?.body || "{}")) as Record<string, unknown>,
+    });
+    return jsonResponse(calls.length === 1
+      ? { success: true, channel: "phone", sent: true, resend_after_seconds: 60 }
+      : {
+        success: true,
+        verified: { phone: true, email: true },
+        verification_token: "verification-token-abc",
+        verification_expires_at: "2026-11-03T03:30:00.000Z",
+      });
+  };
+
+  const sent = await sendDealerSignupVerification(
+    { sessionId, channel: "phone", phone: "0909 123 456" },
+    { fetcher, supabaseUrl: SUPABASE_URL },
+  );
+  const checked = await checkDealerSignupVerification(
+    { sessionId, phone: "0909 123 456", email: "hong@example.test", phoneCode: "123456" },
+    { fetcher, supabaseUrl: SUPABASE_URL },
+  );
+
+  assert.equal(calls[0].url, "https://project.test/functions/v1/dealer-signup-verify");
+  assert.equal(calls[0].body.action, "send");
+  assert.equal(calls[0].body.session_id, sessionId);
+  assert.equal(calls[0].body.channel, "phone");
+  assert.equal(sent.sent, true);
+  assert.equal(calls[1].body.action, "check");
+  assert.equal(calls[1].body.phone_code, "123456");
+  assert.equal(checked.verification_token, "verification-token-abc");
+  assert.deepEqual(checked.verified, { phone: true, email: true });
+});
+
+test("slip status exposes payment_info and the slip_submitted state", async () => {
+  const fetcher: DealerSignupFetcher = async () =>
+    jsonResponse({
+      success: true,
+      status: "slip_submitted",
+      application_code: "DLM-20261103-0001",
+      can_upload: false,
+      payment_info: {
+        bank_name: "Ngân hàng TMCP Kỹ thương Việt Nam",
+        bank_bin: "970407",
+        account_number: "19001234567890",
+        account_name: "HỘ KINH DOANH BÁNH MÌ BMQ",
+        amount_vnd: 1_000_000,
+        transfer_note: "BMQ DLM-20261103-0001",
+        qr_url: "https://img.vietqr.io/image/970407-19001234567890-compact2.png?amount=1000000",
+      },
+    });
+
+  const result = await getDealerSlipStatus("tok_123", { fetcher, supabaseUrl: SUPABASE_URL });
+  assert.equal(result.status, "slip_submitted");
+  assert.equal(result.can_upload, false);
+  assert.equal(result.payment_info?.account_number, "19001234567890");
+  assert.equal(result.payment_info?.amount_vnd, 1_000_000);
+  assert.equal(result.payment_info?.transfer_note, "BMQ DLM-20261103-0001");
+  assert.match(String(result.payment_info?.qr_url), /img\.vietqr\.io/);
 });

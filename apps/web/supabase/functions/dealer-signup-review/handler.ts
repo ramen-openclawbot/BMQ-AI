@@ -13,6 +13,7 @@ import type {
 import {
   buildDealerSignupApprovedEmail,
   buildDealerSignupRejectedEmail,
+  buildDealerSignupSlipRejectedEmail,
   dealerContractDraftPath,
   dealerSignedContractPath,
   dealerSignupPublicBaseUrl,
@@ -22,8 +23,16 @@ import {
   hashDealerSlipToken,
   validateDealerSignupDocument,
   type DealerSignupApprovalResult,
+  type DealerSignupPaymentConfirmationResult,
   type DealerSignupReviewApplication,
+  type DealerSignupSlipRejectionResult,
 } from "../_shared/dealer-signup-review.ts";
+import {
+  buildDealerPaymentInfo,
+  validateDealerPaymentSettings,
+  type DealerSignupPaymentInfo,
+  type DealerSignupPaymentSettings,
+} from "../_shared/dealer-signup-payment.ts";
 
 export type DealerSignupReviewActor = {
   userId: string;
@@ -58,6 +67,19 @@ export type DealerSignupReviewStore = {
   reject(id: string, reviewerId: string, reason: string): Promise<void>;
   setLastError(id: string, code: string): Promise<void>;
   rotateSlipToken(id: string, hash: string, expiresAt: string): Promise<void>;
+  confirmPayment(
+    id: string,
+    reviewerId: string,
+  ): Promise<DealerSignupPaymentConfirmationResult>;
+  rejectSlip(
+    id: string,
+    reviewerId: string,
+    reason: string,
+    newTokenHash: string,
+    expiresAt: string,
+  ): Promise<DealerSignupSlipRejectionResult>;
+  loadPaymentSettings(): Promise<DealerSignupPaymentSettings | null>;
+  savePaymentSettings(settings: DealerSignupPaymentSettings): Promise<void>;
 };
 
 export type DealerSignupReviewDeps = {
@@ -133,6 +155,14 @@ function canDownload(actor: DealerSignupReviewActor): boolean {
 
 function canUploadSignedContract(actor: DealerSignupReviewActor): boolean {
   return actor.isOwner || actor.crmEdit || actor.accountingEdit;
+}
+
+function canConfirmPayment(actor: DealerSignupReviewActor): boolean {
+  return actor.isOwner || actor.accountingEdit;
+}
+
+function canManagePaymentSettings(actor: DealerSignupReviewActor): boolean {
+  return actor.isOwner;
 }
 
 // Normalise a Postgres date to YYYY-MM-DD for the contract PDF.
@@ -243,6 +273,34 @@ export async function handleDealerSignupReview(
     return await handleDownload(req, deps, body);
   }
 
+  if (action === "get_payment_settings" || action === "set_payment_settings") {
+    if (!canManagePaymentSettings(actor)) {
+      return errorJson(req, "Chỉ owner được xem/sửa cấu hình chuyển khoản.", 403, "forbidden");
+    }
+    try {
+      return action === "get_payment_settings"
+        ? await handleGetPaymentSettings(req, deps)
+        : await handleSetPaymentSettings(req, deps, body);
+    } catch (error) {
+      logger(`payment_settings_failed:${safeCode(error, "payment_settings_failed")}`);
+      return errorJson(req, "Không xử lý được cấu hình chuyển khoản.", 500, safeCode(error, "payment_settings_failed"));
+    }
+  }
+
+  if (action === "confirm_payment" || action === "reject_slip") {
+    if (!canConfirmPayment(actor)) {
+      return errorJson(req, "Bạn không có quyền xác nhận thanh toán.", 403, "forbidden");
+    }
+    try {
+      return action === "confirm_payment"
+        ? await handleConfirmPayment(req, deps, body, actor)
+        : await handleRejectSlip(req, deps, body, actor, now, env, logger);
+    } catch (error) {
+      logger(`${action}_failed:${safeCode(error, "payment_action_failed")}`);
+      return errorJson(req, "Không xử lý được xác nhận thanh toán.", 500, safeCode(error, "payment_action_failed"));
+    }
+  }
+
   if (!canManage(actor)) {
     return errorJson(req, "Bạn không có quyền duyệt hồ sơ đại lý.", 403, "forbidden");
   }
@@ -263,6 +321,21 @@ export async function handleDealerSignupReview(
   } catch (error) {
     logger(`action_failed:${safeCode(error, "review_failed")}`);
     return errorJson(req, "Không xử lý được hồ sơ đại lý.", 500, safeCode(error, "review_failed"));
+  }
+}
+
+async function paymentInfoFor(
+  deps: DealerSignupReviewDeps,
+  applicationCode: string,
+  logger: (code: string) => void,
+): Promise<DealerSignupPaymentInfo | null> {
+  try {
+    const settings = await deps.store.loadPaymentSettings();
+    return buildDealerPaymentInfo(settings, applicationCode);
+  } catch (error) {
+    // A settings read failure must never block approval / resend / slip reject.
+    logger(`payment_settings_read_failed:${safeCode(error, "payment_settings_read_failed")}`);
+    return null;
   }
 }
 
@@ -357,12 +430,14 @@ async function handleApprove(
   let emailSent = false;
   let emailError: string | null = null;
   try {
+    const paymentInfo = await paymentInfoFor(deps, loaded.application_code, logger);
     const mail = buildDealerSignupApprovedEmail({
       applicantName: loaded.applicant_name,
       applicationCode: loaded.application_code,
       businessName: loaded.business_name,
       slipToken,
       publicBaseUrl: dealerSignupPublicBaseUrl(env),
+      paymentInfo,
     });
     await deps.sendEmail({ to: loaded.email, ...mail });
     emailSent = true;
@@ -448,12 +523,14 @@ async function handleResendSlipLink(
   await deps.store.rotateSlipToken(loaded.id, slipTokenHash, slipExpiresAt);
 
   try {
+    const paymentInfo = await paymentInfoFor(deps, loaded.application_code, logger);
     const mail = buildDealerSignupApprovedEmail({
       applicantName: loaded.applicant_name,
       applicationCode: loaded.application_code,
       businessName: loaded.business_name,
       slipToken,
       publicBaseUrl: dealerSignupPublicBaseUrl(env),
+      paymentInfo,
     });
     await deps.sendEmail({ to: loaded.email, ...mail });
     return json(req, {
@@ -532,6 +609,154 @@ async function handleReject(
     reject_reason: reason,
     email_sent: emailSent,
     ...(emailError ? { email_error_code: emailError } : {}),
+  });
+}
+
+async function handleConfirmPayment(
+  req: Request,
+  deps: DealerSignupReviewDeps,
+  body: Record<string, unknown>,
+  actor: DealerSignupReviewActor,
+): Promise<Response> {
+  const loaded = await loadApplication(req, deps, body.application_id ?? body.applicationId);
+  if (loaded instanceof Response) return loaded;
+
+  if (loaded.status === "active") {
+    return json(req, {
+      success: true,
+      already_active: true,
+      application_id: loaded.id,
+      application_code: loaded.application_code,
+      status: "active",
+      crm_customer_id: loaded.crm_customer_id,
+      dealer_onboarding_status: "active",
+    });
+  }
+
+  if (loaded.status !== "slip_submitted") {
+    return errorJson(
+      req,
+      "Hồ sơ chưa ở trạng thái chờ xác nhận tiền chuyển khoản.",
+      409,
+      "application_not_slip_submitted",
+    );
+  }
+
+  const result = await deps.store.confirmPayment(loaded.id, actor.userId);
+  return json(req, {
+    success: true,
+    already_active: result.already_active,
+    application_id: loaded.id,
+    application_code: loaded.application_code,
+    status: "active",
+    crm_customer_id: result.crm_customer_id ?? loaded.crm_customer_id,
+    dealer_onboarding_status: "active",
+    payment_confirmed_at: result.payment_confirmed_at ?? null,
+  });
+}
+
+async function handleRejectSlip(
+  req: Request,
+  deps: DealerSignupReviewDeps,
+  body: Record<string, unknown>,
+  actor: DealerSignupReviewActor,
+  now: () => Date,
+  env: (key: string) => string | undefined,
+  logger: (code: string) => void,
+): Promise<Response> {
+  const reason = String(body.reason ?? "").trim();
+  if (!reason) {
+    return errorJson(req, "Vui lòng nhập lý do từ chối bank slip.", 400, "slip_reject_reason_required");
+  }
+  if (reason.length > 500) {
+    return errorJson(req, "Lý do từ chối tối đa 500 ký tự.", 400, "slip_reject_reason_too_long");
+  }
+
+  const loaded = await loadApplication(req, deps, body.application_id ?? body.applicationId);
+  if (loaded instanceof Response) return loaded;
+
+  if (loaded.status !== "slip_submitted") {
+    return errorJson(
+      req,
+      "Chỉ từ chối được bank slip đang chờ xác nhận tiền.",
+      409,
+      "application_not_slip_submitted",
+    );
+  }
+
+  const slipToken = generateDealerSlipToken();
+  const slipTokenHash = await hashDealerSlipToken(slipToken);
+  const slipExpiresAt = dealerSlipTokenExpiresAt(now());
+
+  const result = await deps.store.rejectSlip(
+    loaded.id,
+    actor.userId,
+    reason,
+    slipTokenHash,
+    slipExpiresAt,
+  );
+
+  let emailSent = false;
+  let emailError: string | null = null;
+  try {
+    const paymentInfo = await paymentInfoFor(deps, loaded.application_code, logger);
+    const mail = buildDealerSignupSlipRejectedEmail({
+      applicantName: loaded.applicant_name,
+      applicationCode: loaded.application_code,
+      businessName: loaded.business_name,
+      reason,
+      slipToken,
+      publicBaseUrl: dealerSignupPublicBaseUrl(env),
+      paymentInfo,
+    });
+    await deps.sendEmail({ to: loaded.email, ...mail });
+    emailSent = true;
+  } catch (error) {
+    emailError = safeCode(error, "email_send_failed");
+    await deps.store.setLastError(loaded.id, emailError);
+    logger(`reject_slip_email_failed:${emailError}`);
+  }
+
+  return json(req, {
+    success: true,
+    application_id: loaded.id,
+    application_code: loaded.application_code,
+    status: "approved_waiting_slip",
+    dealer_onboarding_status: "waiting_slip",
+    slip_reject_reason: result.slip_reject_reason,
+    slip_expires_at: result.slip_expires_at,
+    email_sent: emailSent,
+    ...(emailError ? { email_error_code: emailError } : {}),
+  });
+}
+
+async function handleGetPaymentSettings(
+  req: Request,
+  deps: DealerSignupReviewDeps,
+): Promise<Response> {
+  const settings = await deps.store.loadPaymentSettings();
+  return json(req, {
+    success: true,
+    payment_settings: settings,
+  });
+}
+
+async function handleSetPaymentSettings(
+  req: Request,
+  deps: DealerSignupReviewDeps,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const raw = body.payment_settings ?? body.settings ?? body;
+  const validation = validateDealerPaymentSettings(raw);
+  if (!validation.ok) {
+    return errorJson(req, validation.error, 400, validation.code);
+  }
+
+  await deps.store.savePaymentSettings(validation.value);
+
+  return json(req, {
+    success: true,
+    payment_settings: validation.value,
   });
 }
 

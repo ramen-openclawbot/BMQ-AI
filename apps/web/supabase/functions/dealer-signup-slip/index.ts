@@ -4,6 +4,10 @@ import { getGmailAccessToken, sendGmail } from "../_shared/gmail-send.ts";
 import { resolveDealerSession } from "../_shared/dealer.ts";
 import { DEALER_SIGNUP_DOCS_BUCKET } from "../_shared/dealer-signup-review.ts";
 import {
+  DEALER_PAYMENT_SETTING_KEYS,
+  dealerPaymentSettingsFromRows,
+} from "../_shared/dealer-signup-payment.ts";
+import {
   handleDealerSignupSlip,
   type DealerSignupSlipApplication,
   type DealerSignupSlipDeps,
@@ -70,8 +74,16 @@ const store: DealerSignupSlipStore = {
       p_storage_path: path,
     });
     if (error) throw error;
-    const row = (data || {}) as { already_active?: unknown };
-    return { already_active: row.already_active === true };
+    const row = (data || {}) as {
+      already_active?: unknown;
+      already_submitted?: unknown;
+      status?: unknown;
+    };
+    return {
+      already_active: row.already_active === true,
+      already_submitted: row.already_submitted === true,
+      status: row.status ? String(row.status) : "slip_submitted",
+    };
   },
 
   async setLastError(applicationId, code) {
@@ -98,6 +110,16 @@ function buildDeps(): DealerSignupSlipDeps {
         token,
       );
       return session ? { customer: { id: session.customer.id } } : null;
+    },
+    loadPaymentSettings: async () => {
+      const { data, error } = await supabase
+        .from("app_settings")
+        .select("key, value")
+        .in("key", [...DEALER_PAYMENT_SETTING_KEYS]);
+      if (error) throw error;
+      return dealerPaymentSettingsFromRows(
+        (data || []) as Array<{ key: string; value: string | null }>,
+      );
     },
     sendEmail: async (email) => {
       const accessToken = await getGmailAccessToken(

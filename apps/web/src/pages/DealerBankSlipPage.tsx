@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import bmqLogo from "@/assets/bmq-logo.png";
 import {
   DealerSignupApiError,
   getDealerSlipStatus,
   uploadDealerSlip,
+  type DealerSignupPaymentInfo,
   type DealerSignupSlipStatusResult,
 } from "@/lib/dealer-signup-api";
 
@@ -11,7 +13,7 @@ import {
  * Public bank-slip upload for a newly approved dealer
  * (dathang.banhmique.vn/dai-ly-moi/bank-slip?token=...). The one-time token
  * from the congratulations email is checked by dealer-signup-slip; a valid
- * upload turns the dealer official so ordering opens. Palette follows
+ * upload waits for accounting to confirm the transfer, then ordering opens. Palette follows
  * /dai-ly-moi.
  */
 
@@ -25,6 +27,7 @@ const ERRORS: Record<string, string> = {
   slip_token_invalid: "Link không hợp lệ. Anh/chị mở lại link trong email BMQ đã gửi.",
   slip_token_expired: "Link đã hết hạn. Vui lòng gọi BMQ để được gửi link mới.",
   slip_token_used: "Bank slip đã được gửi trước đó. Anh/chị có thể đặt bánh ngay.",
+  slip_already_submitted: "BMQ đã nhận bank slip của anh/chị và đang xác nhận tiền chuyển khoản.",
   invalid_file_type: "Chỉ nhận ảnh JPEG, PNG, WebP hoặc tệp PDF.",
   file_too_large: "Tệp vượt quá 10 MB. Anh/chị chụp lại hoặc chọn tệp nhỏ hơn.",
   file_required: "Vui lòng chọn ảnh bank slip.",
@@ -45,7 +48,7 @@ function readToken(): string {
 type View =
   | { kind: "loading" }
   | { kind: "ready"; info: DealerSignupSlipStatusResult }
-  | { kind: "done"; businessName?: string }
+  | { kind: "done"; businessName?: string; active: boolean }
   | { kind: "blocked"; title: string; text: string };
 
 export default function DealerBankSlipPage() {
@@ -68,7 +71,8 @@ export default function DealerBankSlipPage() {
       .then((info) => {
         if (cancelled) return;
         if (info.status === "valid") setView({ kind: "ready", info });
-        else if (info.status === "used") setView({ kind: "done", businessName: info.business_name });
+        else if (info.status === "used") setView({ kind: "done", businessName: info.business_name, active: true });
+        else if (info.status === "slip_submitted") setView({ kind: "done", businessName: info.business_name, active: false });
         else if (info.status === "expired") setView({ kind: "blocked", title: "Link đã hết hạn", text: ERRORS.slip_token_expired });
         else setView({ kind: "blocked", title: "Link không hợp lệ", text: ERRORS.slip_token_invalid });
       })
@@ -108,10 +112,12 @@ export default function DealerBankSlipPage() {
     setError("");
     try {
       const result = await uploadDealerSlip({ file, token });
-      setView({ kind: "done", businessName: result.business_name });
+      setView({ kind: "done", businessName: result.business_name, active: result.status === "active" });
     } catch (err) {
       if (err instanceof DealerSignupApiError && err.code === "slip_token_used") {
-        setView({ kind: "done" });
+        setView({ kind: "done", active: true });
+      } else if (err instanceof DealerSignupApiError && err.code === "slip_already_submitted") {
+        setView({ kind: "done", active: false });
       } else {
         setError(errorText(err));
       }
@@ -148,7 +154,19 @@ export default function DealerBankSlipPage() {
           </div>
         ) : null}
 
-        {view.kind === "done" ? (
+        {view.kind === "done" && !view.active ? (
+          <div role="status" className="rounded-2xl border border-[#edd4df] bg-white p-6 sm:p-8">
+            <p className="text-sm font-semibold text-[#bd3f75]">Đã nhận bank slip</p>
+            <h1 className="mt-2 text-2xl font-bold">BMQ đang xác nhận tiền chuyển khoản</h1>
+            <p className="mt-3 text-base leading-7 text-[#806873]">
+              {view.businessName ? `Cảm ơn ${view.businessName}. ` : "Cảm ơn anh/chị. "}
+              Kế toán BMQ sẽ đối chiếu khoản chuyển. Khi xác nhận xong, anh/chị đăng nhập bằng số điện thoại đã đăng ký là đặt bánh được.
+            </p>
+            <a href="/" className={`${primaryButton} mt-6`}>Mở trang đặt bánh</a>
+          </div>
+        ) : null}
+
+        {view.kind === "done" && view.active ? (
           <div role="status" className="rounded-2xl border border-[#abefc6] bg-white p-6 sm:p-8">
             <p className="text-sm font-semibold text-[#067647]">Đã nhận bank slip</p>
             <h1 className="mt-2 text-2xl font-bold">
@@ -169,10 +187,13 @@ export default function DealerBankSlipPage() {
             <h1 className="mt-2 text-[1.75rem] font-extrabold leading-tight sm:text-[2.1rem]">Gửi bank slip</h1>
             <p className="mt-3 text-base leading-7 text-[#806873]">
               {view.info.business_name ? <b className="text-[#34252c]">{view.info.business_name}</b> : "Hồ sơ của anh/chị"} đã được BMQ duyệt.
-              Gửi ảnh chụp hoặc tệp PDF bank slip để bắt đầu đặt bánh.
+              Chuyển khoản theo thông tin dưới đây, rồi gửi ảnh chụp hoặc tệp PDF bank slip để BMQ xác nhận.
             </p>
 
+            <PaymentBox info={view.info.payment_info ?? null} />
+
             <div className="mt-7 rounded-2xl border border-[#edd4df] bg-white p-5 sm:p-6">
+              <h2 className="mb-3 text-base font-bold">Gửi bank slip</h2>
               <input
                 ref={inputRef}
                 type="file"
@@ -226,6 +247,72 @@ export default function DealerBankSlipPage() {
           </>
         ) : null}
       </main>
+    </div>
+  );
+}
+
+function formatVnd(amount: number): string {
+  return `${new Intl.NumberFormat("vi-VN").format(amount)} đ`;
+}
+
+function CopyRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`Đã chép ${label.toLowerCase()}`);
+    } catch {
+      toast.error("Không chép được, anh/chị nhập tay giúp BMQ.");
+    }
+  };
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-[#f3dce6] py-3 first:border-t-0 first:pt-0">
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-[#806873]">{label}</div>
+        <div className={`mt-0.5 break-words ${strong ? "text-lg font-extrabold tabular-nums" : "text-base font-semibold"}`}>{value}</div>
+      </div>
+      <button
+        type="button"
+        onClick={copy}
+        className="inline-flex h-9 shrink-0 items-center rounded-lg border border-[#edd4df] px-3 text-sm font-semibold text-[#bd3f75] transition hover:border-[#d94f8a]"
+      >
+        Chép
+      </button>
+    </div>
+  );
+}
+
+function PaymentBox({ info }: { info: DealerSignupPaymentInfo | null }) {
+  if (!info) {
+    return (
+      <div className="mt-7 rounded-2xl border border-[#fedf89] bg-[#fffaeb] p-5" data-dealer-payment="missing">
+        <p className="font-bold text-[#93370d]">Thông tin chuyển khoản đang cập nhật</p>
+        <p className="mt-1 text-sm leading-6 text-[#7a2e0e]">
+          Anh/chị gọi <a href="tel:1900555591" className="font-semibold underline">1900 555591</a> để BMQ báo số tài khoản và số tiền cần chuyển.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-7 rounded-2xl border border-[#edd4df] bg-white p-5 sm:p-6" data-dealer-payment="ready">
+      <h2 className="text-base font-bold">Chuyển khoản</h2>
+      <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:items-start">
+        <img
+          src={info.qr_url}
+          alt="Mã QR chuyển khoản BMQ"
+          className="mx-auto h-auto w-52 shrink-0 rounded-xl border border-[#f3dce6] bg-white sm:mx-0 sm:w-44"
+        />
+        <div className="min-w-0 flex-1">
+          <CopyRow label="Số tiền" value={formatVnd(info.amount_vnd)} strong />
+          <CopyRow label="Số tài khoản" value={info.account_number} strong />
+          <CopyRow label="Nội dung chuyển khoản" value={info.transfer_note} />
+          <div className="border-t border-[#f3dce6] pt-3 text-sm leading-6 text-[#806873]">
+            {info.bank_name}
+            <br />
+            Chủ tài khoản: <span className="font-semibold text-[#34252c]">{info.account_name}</span>
+          </div>
+        </div>
+      </div>
+      <p className="mt-4 text-xs leading-5 text-[#806873]">Quét mã QR bằng ứng dụng ngân hàng để điền sẵn số tiền và nội dung.</p>
     </div>
   );
 }

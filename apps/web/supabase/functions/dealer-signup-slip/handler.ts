@@ -15,6 +15,11 @@ import {
   isDealerSlipTokenShape,
   validateDealerSignupDocument,
 } from "../_shared/dealer-signup-review.ts";
+import {
+  buildDealerPaymentInfo,
+  type DealerSignupPaymentInfo,
+  type DealerSignupPaymentSettings,
+} from "../_shared/dealer-signup-payment.ts";
 
 export const DEALER_SIGNUP_SLIP_LIMIT_PER_HOUR = 10;
 
@@ -39,7 +44,10 @@ export type DealerSignupSlipStore = {
     limit: number,
   ): Promise<{ allowed: boolean; remaining: number; retry_after_seconds: number }>;
   upload(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
-  activate(applicationId: string, path: string): Promise<{ already_active: boolean }>;
+  activate(
+    applicationId: string,
+    path: string,
+  ): Promise<{ already_active: boolean; already_submitted?: boolean; status?: string }>;
   setLastError(applicationId: string, code: string): Promise<void>;
 };
 
@@ -59,12 +67,13 @@ export type DealerSignupSlipDeps = {
   store: DealerSignupSlipStore;
   resolveDealerSession: (token: string) => Promise<DealerSignupSlipSession | null>;
   sendEmail?: (email: DealerSignupSlipEmail) => Promise<{ id: string }>;
+  loadPaymentSettings?: () => Promise<DealerSignupPaymentSettings | null>;
   env?: (key: string) => string | undefined;
   now?: () => Date;
   logger?: (code: string) => void;
 };
 
-export type SlipStatus = "valid" | "expired" | "used" | "invalid";
+export type SlipStatus = "valid" | "slip_submitted" | "expired" | "used" | "invalid";
 
 const encoder = new TextEncoder();
 
@@ -110,6 +119,7 @@ export function resolveSlipStatus(
 ): SlipStatus {
   if (!application) return "invalid";
   if (application.status === "active") return "used";
+  if (application.status === "slip_submitted") return "slip_submitted";
   if (application.status !== "approved_waiting_slip") return "invalid";
   if (
     application.slip_token_expires_at &&
@@ -120,14 +130,29 @@ export function resolveSlipStatus(
   return "valid";
 }
 
+async function paymentInfoFor(
+  deps: DealerSignupSlipDeps,
+  applicationCode: string,
+  logger: (code: string) => void,
+): Promise<DealerSignupPaymentInfo | null> {
+  if (!deps.loadPaymentSettings) return null;
+  try {
+    return buildDealerPaymentInfo(await deps.loadPaymentSettings(), applicationCode);
+  } catch (error) {
+    logger(`payment_settings_read_failed:${safeCode(error, "payment_settings_read_failed")}`);
+    return null;
+  }
+}
+
 async function handleStatus(
   req: Request,
   deps: DealerSignupSlipDeps,
 ): Promise<Response> {
   const now = deps.now ?? (() => new Date());
+  const logger = deps.logger ?? ((code: string) => console.warn(`[dealer-signup-slip] ${code}`));
   const token = new URL(req.url).searchParams.get("token") || "";
   if (!isDealerSlipTokenShape(token)) {
-    return json(req, { success: false, status: "invalid" });
+    return json(req, { success: false, status: "invalid", payment_info: null });
   }
 
   const hash = await hashDealerSlipToken(token);
@@ -135,15 +160,18 @@ async function handleStatus(
   const status = resolveSlipStatus(application, now());
 
   if (!application || status === "invalid") {
-    return json(req, { success: false, status: "invalid" });
+    return json(req, { success: false, status: "invalid", payment_info: null });
   }
 
+  const paymentInfo = await paymentInfoFor(deps, application.application_code, logger);
+
   return json(req, {
-    success: status === "valid",
+    success: status === "valid" || status === "slip_submitted",
     status,
     application_code: application.application_code,
     business_name: application.business_name,
     can_upload: status === "valid",
+    payment_info: paymentInfo,
   });
 }
 
@@ -205,6 +233,14 @@ async function handleUpload(
     if (status === "expired") {
       return errorJson(req, "Link bank slip đã hết hạn. Vui lòng liên hệ BMQ để gửi lại.", 410, "slip_token_expired");
     }
+    if (status === "slip_submitted") {
+      return errorJson(
+        req,
+        "Bank slip đã được gửi và đang chờ kế toán xác nhận tiền.",
+        409,
+        "slip_already_submitted",
+      );
+    }
     if (status === "invalid") {
       return errorJson(req, "Link bank slip không hợp lệ.", 404, "slip_token_invalid");
     }
@@ -247,17 +283,17 @@ async function handleUpload(
     return errorJson(req, "Không lưu được bank slip. Vui lòng thử lại.", 500, "upload_failed");
   }
 
-  let activation: { already_active: boolean };
+  let activation: { already_active: boolean; already_submitted?: boolean; status?: string };
   try {
     activation = await deps.store.activate(application.id, path);
   } catch (error) {
     logger(`slip_activate_failed:${safeCode(error, "activate_failed")}`);
-    return errorJson(req, "Không kích hoạt được tài khoản đại lý.", 500, "activate_failed");
+    return errorJson(req, "Không lưu được bank slip để chờ xác nhận.", 500, "activate_failed");
   }
 
   let emailSent = false;
   const bmqEmail = String(env("DEALER_SIGNUP_BMQ_EMAIL") || "").trim();
-  if (!activation.already_active && bmqEmail && deps.sendEmail) {
+  if (!activation.already_active && !activation.already_submitted && bmqEmail && deps.sendEmail) {
     try {
       const mail = buildDealerSignupSlipBmqEmail({
         applicantName: application.applicant_name,
@@ -280,8 +316,9 @@ async function handleUpload(
 
   return json(req, {
     success: true,
-    status: "active",
+    status: activation.status ?? "slip_submitted",
     already_active: activation.already_active,
+    already_submitted: activation.already_submitted === true,
     application_code: application.application_code,
     business_name: application.business_name,
     email_sent: emailSent,

@@ -4,11 +4,15 @@ import {
   DEALER_SIGNUP_THRESHOLD_M,
   DealerSignupApiError,
   checkDealerSignupLocation,
+  checkDealerSignupVerification,
   createDealerSignupIdempotencyKey,
+  createDealerSignupVerificationSessionId,
   geocodeAddressPhoton,
   getDealerSignupConfig,
+  sendDealerSignupVerification,
   submitDealerSignup,
   type DealerSignupCheckResult,
+  type DealerSignupVerifyChannel,
   type DealerSignupConfig,
   type DealerSignupSubmitResult,
   type PhotonGeocodeResult,
@@ -99,7 +103,7 @@ const secondaryButton =
 
 function errorMessage(error: unknown): string {
   if (error instanceof DealerSignupApiError) {
-    if (error.rateLimited) return "Anh/chị thao tác quá nhiều lần. Vui lòng thử lại sau ít phút.";
+    if (error.rateLimited && error.code !== "too_many_attempts") return "Anh/chị thao tác quá nhiều lần. Vui lòng thử lại sau ít phút.";
     return error.message || "Có lỗi xảy ra. Vui lòng thử lại.";
   }
   return "Không kết nối được máy chủ BMQ. Vui lòng thử lại.";
@@ -135,6 +139,23 @@ export default function DealerSignupPage() {
   const mapRef = useRef<LMap | null>(null);
   const markerRef = useRef<LMarker | null>(null);
   const idempotencyKey = useMemo(() => createDealerSignupIdempotencyKey(), []);
+  const verifySessionId = useMemo(() => createDealerSignupVerificationSessionId(), []);
+  const [verify, setVerify] = useState<Record<DealerSignupVerifyChannel, VerifyState>>({
+    phone: EMPTY_VERIFY,
+    email: EMPTY_VERIFY,
+  });
+  const [verificationToken, setVerificationToken] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const pending = (["phone", "email"] as const).some((c) => verify[c].resendAt > now);
+    if (!pending) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [verify, now]);
+
+  const patchVerify = (channel: DealerSignupVerifyChannel, patch: Partial<VerifyState>) =>
+    setVerify((prev) => ({ ...prev, [channel]: { ...prev[channel], ...patch } }));
 
   useEffect(() => {
     document.title = "Mở đại lý Bánh Mì Que BMQ";
@@ -229,13 +250,68 @@ export default function DealerSignupPage() {
     }
   };
 
+  const phoneValue = form.phone.replace(/[\s.]/g, "");
+  const emailValue = form.email.trim();
+  const phoneShapeOk = /^(0|\+84)\d{9,10}$/.test(phoneValue);
+  const emailShapeOk = /\S+@\S+\.\S+/.test(emailValue);
+
+  const sendCode = async (channel: DealerSignupVerifyChannel) => {
+    patchVerify(channel, { sending: true, error: "", code: "" });
+    try {
+      const result = await sendDealerSignupVerification({
+        sessionId: verifySessionId,
+        channel,
+        phone: channel === "phone" ? phoneValue : undefined,
+        email: channel === "email" ? emailValue : undefined,
+      });
+      setNow(Date.now());
+      patchVerify(channel, {
+        sent: true,
+        verified: Boolean(result.already_verified),
+        resendAt: Date.now() + (result.resend_after_seconds ?? 60) * 1000,
+      });
+    } catch (error) {
+      patchVerify(channel, { error: errorMessage(error) });
+    } finally {
+      patchVerify(channel, { sending: false });
+    }
+  };
+
+  const confirmCode = async (channel: DealerSignupVerifyChannel) => {
+    const code = verify[channel].code.trim();
+    if (!/^\d{6}$/.test(code)) {
+      patchVerify(channel, { error: "Nhập đủ 6 số." });
+      return;
+    }
+    patchVerify(channel, { checking: true, error: "" });
+    try {
+      const result = await checkDealerSignupVerification({
+        sessionId: verifySessionId,
+        channel,
+        code,
+        phone: phoneShapeOk ? phoneValue : undefined,
+        email: emailShapeOk ? emailValue : undefined,
+      });
+      setVerify((prev) => ({
+        phone: { ...prev.phone, verified: result.verified.phone || prev.phone.verified },
+        email: { ...prev.email, verified: result.verified.email || prev.email.verified },
+      }));
+      if (result.verification_token) setVerificationToken(result.verification_token);
+    } catch (error) {
+      patchVerify(channel, { error: errorMessage(error) });
+    } finally {
+      patchVerify(channel, { checking: false });
+    }
+  };
+
   const formValid =
     form.applicant_name.trim().length >= 2 &&
     /^\d{9}$|^\d{12}$/.test(form.cccd.trim()) &&
     form.cccd_valid_until !== "" &&
     /^(0|\+84)\d{9,10}$/.test(form.phone.replace(/[\s.]/g, "")) &&
     /\S+@\S+\.\S+/.test(form.email.trim()) &&
-    form.terms_accepted;
+    form.terms_accepted &&
+    verificationToken !== "";
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -255,6 +331,7 @@ export default function DealerSignupPage() {
         lng: pin.lng,
         terms_accepted: form.terms_accepted,
         idempotency_key: idempotencyKey,
+        verification_token: verificationToken,
       });
       setSubmitted(result);
       window.scrollTo({ top: document.getElementById("dang-ky")?.offsetTop ?? 0, behavior: "smooth" });
@@ -265,8 +342,14 @@ export default function DealerSignupPage() {
     }
   };
 
-  const update = (key: keyof typeof form) => (e: { target: { value: string } }) =>
+  const update = (key: keyof typeof form) => (e: { target: { value: string } }) => {
+    // A changed phone/email needs a fresh code for that channel.
+    if (key === "phone" || key === "email") {
+      patchVerify(key, EMPTY_VERIFY);
+      setVerificationToken("");
+    }
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  };
 
   const thresholdKm = formatKm(config?.threshold_m ?? DEALER_SIGNUP_THRESHOLD_M).replace(",0", "");
   const canContinue = check?.result === "eligible" || check?.result === "manual_review";
@@ -483,12 +566,36 @@ export default function DealerSignupPage() {
                     <Field label="CCCD có giá trị đến">
                       <input className={inputClass} type="date" value={form.cccd_valid_until} onChange={update("cccd_valid_until")} />
                     </Field>
-                    <Field label="Số điện thoại">
-                      <input className={inputClass} value={form.phone} onChange={update("phone")} inputMode="tel" autoComplete="tel" />
-                    </Field>
-                    <Field label="Email nhận hợp đồng">
-                      <input className={inputClass} type="email" value={form.email} onChange={update("email")} autoComplete="email" />
-                    </Field>
+                  </div>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <VerifyField
+                      id="phone"
+                      label="Số điện thoại"
+                      hint="Mã xác minh gửi qua Zalo của số này."
+                      value={form.phone}
+                      onChange={update("phone")}
+                      inputProps={{ inputMode: "tel", autoComplete: "tel" }}
+                      canSend={phoneShapeOk}
+                      state={verify.phone}
+                      now={now}
+                      onSend={() => sendCode("phone")}
+                      onCode={(code) => patchVerify("phone", { code, error: "" })}
+                      onConfirm={() => confirmCode("phone")}
+                    />
+                    <VerifyField
+                      id="email"
+                      label="Email nhận hợp đồng"
+                      hint="Mã xác minh gửi tới email này (xem cả mục Spam)."
+                      value={form.email}
+                      onChange={update("email")}
+                      inputProps={{ type: "email", autoComplete: "email" }}
+                      canSend={emailShapeOk}
+                      state={verify.email}
+                      now={now}
+                      onSend={() => sendCode("email")}
+                      onCode={(code) => patchVerify("email", { code, error: "" })}
+                      onConfirm={() => confirmCode("email")}
+                    />
                   </div>
                   <label className="mt-5 flex items-start gap-3 text-sm leading-6">
                     <input
@@ -499,6 +606,9 @@ export default function DealerSignupPage() {
                     />
                     <span>Tôi đã đọc các ý chính ở trên và đồng ý nhận hợp đồng đại lý BMQ qua email. Hợp đồng chỉ có hiệu lực khi hai bên ký.</span>
                   </label>
+                  {!verificationToken ? (
+                    <p className="mt-4 text-sm text-[#806873]">Xác minh số điện thoại và email để gửi hồ sơ.</p>
+                  ) : null}
                   {submitError ? <p className="mt-4 text-sm text-[#b42318]">{submitError}</p> : null}
                   <button type="submit" className={`${primaryButton} mt-5 w-full`} disabled={!formValid || submitting}>
                     {submitting ? "Đang gửi…" : check?.result === "manual_review" ? "Gửi hồ sơ cho BMQ" : "Nhận hợp đồng qua email"}
@@ -516,6 +626,118 @@ export default function DealerSignupPage() {
           <a href="tel:1900555591" className="font-semibold text-[#bd3f75]">Hotline 1900 555591</a>
         </div>
       </footer>
+    </div>
+  );
+}
+
+type VerifyState = {
+  sent: boolean;
+  sending: boolean;
+  checking: boolean;
+  verified: boolean;
+  code: string;
+  error: string;
+  resendAt: number;
+};
+
+const EMPTY_VERIFY: VerifyState = {
+  sent: false,
+  sending: false,
+  checking: false,
+  verified: false,
+  code: "",
+  error: "",
+  resendAt: 0,
+};
+
+function VerifyField({
+  id,
+  label,
+  hint,
+  value,
+  onChange,
+  inputProps,
+  canSend,
+  state,
+  now,
+  onSend,
+  onCode,
+  onConfirm,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  value: string;
+  onChange: (e: { target: { value: string } }) => void;
+  inputProps: { inputMode?: "tel"; type?: string; autoComplete: string };
+  canSend: boolean;
+  state: VerifyState;
+  now: number;
+  onSend: () => void;
+  onCode: (code: string) => void;
+  onConfirm: () => void;
+}) {
+  const wait = Math.max(0, Math.ceil((state.resendAt - now) / 1000));
+  const sendLabel = state.sending ? "Đang gửi…" : wait > 0 ? `Gửi lại (${wait}s)` : state.sent ? "Gửi lại mã" : "Gửi mã";
+  return (
+    <div data-verify-field={id}>
+      <label htmlFor={`dealer-${id}`} className="text-sm font-semibold text-[#34252c]">{label}</label>
+      <div className="mt-1.5 flex gap-2">
+        <input
+          id={`dealer-${id}`}
+          className={`${inputClass} min-w-0 flex-1`}
+          value={value}
+          onChange={onChange}
+          {...inputProps}
+        />
+        {state.verified ? (
+          <span className="inline-flex h-12 shrink-0 items-center gap-1.5 rounded-xl bg-[#ecfdf3] px-3 text-sm font-semibold text-[#067647]">
+            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor" aria-hidden="true"><path fillRule="evenodd" d="M16.7 5.3a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0L3.3 9.7a1 1 0 1 1 1.4-1.4l3.8 3.8 6.8-6.8a1 1 0 0 1 1.4 0Z" clipRule="evenodd" /></svg>
+            Đã xác minh
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="inline-flex h-12 shrink-0 items-center justify-center rounded-xl border border-[#d94f8a] bg-white px-3.5 text-sm font-semibold text-[#bd3f75] transition hover:bg-[#fff1f6] disabled:cursor-not-allowed disabled:border-[#edd4df] disabled:text-[#b59aa6]"
+            onClick={onSend}
+            disabled={!canSend || state.sending || wait > 0}
+          >
+            {sendLabel}
+          </button>
+        )}
+      </div>
+      {state.sent && !state.verified ? (
+        <div className="mt-2 flex gap-2">
+          <input
+            aria-label={`Mã xác minh ${label.toLowerCase()}`}
+            className={`${inputClass} min-w-0 flex-1 tracking-[0.3em]`}
+            value={state.code}
+            onChange={(e) => onCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onConfirm();
+              }
+            }}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="6 số"
+          />
+          <button
+            type="button"
+            className="inline-flex h-12 shrink-0 items-center justify-center rounded-xl bg-[#34252c] px-4 text-sm font-semibold text-white transition hover:bg-[#1f1519] disabled:opacity-50"
+            onClick={onConfirm}
+            disabled={state.checking || state.code.length !== 6}
+          >
+            {state.checking ? "Đang kiểm tra…" : "Xác nhận"}
+          </button>
+        </div>
+      ) : null}
+      {state.error ? (
+        <p className="mt-1.5 text-sm text-[#b42318]">{state.error}</p>
+      ) : (
+        <p className="mt-1 text-xs leading-5 text-[#806873]">{hint}</p>
+      )}
     </div>
   );
 }

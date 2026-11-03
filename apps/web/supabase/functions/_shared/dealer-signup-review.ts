@@ -1,13 +1,24 @@
 /**
- * Pure helpers for the dealer signup review flow: bank-slip tokens, file
- * validation and Vietnamese email content. No network, database or Gmail
- * access here so everything can be unit-tested.
+ * Pure helpers for the dealer signup review flow: bank-slip tokens, signup
+ * verification codes/tokens, file validation and Vietnamese email content. No
+ * network, database or Gmail access here so everything can be unit-tested.
  */
+import {
+  buildDealerPaymentEmailBlock,
+  type DealerSignupPaymentInfo,
+} from "./dealer-signup-payment.ts";
 
 export const DEALER_SIGNUP_DOCS_BUCKET = "dealer-signup-docs";
 export const DEALER_SIGNUP_MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 export const DEALER_SLIP_TOKEN_TTL_DAYS = 14;
 export const DEALER_SIGNUP_PUBLIC_BASE_URL = "https://dathang.banhmique.vn";
+
+export const DEALER_VERIFICATION_CODE_TTL_MINUTES = 10;
+export const DEALER_VERIFICATION_TOKEN_TTL_MINUTES = 30;
+export const DEALER_VERIFICATION_MAX_ATTEMPTS = 5;
+export const DEALER_VERIFICATION_RESEND_SECONDS = 60;
+
+export type DealerSignupVerificationChannel = "phone" | "email";
 
 export type DealerSignupReviewStatus =
   | "rejected_too_close"
@@ -15,6 +26,7 @@ export type DealerSignupReviewStatus =
   | "contract_sent"
   | "email_failed"
   | "approved_waiting_slip"
+  | "slip_submitted"
   | "active"
   | "rejected_manual";
 
@@ -56,6 +68,24 @@ export type DealerSignupActivationResult = {
   crm_customer_id: string | null;
   slip_storage_path?: string | null;
   already_active: boolean;
+  already_submitted?: boolean;
+};
+
+export type DealerSignupPaymentConfirmationResult = {
+  application_id: string;
+  application_code: string;
+  status: string;
+  crm_customer_id: string | null;
+  already_active: boolean;
+  payment_confirmed_at?: string | null;
+};
+
+export type DealerSignupSlipRejectionResult = {
+  application_id: string;
+  application_code: string;
+  status: string;
+  slip_reject_reason: string;
+  slip_expires_at: string;
 };
 
 export type DealerSignupEmailContent = {
@@ -120,6 +150,77 @@ export function dealerSlipTokenExpiresAt(
 export function isDealerSlipTokenShape(token: unknown): boolean {
   const value = String(token ?? "").trim();
   return /^[A-Za-z0-9_-]{20,200}$/.test(value);
+}
+
+// ---------------------------------------------------------------------------
+// Signup phone/email verification (OTP + one-time verification token)
+// ---------------------------------------------------------------------------
+export function normalizeDealerVerificationPhone(value: unknown): string | null {
+  let digits = String(value ?? "").trim().replace(/[^\d+]/g, "");
+  if (digits.startsWith("+84")) digits = `84${digits.slice(3)}`;
+  digits = digits.replace(/\D/g, "");
+  if (digits.startsWith("0084")) digits = digits.slice(2);
+  if (digits.startsWith("0")) digits = `84${digits.slice(1)}`;
+  return /^84(3|5|7|8|9)\d{8}$/.test(digits) ? digits : null;
+}
+
+export function normalizeDealerVerificationEmail(value: unknown): string | null {
+  const email = String(value ?? "").trim().toLowerCase();
+  if (email.length < 5 || email.length > 254) return null;
+  return /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(email)
+    ? email
+    : null;
+}
+
+/** Six random digits; never persisted in clear text. */
+export function generateDealerVerificationCode(): string {
+  const bytes = new Uint32Array(1);
+  crypto.getRandomValues(bytes);
+  return String(100000 + (bytes[0] % 900000));
+}
+
+export function dealerVerificationCodeExpiresAt(
+  now: Date = new Date(),
+  minutes: number = DEALER_VERIFICATION_CODE_TTL_MINUTES,
+): string {
+  return new Date(now.getTime() + minutes * 60 * 1000).toISOString();
+}
+
+export function dealerVerificationTokenExpiresAt(
+  now: Date = new Date(),
+  minutes: number = DEALER_VERIFICATION_TOKEN_TTL_MINUTES,
+): string {
+  return new Date(now.getTime() + minutes * 60 * 1000).toISOString();
+}
+
+export async function hashDealerVerificationCode(input: {
+  sessionId: string;
+  channel: DealerSignupVerificationChannel;
+  targetNormalized: string;
+  code: string;
+  secret: string;
+}): Promise<string> {
+  const payload = [
+    "dealer-verify-v1",
+    input.sessionId,
+    input.channel,
+    input.targetNormalized,
+    input.code,
+    input.secret,
+  ].join(":");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export function timingSafeEqualText(first: string, second: string): boolean {
+  if (first.length !== second.length) return false;
+  let diff = 0;
+  for (let index = 0; index < first.length; index += 1) {
+    diff |= first.charCodeAt(index) ^ second.charCodeAt(index);
+  }
+  return diff === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,7 +335,12 @@ export function dealerSlipPath(
 // ---------------------------------------------------------------------------
 // Email content (Vietnamese, HTML-escaped)
 // ---------------------------------------------------------------------------
-function emailShell(title: string, paragraphs: string[], details: Array<[string, string]>): string {
+function emailShell(
+  title: string,
+  paragraphs: string[],
+  details: Array<[string, string]>,
+  rawHtml = "",
+): string {
   const rows = details
     .map(([label, value]) =>
       `<tr><td style="padding:4px 12px 4px 0;color:#6b7280;vertical-align:top">${escapeHtml(label)}</td><td style="padding:4px 0;color:#111827">${escapeHtml(value)}</td></tr>`
@@ -245,6 +351,7 @@ function emailShell(title: string, paragraphs: string[], details: Array<[string,
     <h1 style="font-size:20px;margin:0 0 16px">${escapeHtml(title)}</h1>
     ${paragraphs.map((paragraph) => `<p style="line-height:1.55;margin:0 0 12px">${escapeHtml(paragraph)}</p>`).join("")}
     ${rows ? `<table style="border-collapse:collapse;margin:16px 0;font-size:14px">${rows}</table>` : ""}
+    ${rawHtml}
     <p style="line-height:1.55;margin:24px 0 0">Trân trọng,<br/>BMQ</p>
   </div>
 </body></html>`;
@@ -268,6 +375,7 @@ export type DealerSignupApprovedEmailInput = {
   businessName: string;
   slipToken: string;
   publicBaseUrl: string;
+  paymentInfo?: DealerSignupPaymentInfo | null;
 };
 
 /** Congratulations email for a manually approved application. */
@@ -275,25 +383,70 @@ export function buildDealerSignupApprovedEmail(
   input: DealerSignupApprovedEmailInput,
 ): DealerSignupEmailContent {
   const slipUrl = buildDealerBankSlipUrl(input.publicBaseUrl, input.slipToken);
+  const payment = buildDealerPaymentEmailBlock(input.paymentInfo ?? null);
   const paragraphs = [
     `Kính gửi ${input.applicantName},`,
     `Hồ sơ đăng ký đại lý của hộ kinh doanh ${input.businessName} đã được BMQ duyệt.`,
     "Anh/chị có thể đăng nhập dathang.banhmique.vn bằng số điện thoại đã đăng ký (nhận mã OTP qua Zalo) để theo dõi tài khoản đại lý.",
-    "Tài khoản đang chờ bank slip. Vui lòng upload bank slip để bắt đầu đặt bánh.",
+    "Tài khoản đang chờ bank slip. Vui lòng chuyển khoản theo thông tin bên dưới và upload bank slip để BMQ xác nhận.",
+    ...(payment?.text ?? []),
     `Upload bank slip tại: ${slipUrl}`,
     "Liên kết có hiệu lực 14 ngày. Nếu liên kết hết hạn, anh/chị vui lòng liên hệ BMQ để được gửi lại.",
   ];
+  const details: Array<[string, string]> = [
+    ["Mã hồ sơ", input.applicationCode],
+    ...(payment?.details ?? []),
+  ];
   return {
     subject: `BMQ đã duyệt hồ sơ đại lý – ${input.applicationCode}`,
-    text: emailTextBody(
-      "BMQ đã duyệt hồ sơ đăng ký đại lý",
-      paragraphs,
-      [["Mã hồ sơ", input.applicationCode]],
-    ),
+    text: emailTextBody("BMQ đã duyệt hồ sơ đăng ký đại lý", paragraphs, details),
     html: emailShell(
       "BMQ đã duyệt hồ sơ đăng ký đại lý",
       paragraphs,
-      [["Mã hồ sơ", input.applicationCode]],
+      details,
+      payment?.html.join("") ?? "",
+    ),
+  };
+}
+
+export type DealerSignupSlipRejectedEmailInput = {
+  applicantName: string;
+  applicationCode: string;
+  businessName: string;
+  reason: string;
+  slipToken: string;
+  publicBaseUrl: string;
+  paymentInfo?: DealerSignupPaymentInfo | null;
+};
+
+/** Sent to the customer when accounting rejects an uploaded bank slip. */
+export function buildDealerSignupSlipRejectedEmail(
+  input: DealerSignupSlipRejectedEmailInput,
+): DealerSignupEmailContent {
+  const slipUrl = buildDealerBankSlipUrl(input.publicBaseUrl, input.slipToken);
+  const payment = buildDealerPaymentEmailBlock(input.paymentInfo ?? null);
+  const paragraphs = [
+    `Kính gửi ${input.applicantName},`,
+    `BMQ chưa xác nhận được bank slip của hồ sơ ${input.applicationCode}.`,
+    `Lý do: ${input.reason}`,
+    "Vui lòng kiểm tra lại thông tin chuyển khoản và upload bank slip mới.",
+    ...(payment?.text ?? []),
+    `Upload bank slip mới tại: ${slipUrl}`,
+    "Liên kết mới có hiệu lực 14 ngày. Nếu cần hỗ trợ, anh/chị vui lòng liên hệ BMQ.",
+  ];
+  const details: Array<[string, string]> = [
+    ["Mã hồ sơ", input.applicationCode],
+    ["Lý do", input.reason],
+    ...(payment?.details ?? []),
+  ];
+  return {
+    subject: `BMQ cần kiểm tra lại bank slip – ${input.applicationCode}`,
+    text: emailTextBody("Bank slip cần kiểm tra lại", paragraphs, details),
+    html: emailShell(
+      "Bank slip cần kiểm tra lại",
+      paragraphs,
+      details,
+      payment?.html.join("") ?? "",
     ),
   };
 }
@@ -357,8 +510,9 @@ export function buildDealerSignupSlipBmqEmail(input: {
   phone?: string;
 }): DealerSignupEmailContent {
   const paragraphs = [
-    `Đại lý ${input.businessName} vừa upload bank slip và đã được kích hoạt đặt bánh.`,
-    "Vui lòng kiểm tra bank slip trong hồ sơ đại lý trên Mini CRM.",
+    `Đại lý ${input.businessName} vừa upload bank slip và đang chờ kế toán xác nhận tiền chuyển khoản.`,
+    "Vui lòng kiểm tra bank slip trong hồ sơ đại lý trên Mini CRM và bấm xác nhận thanh toán sau khi đối chiếu.",
+    "Đại lý chưa đặt bánh được cho tới khi khoản tiền được xác nhận.",
   ];
   const details: Array<[string, string]> = [
     ["Mã hồ sơ", input.applicationCode],

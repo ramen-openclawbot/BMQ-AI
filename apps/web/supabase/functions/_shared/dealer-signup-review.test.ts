@@ -3,22 +3,35 @@ import test from "node:test";
 
 import {
   DEALER_SIGNUP_MAX_DOCUMENT_BYTES,
+  DEALER_VERIFICATION_CODE_TTL_MINUTES,
+  DEALER_VERIFICATION_MAX_ATTEMPTS,
+  DEALER_VERIFICATION_RESEND_SECONDS,
+  DEALER_VERIFICATION_TOKEN_TTL_MINUTES,
   buildDealerBankSlipUrl,
   buildDealerContractEmailInsert,
   buildDealerSignupApprovedEmail,
   buildDealerSignupRejectedEmail,
   buildDealerSignupSlipBmqEmail,
+  buildDealerSignupSlipRejectedEmail,
   dealerContractDraftPath,
   dealerSignedContractPath,
   dealerSignupPublicBaseUrl,
   dealerSlipPath,
   dealerSlipTokenExpiresAt,
+  dealerVerificationCodeExpiresAt,
+  dealerVerificationTokenExpiresAt,
   detectDealerSignupDocumentFormat,
   escapeHtml,
   generateDealerSlipToken,
+  generateDealerVerificationCode,
   hashDealerSlipToken,
+  hashDealerVerificationCode,
+  normalizeDealerVerificationEmail,
+  normalizeDealerVerificationPhone,
+  timingSafeEqualText,
   validateDealerSignupDocument,
 } from "./dealer-signup-review.ts";
+import { buildDealerPaymentInfo, type DealerSignupPaymentSettings } from "./dealer-signup-payment.ts";
 
 const PDF_BYTES = new TextEncoder().encode("%PDF-1.4\nfake\n%%EOF");
 const JPEG_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0x00, 0x01]);
@@ -139,7 +152,7 @@ test("BMQ bank slip notification names the dealer and application", () => {
   });
   assert.ok(mail.subject.includes("DLM-20261103-0004"));
   assert.ok(mail.text.includes("Hộ kinh doanh Bánh mì Hồng"));
-  assert.ok(mail.text.includes("đã được kích hoạt"));
+  assert.ok(mail.text.includes("chờ kế toán xác nhận"));
 });
 
 test("public base URL and storage paths are stable and safe", () => {
@@ -161,4 +174,120 @@ test("public base URL and storage paths are stable and safe", () => {
   );
   assert.equal(dealerSlipPath("app-1", "stamp", "jpg"), "app-1/slip-stamp.jpg");
   assert.equal(escapeHtml(`<&>"'`), "&lt;&amp;&gt;&quot;&#39;");
+});
+
+test("verification phone/email are normalized to 84... and lowercase", () => {
+  assert.equal(normalizeDealerVerificationPhone("0909 123 456"), "84909123456");
+  assert.equal(normalizeDealerVerificationPhone("+84 909 123 456"), "84909123456");
+  assert.equal(normalizeDealerVerificationPhone("0084 909 123 456"), "84909123456");
+  assert.equal(normalizeDealerVerificationPhone("123"), null);
+  assert.equal(normalizeDealerVerificationEmail("  Hong@Example.Test "), "hong@example.test");
+  assert.equal(normalizeDealerVerificationEmail("not-an-email"), null);
+});
+
+test("verification code is six digits, hashed and expires in 10 minutes", async () => {
+  const code = generateDealerVerificationCode();
+  assert.match(code, /^\d{6}$/);
+  assert.equal(DEALER_VERIFICATION_CODE_TTL_MINUTES, 10);
+  assert.equal(DEALER_VERIFICATION_TOKEN_TTL_MINUTES, 30);
+  assert.equal(DEALER_VERIFICATION_MAX_ATTEMPTS, 5);
+  assert.equal(DEALER_VERIFICATION_RESEND_SECONDS, 60);
+
+  const now = new Date("2026-11-03T03:00:00.000Z");
+  assert.equal(dealerVerificationCodeExpiresAt(now), "2026-11-03T03:10:00.000Z");
+  assert.equal(dealerVerificationTokenExpiresAt(now), "2026-11-03T03:30:00.000Z");
+
+  const hash = await hashDealerVerificationCode({
+    sessionId: "11111111-1111-4111-8111-111111111111",
+    channel: "phone",
+    targetNormalized: "84909123456",
+    code,
+    secret: "test-secret",
+  });
+  assert.match(hash, /^[0-9a-f]{64}$/);
+  assert.notEqual(hash, code);
+  assert.equal(
+    hash,
+    await hashDealerVerificationCode({
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      channel: "phone",
+      targetNormalized: "84909123456",
+      code,
+      secret: "test-secret",
+    }),
+  );
+  assert.notEqual(
+    hash,
+    await hashDealerVerificationCode({
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      channel: "email",
+      targetNormalized: "84909123456",
+      code,
+      secret: "test-secret",
+    }),
+  );
+  assert.equal(timingSafeEqualText("abc", "abc"), true);
+  assert.equal(timingSafeEqualText("abc", "abd"), false);
+  assert.equal(timingSafeEqualText("abc", "abcd"), false);
+});
+
+test("approved email includes the transfer details and QR when configured", () => {
+  const settings: DealerSignupPaymentSettings = {
+    bank_name: "Ngân hàng TMCP Kỹ thương Việt Nam",
+    bank_bin: "970407",
+    account_number: "19001234567890",
+    account_name: "HỘ KINH DOANH BÁNH MÌ BMQ",
+    amount_vnd: 1_000_000,
+    transfer_note_template: "BMQ {application_code}",
+  };
+  const mail = buildDealerSignupApprovedEmail({
+    applicantName: "Nguyễn Thị Hồng",
+    applicationCode: "DLM-20261103-0001",
+    businessName: "Hộ kinh doanh Bánh mì Hồng",
+    slipToken: "token_abc",
+    publicBaseUrl: "https://dathang.banhmique.vn",
+    paymentInfo: buildDealerPaymentInfo(settings, "DLM-20261103-0001"),
+  });
+
+  for (const value of [
+    "19001234567890",
+    "HỘ KINH DOANH BÁNH MÌ BMQ",
+    "1.000.000 đ",
+    "BMQ DLM-20261103-0001",
+    "img.vietqr.io/image/970407-19001234567890-compact2.png",
+  ]) {
+    assert.ok(mail.text.includes(value), value);
+    assert.ok(mail.html.includes(value), value);
+  }
+  assert.ok(mail.html.includes("<img"));
+  assert.ok(mail.html.includes("accountName=H%E1%BB%98%20KINH%20DOANH"));
+
+  const withoutPayment = buildDealerSignupApprovedEmail({
+    applicantName: "Nguyễn Thị Hồng",
+    applicationCode: "DLM-20261103-0002",
+    businessName: "Hộ kinh doanh Bánh mì Hồng",
+    slipToken: "token_abc",
+    publicBaseUrl: "https://dathang.banhmique.vn",
+    paymentInfo: null,
+  });
+  assert.ok(!withoutPayment.text.includes("Số tài khoản"));
+  assert.ok(!withoutPayment.html.includes("<img"));
+});
+
+test("rejected slip email carries the reason, a fresh link and transfer details", () => {
+  const mail = buildDealerSignupSlipRejectedEmail({
+    applicantName: "Nguyễn Thị Hồng",
+    applicationCode: "DLM-20261103-0001",
+    businessName: "Hộ kinh doanh Bánh mì Hồng",
+    reason: "Số tiền chuyển khoản chưa khớp",
+    slipToken: "new_token_123",
+    publicBaseUrl: "https://dathang.banhmique.vn",
+    paymentInfo: null,
+  });
+
+  assert.ok(mail.subject.includes("DLM-20261103-0001"));
+  assert.ok(mail.text.includes("Số tiền chuyển khoản chưa khớp"));
+  assert.ok(mail.text.includes("new_token_123"));
+  assert.ok(mail.text.includes("14 ngày"));
+  assert.ok(mail.html.includes("new_token_123"));
 });

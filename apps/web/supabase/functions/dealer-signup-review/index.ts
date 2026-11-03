@@ -8,6 +8,12 @@ import {
   type DealerSignupReviewApplication,
 } from "../_shared/dealer-signup-review.ts";
 import {
+  DEALER_PAYMENT_SETTING_KEYS,
+  dealerPaymentSettingsFromRows,
+  dealerPaymentSettingsToRows,
+  type DealerSignupPaymentSettings,
+} from "../_shared/dealer-signup-payment.ts";
+import {
   handleDealerSignupReview,
   type DealerSignupReviewActor,
   type DealerSignupReviewDeps,
@@ -148,6 +154,70 @@ const store: DealerSignupReviewStore = {
       .update({ slip_token_hash: hash, slip_token_expires_at: expiresAt })
       .eq("id", id)
       .in("status", ["approved_waiting_slip", "email_failed"]);
+    if (error) throw error;
+  },
+
+  async confirmPayment(id: string, reviewerId: string) {
+    const { data, error } = await supabase.rpc("dealer_signup_confirm_payment", {
+      p_application_id: id,
+      p_reviewer: reviewerId,
+    });
+    if (error) throw error;
+    const row = (data || {}) as Record<string, unknown>;
+    return {
+      application_id: String(row.application_id || id),
+      application_code: String(row.application_code || ""),
+      status: String(row.status || "active"),
+      crm_customer_id: row.crm_customer_id ? String(row.crm_customer_id) : null,
+      already_active: row.already_active === true,
+      payment_confirmed_at: row.payment_confirmed_at ? String(row.payment_confirmed_at) : null,
+    };
+  },
+
+  async rejectSlip(
+    id: string,
+    reviewerId: string,
+    reason: string,
+    newTokenHash: string,
+    expiresAt: string,
+  ) {
+    const { data, error } = await supabase.rpc("dealer_signup_reject_slip", {
+      p_application_id: id,
+      p_reviewer: reviewerId,
+      p_reason: reason,
+      p_new_token_hash: newTokenHash,
+      p_expires_at: expiresAt,
+    });
+    if (error) throw error;
+    const row = (data || {}) as Record<string, unknown>;
+    return {
+      application_id: String(row.application_id || id),
+      application_code: String(row.application_code || ""),
+      status: String(row.status || "approved_waiting_slip"),
+      slip_reject_reason: String(row.slip_reject_reason || reason),
+      slip_expires_at: String(row.slip_expires_at || expiresAt),
+    };
+  },
+
+  async loadPaymentSettings() {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("key, value")
+      .in("key", [...DEALER_PAYMENT_SETTING_KEYS]);
+    if (error) throw error;
+    return dealerPaymentSettingsFromRows(
+      (data || []) as Array<{ key: string; value: string | null }>,
+    );
+  },
+
+  async savePaymentSettings(settings: DealerSignupPaymentSettings) {
+    const rows = dealerPaymentSettingsToRows(settings).map((row) => ({
+      ...row,
+      updated_at: new Date().toISOString(),
+    }));
+    const { error } = await supabase
+      .from("app_settings")
+      .upsert(rows, { onConflict: "key" });
     if (error) throw error;
   },
 };

@@ -10,8 +10,11 @@ import {
 } from "./handler.ts";
 import type {
   DealerSignupApprovalResult,
+  DealerSignupPaymentConfirmationResult,
   DealerSignupReviewApplication,
+  DealerSignupSlipRejectionResult,
 } from "../_shared/dealer-signup-review.ts";
+import type { DealerSignupPaymentSettings } from "../_shared/dealer-signup-payment.ts";
 import type { DealerContractInput } from "../_shared/dealer-signup-contract.ts";
 
 const APP_ID = "11111111-1111-4111-8111-111111111111";
@@ -50,6 +53,18 @@ class MemoryStore implements DealerSignupReviewStore {
   rejectCalls: Array<{ id: string; reviewerId: string; reason: string }> = [];
   lastErrors: Array<{ id: string; code: string }> = [];
   rotated: Array<{ id: string; hash: string; expiresAt: string }> = [];
+  confirmCalls: Array<{ id: string; reviewerId: string }> = [];
+  rejectSlipCalls: Array<{
+    id: string;
+    reviewerId: string;
+    reason: string;
+    newTokenHash: string;
+    expiresAt: string;
+  }> = [];
+  paymentSettings: DealerSignupPaymentSettings | null = null;
+  savedPaymentSettings: DealerSignupPaymentSettings[] = [];
+  confirmResult: DealerSignupPaymentConfirmationResult | null = null;
+  rejectSlipResult: DealerSignupSlipRejectionResult | null = null;
 
   async getApplication(id: string) {
     return this.app?.id === id ? this.app : null;
@@ -86,6 +101,54 @@ class MemoryStore implements DealerSignupReviewStore {
 
   async rotateSlipToken(id: string, hash: string, expiresAt: string) {
     this.rotated.push({ id, hash, expiresAt });
+  }
+
+  async confirmPayment(id: string, reviewerId: string) {
+    this.confirmCalls.push({ id, reviewerId });
+    if (this.confirmResult) return this.confirmResult;
+    if (this.app) {
+      this.app.status = "active";
+      this.app.crm_customer_id = this.app.crm_customer_id ?? "crm-customer-1";
+    }
+    return {
+      application_id: id,
+      application_code: "DLM-20261103-0001",
+      status: "active",
+      crm_customer_id: "crm-customer-1",
+      already_active: false,
+      payment_confirmed_at: "2026-11-03T03:00:00.000Z",
+    };
+  }
+
+  async rejectSlip(
+    id: string,
+    reviewerId: string,
+    reason: string,
+    newTokenHash: string,
+    expiresAt: string,
+  ) {
+    this.rejectSlipCalls.push({ id, reviewerId, reason, newTokenHash, expiresAt });
+    if (this.rejectSlipResult) return this.rejectSlipResult;
+    if (this.app) {
+      this.app.status = "approved_waiting_slip";
+      this.app.slip_token_expires_at = expiresAt;
+    }
+    return {
+      application_id: id,
+      application_code: "DLM-20261103-0001",
+      status: "approved_waiting_slip",
+      slip_reject_reason: reason,
+      slip_expires_at: expiresAt,
+    };
+  }
+
+  async loadPaymentSettings() {
+    return this.paymentSettings;
+  }
+
+  async savePaymentSettings(settings: DealerSignupPaymentSettings) {
+    this.paymentSettings = settings;
+    this.savedPaymentSettings.push(settings);
   }
 }
 
@@ -405,4 +468,216 @@ test("regenerate contract and resend slip link use one PDF/email without re-appr
   assert.match(store.rotated[0].hash, /^[0-9a-f]{64}$/);
   assert.equal(deps.mails.length, 1);
   assert.equal(store.approvalCalls.length, 0);
+});
+
+const CRM_EDIT: DealerSignupReviewActor = {
+  userId: "user-crm-edit",
+  isOwner: false,
+  crmView: true,
+  crmEdit: true,
+  accountingEdit: false,
+};
+
+const PAYMENT_SETTINGS: DealerSignupPaymentSettings = {
+  bank_name: "Ngân hàng TMCP Kỹ thương Việt Nam",
+  bank_bin: "970407",
+  account_number: "19001234567890",
+  account_name: "HỘ KINH DOANH BÁNH MÌ BMQ",
+  amount_vnd: 1_000_000,
+  transfer_note_template: "BMQ {application_code}",
+};
+
+test("accounting or owner confirms a submitted slip and activates the dealer once", async () => {
+  const store = new MemoryStore();
+  store.app = application({
+    status: "slip_submitted",
+    crm_customer_id: "crm-customer-1",
+  });
+  const deps = makeDeps(store, { authenticate: async () => ACCOUNTING });
+
+  const response = await handleDealerSignupReview(
+    post("confirm_payment", { application_id: APP_ID }),
+    deps,
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.status, "active");
+  assert.equal(body.already_active, false);
+  assert.equal(body.dealer_onboarding_status, "active");
+  assert.equal(store.confirmCalls.length, 1);
+  assert.equal(store.confirmCalls[0].reviewerId, "user-accounting");
+
+  const ownerDeps = makeDeps(store, { authenticate: async () => OWNER });
+  const owner = await handleDealerSignupReview(
+    post("confirm_payment", { application_id: APP_ID }),
+    ownerDeps,
+  );
+  assert.equal(owner.status, 200);
+});
+
+test("confirming an already active application is idempotent", async () => {
+  const store = new MemoryStore();
+  store.app = application({ status: "active", crm_customer_id: "crm-customer-1" });
+  store.confirmResult = {
+    application_id: APP_ID,
+    application_code: "DLM-20261103-0001",
+    status: "active",
+    crm_customer_id: "crm-customer-1",
+    already_active: true,
+    payment_confirmed_at: "2026-11-03T03:00:00.000Z",
+  };
+  const deps = makeDeps(store, { authenticate: async () => OWNER });
+
+  const response = await handleDealerSignupReview(
+    post("confirm_payment", { application_id: APP_ID }),
+    deps,
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.already_active, true);
+  assert.equal(body.status, "active");
+  assert.equal(store.confirmCalls.length, 0);
+});
+
+test("confirm and reject_slip are denied to crm view/edit and require slip_submitted", async () => {
+  const store = new MemoryStore();
+  store.app = application({ status: "slip_submitted", crm_customer_id: "crm-customer-1" });
+
+  for (const actor of [CRM_VIEW, CRM_EDIT]) {
+    const deps = makeDeps(store, { authenticate: async () => actor });
+    for (const action of ["confirm_payment", "reject_slip"]) {
+      const response = await handleDealerSignupReview(
+        post(action, { application_id: APP_ID, reason: "x" }),
+        deps,
+      );
+      assert.equal(response.status, 403, `${action}:${actor.userId}`);
+      assert.equal((await response.json()).code, "forbidden");
+    }
+  }
+  assert.equal(store.confirmCalls.length, 0);
+  assert.equal(store.rejectSlipCalls.length, 0);
+
+  store.app = application({ status: "approved_waiting_slip", crm_customer_id: "crm-customer-1" });
+  const accountingDeps = makeDeps(store, { authenticate: async () => ACCOUNTING });
+  const wrongStatus = await handleDealerSignupReview(
+    post("confirm_payment", { application_id: APP_ID }),
+    accountingDeps,
+  );
+  assert.equal(wrongStatus.status, 409);
+  assert.equal((await wrongStatus.json()).code, "application_not_slip_submitted");
+});
+
+test("reject_slip requires a reason, rotates the link and emails the customer", async () => {
+  const store = new MemoryStore();
+  store.app = application({ status: "slip_submitted", crm_customer_id: "crm-customer-1" });
+  store.paymentSettings = PAYMENT_SETTINGS;
+  const deps = makeDeps(store, { authenticate: async () => ACCOUNTING });
+
+  const missing = await handleDealerSignupReview(
+    post("reject_slip", { application_id: APP_ID }),
+    deps,
+  );
+  assert.equal(missing.status, 400);
+  assert.equal((await missing.json()).code, "slip_reject_reason_required");
+  assert.equal(store.rejectSlipCalls.length, 0);
+
+  const tooLong = await handleDealerSignupReview(
+    post("reject_slip", { application_id: APP_ID, reason: "x".repeat(501) }),
+    deps,
+  );
+  assert.equal(tooLong.status, 400);
+  assert.equal((await tooLong.json()).code, "slip_reject_reason_too_long");
+
+  const ok = await handleDealerSignupReview(
+    post("reject_slip", { application_id: APP_ID, reason: "Số tiền chưa khớp" }),
+    deps,
+  );
+  const body = await ok.json();
+
+  assert.equal(ok.status, 200);
+  assert.equal(body.status, "approved_waiting_slip");
+  assert.equal(body.dealer_onboarding_status, "waiting_slip");
+  assert.equal(body.slip_reject_reason, "Số tiền chưa khớp");
+  assert.equal(body.email_sent, true);
+  assert.equal(store.rejectSlipCalls.length, 1);
+  assert.match(store.rejectSlipCalls[0].newTokenHash, /^[0-9a-f]{64}$/);
+  assert.equal(store.rejectSlipCalls[0].reviewerId, "user-accounting");
+  assert.equal(deps.mails.length, 1);
+  assert.equal(deps.mails[0].to, "hong@example.test");
+  assert.ok(deps.mails[0].text.includes("Số tiền chưa khớp"));
+  assert.ok(deps.mails[0].text.includes("dai-ly-moi/bank-slip?token="));
+  assert.ok(deps.mails[0].text.includes("19001234567890"));
+});
+
+test("reject_slip refuses an application that is not awaiting payment confirmation", async () => {
+  const store = new MemoryStore();
+  store.app = application({ status: "active", crm_customer_id: "crm-customer-1" });
+  const deps = makeDeps(store, { authenticate: async () => OWNER });
+
+  const response = await handleDealerSignupReview(
+    post("reject_slip", { application_id: APP_ID, reason: "x" }),
+    deps,
+  );
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).code, "application_not_slip_submitted");
+  assert.equal(store.rejectSlipCalls.length, 0);
+  assert.equal(deps.mails.length, 0);
+});
+
+test("only owner can read or update the transfer settings", async () => {
+  const store = new MemoryStore();
+  store.paymentSettings = PAYMENT_SETTINGS;
+
+  for (const actor of [CRM_VIEW, CRM_EDIT, ACCOUNTING]) {
+    const deps = makeDeps(store, { authenticate: async () => actor });
+    const get = await handleDealerSignupReview(post("get_payment_settings"), deps);
+    assert.equal(get.status, 403, `get:${actor.userId}`);
+    const set = await handleDealerSignupReview(
+      post("set_payment_settings", { payment_settings: PAYMENT_SETTINGS }),
+      deps,
+    );
+    assert.equal(set.status, 403, `set:${actor.userId}`);
+  }
+  assert.equal(store.savedPaymentSettings.length, 0);
+
+  const ownerDeps = makeDeps(store, { authenticate: async () => OWNER });
+  const get = await handleDealerSignupReview(post("get_payment_settings"), ownerDeps);
+  assert.equal(get.status, 200);
+  assert.equal((await get.json()).payment_settings.account_number, "19001234567890");
+
+  const invalid = await handleDealerSignupReview(
+    post("set_payment_settings", {
+      payment_settings: { ...PAYMENT_SETTINGS, bank_bin: "123" },
+    }),
+    ownerDeps,
+  );
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).code, "invalid_bank_bin");
+
+  const saved = await handleDealerSignupReview(
+    post("set_payment_settings", {
+      payment_settings: { ...PAYMENT_SETTINGS, amount_vnd: "1.500.000" },
+    }),
+    ownerDeps,
+  );
+  assert.equal(saved.status, 200);
+  assert.equal(store.savedPaymentSettings.length, 1);
+  assert.equal(store.savedPaymentSettings[0].amount_vnd, 1_500_000);
+});
+
+test("approval email includes configured transfer details", async () => {
+  const store = new MemoryStore();
+  store.paymentSettings = PAYMENT_SETTINGS;
+  const deps = makeDeps(store, { authenticate: async () => OWNER });
+
+  const response = await handleDealerSignupReview(post("approve", { application_id: APP_ID }), deps);
+  assert.equal(response.status, 200);
+  assert.equal(deps.mails.length, 1);
+  assert.ok(deps.mails[0].text.includes("19001234567890"));
+  assert.ok(deps.mails[0].text.includes("1.000.000 đ"));
+  assert.ok(deps.mails[0].text.includes("BMQ DLM-20261103-0001"));
+  assert.ok(deps.mails[0].html.includes("img.vietqr.io"));
 });

@@ -2786,6 +2786,8 @@ export default function MiniCrm() {
           canView={canViewKioskAdmin}
           canReview={canEditKioskAdmin}
           canUploadContract={canEditKioskAdmin || canEditModule("accounting")}
+          canConfirmPayment={isOwner || canEditModule("accounting")}
+          canEditPaymentSettings={isOwner}
         />
       )}
 

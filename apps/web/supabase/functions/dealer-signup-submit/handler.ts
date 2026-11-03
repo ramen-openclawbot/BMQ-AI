@@ -41,6 +41,8 @@ import {
   dealerSlipTokenExpiresAt,
   generateDealerSlipToken,
   hashDealerSlipToken,
+  isDealerSlipTokenShape,
+  normalizeDealerVerificationEmail,
   type DealerSignupApprovalResult,
 } from "../_shared/dealer-signup-review.ts";
 
@@ -88,10 +90,21 @@ export type DealerSignupSubmitDeps = {
   /** Stores the generated PDF; returns its bucket path. */
   uploadContractDraft?: (applicationId: string, pdf: Uint8Array) => Promise<string>;
   setContractDraft?: (applicationId: string, path: string) => Promise<void>;
+  /** Atomically consumes the one-time phone+email verification token. */
+  consumeVerificationToken?: (input: {
+    tokenHash: string;
+    phoneNormalized: string;
+    emailNormalized: string;
+  }) => Promise<{ phone_verified_at: string | null; email_verified_at: string | null } | null>;
   fetcher?: Fetcher;
   env?: (key: string) => string | undefined;
   now?: () => Date;
   logger?: (code: string) => void;
+};
+
+type DealerSignupApplicationWithVerification = NewDealerSignupApplication & {
+  phone_verified_at: string | null;
+  email_verified_at: string | null;
 };
 
 type ValidatedSignup = {
@@ -111,6 +124,11 @@ type ValidationFailure = { ok: false; error: string; code: string };
 type ValidationSuccess = { ok: true; value: ValidatedSignup };
 
 const asTrimmed = (value: unknown): string => String(value ?? "").trim();
+
+/** The signup form stores 0xxxxxxxxx; verification tokens use 84xxxxxxxxx. */
+function toDealerPhone84(localPhone: string): string {
+  return localPhone.startsWith("0") ? `84${localPhone.slice(1)}` : localPhone;
+}
 
 function validateSignup(body: Record<string, unknown>): ValidationSuccess | ValidationFailure {
   const applicantName = asTrimmed(body.applicant_name ?? body.full_name);
@@ -255,8 +273,25 @@ export async function handleDealerSignupSubmit(
     const input = validation.value;
 
     // A retried key always wins over the rate limit and never sends again.
+    // This also lets a retry succeed after the verification token was consumed.
     const existing = await deps.store.findByIdempotencyKey(input.idempotencyKey);
     if (existing) return dealerSignupJson(req, cachedResponse(existing));
+
+    const verificationToken = asTrimmed(body.verification_token ?? body.verificationToken);
+    if (!isDealerSlipTokenShape(verificationToken)) {
+      return dealerSignupError(
+        req,
+        "Vui lòng xác minh số điện thoại và email trước khi gửi hồ sơ.",
+        400,
+        "verification_required",
+      );
+    }
+    const verificationTokenHash = await hashDealerSlipToken(verificationToken);
+    const phoneNormalized = toDealerPhone84(input.phone);
+    const emailNormalized = normalizeDealerVerificationEmail(input.email);
+    if (!emailNormalized) {
+      return dealerSignupError(req, "Email không hợp lệ.", 400, "invalid_email");
+    }
 
     const salt = env("DEALER_SIGNUP_IP_SALT") || env("SUPABASE_SERVICE_ROLE_KEY") || "dealer-signup-local";
     const ipHash = await hashClientIp(getClientIp(req), salt);
@@ -281,8 +316,33 @@ export async function handleDealerSignupSubmit(
       fetcher: deps.fetcher,
     });
 
+    let verification: { phone_verified_at: string | null; email_verified_at: string | null } | null;
+    try {
+      verification = deps.consumeVerificationToken
+        ? await deps.consumeVerificationToken({
+          tokenHash: verificationTokenHash,
+          phoneNormalized,
+          emailNormalized,
+        })
+        : null;
+    } catch (error) {
+      logger(`verification_consume_failed:${safeErrorCode(error, "verification_invalid")}`);
+      verification = null;
+    }
+    if (!verification) {
+      return dealerSignupError(
+        req,
+        "Mã xác minh không hợp lệ, đã hết hạn hoặc đã được sử dụng. Vui lòng xác minh lại.",
+        400,
+        "verification_invalid",
+      );
+    }
+
     const contractDate = vietnamDate(now());
-    const baseRow: Omit<NewDealerSignupApplication, "application_code" | "status"> = {
+    const baseRow: Omit<
+      DealerSignupApplicationWithVerification,
+      "application_code" | "status"
+    > = {
       applicant_name: input.applicantName,
       cccd: input.cccd,
       cccd_valid_until: input.cccdValidUntil,
@@ -301,6 +361,8 @@ export async function handleDealerSignupSubmit(
       contract_sent_at: null,
       email_message_id: null,
       last_error_code: null,
+      phone_verified_at: verification.phone_verified_at,
+      email_verified_at: verification.email_verified_at,
     };
 
     let inserted: DealerSignupApplication | null = null;

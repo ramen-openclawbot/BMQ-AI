@@ -4,8 +4,9 @@ import { DealerSignupApiError, uploadDealerSlip } from "@/lib/dealer-signup-api"
 /*
  * Dealer portal banner for a newly approved dealer who has not sent a bank
  * slip yet: the account can log in and browse, but dealer-order-submit refuses
- * orders until the slip arrives. The dealer can upload it right here with the
- * current dealer session.
+ * orders until the slip arrives and accounting confirms the transfer. The
+ * dealer can upload it right here with the current dealer session; after that
+ * the banner says BMQ is confirming the payment.
  */
 
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -22,7 +23,7 @@ export function DealerAwaitingSlipNotice({
   sessionToken,
   onActivated,
 }: {
-  status: "waiting_slip" | "active" | null;
+  status: "waiting_slip" | "slip_submitted" | "active" | null;
   sessionToken: string;
   onActivated: () => void;
 }) {
@@ -30,6 +31,15 @@ export function DealerAwaitingSlipNotice({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
 
+  if (status === "slip_submitted") {
+    return (
+      <div data-dealer-awaiting-payment="true" role="status" className="border-b border-violet-200 bg-violet-50 px-4 py-3 text-violet-950">
+        <p className="mx-auto max-w-6xl text-sm leading-5">
+          <b>BMQ đã nhận bank slip.</b> Kế toán đang xác nhận tiền chuyển khoản, xong là anh/chị đặt bánh được.
+        </p>
+      </div>
+    );
+  }
   if (status !== "waiting_slip" || !sessionToken) return null;
 
   const upload = async (file: File | undefined) => {

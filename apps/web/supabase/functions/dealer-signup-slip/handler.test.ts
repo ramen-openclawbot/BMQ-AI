@@ -15,6 +15,7 @@ import {
   generateDealerSlipToken,
   hashDealerSlipToken,
 } from "../_shared/dealer-signup-review.ts";
+import type { DealerSignupPaymentSettings } from "../_shared/dealer-signup-payment.ts";
 
 const PDF_BYTES = new TextEncoder().encode("%PDF-1.4\nbank slip\n%%EOF");
 const JPEG_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0x00, 0x01]);
@@ -43,6 +44,7 @@ class MemoryStore implements DealerSignupSlipStore {
   uploads: Array<{ path: string; bytes: Uint8Array; contentType: string }> = [];
   activations: Array<{ id: string; path: string }> = [];
   lastErrors: Array<{ id: string; code: string }> = [];
+  paymentSettings: DealerSignupPaymentSettings | null = null;
 
   async findByTokenHash(hash: string) {
     return this.tokenRows.get(hash) ?? null;
@@ -64,7 +66,11 @@ class MemoryStore implements DealerSignupSlipStore {
 
   async activate(applicationId: string, path: string) {
     this.activations.push({ id: applicationId, path });
-    return { already_active: false };
+    return {
+      already_active: false,
+      already_submitted: false,
+      status: "slip_submitted",
+    };
   }
 
   async setLastError(applicationId: string, code: string) {
@@ -88,6 +94,7 @@ function makeDeps(
       mails.push(email);
       return { id: `mail-${mails.length}` };
     },
+    loadPaymentSettings: async () => store.paymentSettings,
     env: (key) =>
       key === "DEALER_SIGNUP_BMQ_EMAIL"
         ? "bmq@example.test"
@@ -189,7 +196,8 @@ test("a valid token upload activates the dealer and notifies BMQ once", async ()
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.status, "active");
+  assert.equal(body.status, "slip_submitted");
+  assert.equal(body.already_submitted, false);
   assert.equal(body.email_sent, true);
   assert.equal(store.uploads.length, 1);
   assert.match(store.uploads[0].path, /^22222222-2222-4222-8222-222222222222\/slip-.+\.jpg$/);
@@ -198,6 +206,7 @@ test("a valid token upload activates the dealer and notifies BMQ once", async ()
   assert.equal(store.activations[0].path, store.uploads[0].path);
   assert.equal(deps.mails.length, 1);
   assert.ok(deps.mails[0].subject.includes("DLM-20261103-0001"));
+  assert.ok(deps.mails[0].text.includes("chờ kế toán xác nhận"));
 });
 
 test("invalid, expired and used tokens are blocked before any upload", async () => {
@@ -258,7 +267,7 @@ test("dealer session uploads only for the waiting application of that customer",
     deps,
   );
   assert.equal(success.status, 200);
-  assert.equal((await success.json()).status, "active");
+  assert.equal((await success.json()).status, "slip_submitted");
   assert.equal(store.activations.length, 1);
 });
 
@@ -325,4 +334,78 @@ test("logs never contain the bank slip token or dealer session token", async () 
 
   assert.ok(deps.logs.every((line) => !line.includes(token)));
   assert.ok(deps.logs.every((line) => !line.includes("dop_")));
+});
+
+test("GET returns payment_info when configured and null when it is not", async () => {
+  const store = new MemoryStore();
+  const token = generateDealerSlipToken();
+  store.tokenRows.set(await hashDealerSlipToken(token), application());
+  const deps = makeDeps(store);
+
+  const unconfigured = await (await handleDealerSignupSlip(getRequest(token), deps)).json();
+  assert.equal(unconfigured.status, "valid");
+  assert.equal(unconfigured.payment_info, null);
+
+  store.paymentSettings = {
+    bank_name: "Ngân hàng TMCP Kỹ thương Việt Nam",
+    bank_bin: "970407",
+    account_number: "19001234567890",
+    account_name: "HỘ KINH DOANH BÁNH MÌ BMQ",
+    amount_vnd: 1_000_000,
+    transfer_note_template: "BMQ {application_code}",
+  };
+
+  const configured = await (await handleDealerSignupSlip(getRequest(token), deps)).json();
+  assert.equal(configured.status, "valid");
+  assert.equal(configured.payment_info.bank_name, "Ngân hàng TMCP Kỹ thương Việt Nam");
+  assert.equal(configured.payment_info.bank_bin, "970407");
+  assert.equal(configured.payment_info.account_number, "19001234567890");
+  assert.equal(configured.payment_info.account_name, "HỘ KINH DOANH BÁNH MÌ BMQ");
+  assert.equal(configured.payment_info.amount_vnd, 1_000_000);
+  assert.equal(configured.payment_info.transfer_note, "BMQ DLM-20261103-0001");
+  assert.match(configured.payment_info.qr_url, /^https:\/\/img\.vietqr\.io\/image\/970407-19001234567890-compact2\.png\?/);
+});
+
+test("GET reports slip_submitted and the upload is blocked while waiting for accounting", async () => {
+  const store = new MemoryStore();
+  const token = generateDealerSlipToken();
+  store.tokenRows.set(
+    await hashDealerSlipToken(token),
+    application({ status: "slip_submitted" }),
+  );
+  const deps = makeDeps(store);
+
+  const status = await (await handleDealerSignupSlip(getRequest(token), deps)).json();
+  assert.equal(status.status, "slip_submitted");
+  assert.equal(status.can_upload, false);
+  assert.equal(status.success, true);
+
+  const upload = await handleDealerSignupSlip(uploadRequest({ token }), deps);
+  assert.equal(upload.status, 409);
+  assert.equal((await upload.json()).code, "slip_already_submitted");
+  assert.equal(store.uploads.length, 0);
+});
+
+test("POST is idempotent after a slip has already been submitted", async () => {
+  const store = new MemoryStore();
+  const token = generateDealerSlipToken();
+  const hash = await hashDealerSlipToken(token);
+  store.tokenRows.set(hash, application());
+  store.activate = async (applicationId: string, path: string) => {
+    store.activations.push({ id: applicationId, path });
+    return {
+      already_active: false,
+      already_submitted: true,
+      status: "slip_submitted",
+    };
+  };
+  const deps = makeDeps(store);
+
+  const response = await handleDealerSignupSlip(uploadRequest({ token }), deps);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.status, "slip_submitted");
+  assert.equal(body.already_submitted, true);
+  assert.equal(body.email_sent, false);
+  assert.equal(deps.mails.length, 0);
 });

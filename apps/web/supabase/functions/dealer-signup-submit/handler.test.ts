@@ -25,6 +25,7 @@ class MemoryStore implements DealerSignupStore {
   approvalCalls: Array<Record<string, unknown>> = [];
   contractDraftCalls: Array<{ id: string; path: string }> = [];
   uploadedDrafts = new Map<string, Uint8Array>();
+  consumeCalls: Array<{ tokenHash: string; phoneNormalized: string; emailNormalized: string }> = [];
 
   async findByIdempotencyKey(key: string): Promise<DealerSignupApplication | null> {
     return this.rows.get(key) ?? null;
@@ -91,6 +92,7 @@ const VALID_BODY = {
   lat: 10.7769,
   lng: 106.7009,
   terms_accepted: true,
+  verification_token: "verification-token-20261102-abcdef",
   idempotency_key: "idem-key-20261102",
 };
 
@@ -139,6 +141,13 @@ function makeDeps(
     },
     setContractDraft: async (id, path) => {
       store.contractDraftCalls.push({ id, path });
+    },
+    consumeVerificationToken: async (input) => {
+      store.consumeCalls.push(input);
+      return {
+        phone_verified_at: "2026-11-02T02:55:00.000Z",
+        email_verified_at: "2026-11-02T02:55:30.000Z",
+      };
     },
     now: () => new Date("2026-11-02T03:00:00.000Z"),
     env: (key) => key === "DEALER_SIGNUP_BMQ_EMAIL" ? "bmq@example.test" : undefined,
@@ -270,6 +279,12 @@ test("eligible approves once, stores the PDF and sends one contract with a bank 
   assert.equal(stored.email_message_id, "gmail-message-1");
   assert.ok(stored.contract_sent_at);
   assert.equal(stored.last_error_code, null);
+  assert.equal(store.consumeCalls.length, 1);
+  assert.equal(store.consumeCalls[0].phoneNormalized, "84909123456");
+  assert.equal(store.consumeCalls[0].emailNormalized, "hong@example.test");
+  assert.match(store.consumeCalls[0].tokenHash, /^[0-9a-f]{64}$/);
+  assert.equal((stored as unknown as Record<string, unknown>).phone_verified_at, "2026-11-02T02:55:00.000Z");
+  assert.equal((stored as unknown as Record<string, unknown>).email_verified_at, "2026-11-02T02:55:30.000Z");
 });
 
 test("duplicate phone during auto approval falls back to manual review without a contract", async () => {
@@ -365,4 +380,83 @@ test("the submit rate limit returns 429 without writing an application", async (
   assert.equal(response.status, 429);
   assert.equal(store.rows.size, 0);
   assert.equal(mails.length, 0);
+});
+
+test("a signup without a verification token is rejected before any write or email", async () => {
+  const store = new MemoryStore();
+  const mails: DealerSignupEmail[] = [];
+  const body = { ...VALID_BODY } as Record<string, unknown>;
+  delete body.verification_token;
+
+  const response = await handleDealerSignupSubmit(
+    request(body),
+    makeDeps(store, "eligible", mails),
+  );
+
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, "verification_required");
+  assert.equal(store.rows.size, 0);
+  assert.equal(mails.length, 0);
+  assert.equal(store.consumeCalls.length, 0);
+});
+
+test("an invalid, expired or used verification token is rejected", async () => {
+  const store = new MemoryStore();
+  const mails: DealerSignupEmail[] = [];
+  const deps = makeDeps(store, "eligible", mails, {
+    consumeVerificationToken: async (input) => {
+      store.consumeCalls.push(input);
+      return null;
+    },
+  });
+
+  const response = await handleDealerSignupSubmit(request(VALID_BODY), deps);
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, "verification_invalid");
+  assert.equal(store.rows.size, 0);
+  assert.equal(mails.length, 0);
+  assert.equal(store.consumeCalls.length, 1);
+});
+
+test("a verification token mismatch is rejected before the application is stored", async () => {
+  const store = new MemoryStore();
+  const mails: DealerSignupEmail[] = [];
+  let capturedPhone = "";
+  const deps = makeDeps(store, "eligible", mails, {
+    consumeVerificationToken: async (input) => {
+      capturedPhone = input.phoneNormalized;
+      // The token belongs to 84909123456, not the changed phone number.
+      return input.phoneNormalized === "84909123456" ? {
+        phone_verified_at: null,
+        email_verified_at: null,
+      } : null;
+    },
+  });
+
+  const response = await handleDealerSignupSubmit(
+    request({ ...VALID_BODY, phone: "0908 765 432" }),
+    deps,
+  );
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, "verification_invalid");
+  assert.equal(store.rows.size, 0);
+  assert.equal(capturedPhone, "84908765432");
+  assert.equal(mails.length, 0);
+});
+
+test("the same idempotency key returns the cached result even after the token was used", async () => {
+  const store = new MemoryStore();
+  const mails: DealerSignupEmail[] = [];
+  const deps = makeDeps(store, "eligible", mails);
+
+  const first = await handleDealerSignupSubmit(request(VALID_BODY), deps);
+  assert.equal(first.status, 200);
+
+  const retryBody = { ...VALID_BODY } as Record<string, unknown>;
+  delete retryBody.verification_token;
+  const retry = await handleDealerSignupSubmit(request(retryBody), deps);
+  assert.equal(retry.status, 200);
+  assert.equal((await retry.json()).status, "approved_waiting_slip");
+  assert.equal(store.consumeCalls.length, 1);
+  assert.equal(mails.length, 1);
 });

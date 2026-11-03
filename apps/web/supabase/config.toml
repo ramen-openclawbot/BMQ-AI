@@ -127,6 +127,11 @@ static_files = [
 # Public bank-slip page: token or dealer session is checked inside the function.
 verify_jwt = false
 
+[functions.dealer-signup-verify]
+# Public signup OTP verification; session, codes and rate limits are checked
+# inside the function. No Supabase JWT is expected from the signup form.
+verify_jwt = false
+
 [functions.dealer-order-submit]
 verify_jwt = false
 

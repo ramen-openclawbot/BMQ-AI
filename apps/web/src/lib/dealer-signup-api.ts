@@ -24,6 +24,7 @@ export type DealerSignupStatus =
   | "contract_sent"
   | "email_failed"
   | "approved_waiting_slip"
+  | "slip_submitted"
   | "active"
   | "rejected_manual";
 
@@ -54,6 +55,7 @@ export type DealerSignupSubmitInput = {
   lng: number;
   terms_accepted: boolean;
   idempotency_key: string;
+  verification_token: string;
 };
 
 export type DealerSignupSubmitResult = {
@@ -63,6 +65,7 @@ export type DealerSignupSubmitResult = {
   application_code: string;
   nearest_distance_m?: number | null;
   email_message_id?: string | null;
+  dealer_onboarding_status?: "waiting_slip" | "slip_submitted" | "active" | null;
 };
 
 export type PhotonGeocodeResult = {
@@ -148,7 +151,30 @@ export type DealerSignupReviewAction =
   | "regenerate_contract"
   | "resend_slip_link"
   | "reject"
-  | "download";
+  | "download"
+  | "confirm_payment"
+  | "reject_slip"
+  | "get_payment_settings"
+  | "set_payment_settings";
+
+export type DealerSignupPaymentSettings = {
+  bank_name: string;
+  bank_bin: string;
+  account_number: string;
+  account_name: string;
+  amount_vnd: number;
+  transfer_note_template: string;
+};
+
+export type DealerSignupPaymentInfo = {
+  bank_name: string;
+  bank_bin: string;
+  account_number: string;
+  account_name: string;
+  amount_vnd: number;
+  transfer_note: string;
+  qr_url: string;
+};
 
 export type DealerSignupDocumentKind = "contract_draft" | "contract_signed" | "slip";
 
@@ -159,7 +185,7 @@ export type DealerSignupReviewResult = {
   status?: DealerSignupStatus | string;
   already_approved?: boolean;
   crm_customer_id?: string | null;
-  dealer_onboarding_status?: "waiting_slip" | "active" | null;
+  dealer_onboarding_status?: "waiting_slip" | "slip_submitted" | "active" | null;
   contract_ready?: boolean;
   contract_draft_path?: string;
   email_sent?: boolean;
@@ -167,6 +193,10 @@ export type DealerSignupReviewResult = {
   contract_error_code?: string;
   slip_expires_at?: string;
   reject_reason?: string;
+  slip_reject_reason?: string;
+  payment_confirmed_at?: string | null;
+  already_active?: boolean;
+  payment_settings?: DealerSignupPaymentSettings | null;
   path?: string;
   uploaded_at?: string;
   url?: string;
@@ -182,7 +212,7 @@ export type DealerSignupDocumentUrl = {
   expires_in: number;
 };
 
-export type DealerSignupSlipStatus = "valid" | "expired" | "used" | "invalid";
+export type DealerSignupSlipStatus = "valid" | "slip_submitted" | "expired" | "used" | "invalid";
 
 export type DealerSignupSlipStatusResult = {
   success: boolean;
@@ -190,12 +220,14 @@ export type DealerSignupSlipStatusResult = {
   application_code?: string;
   business_name?: string;
   can_upload?: boolean;
+  payment_info?: DealerSignupPaymentInfo | null;
 };
 
 export type DealerSignupSlipUploadResult = {
   success: boolean;
-  status: "active";
+  status: "slip_submitted" | "active";
   already_active?: boolean;
+  already_submitted?: boolean;
   application_code?: string;
   business_name?: string;
   email_sent?: boolean;
@@ -263,9 +295,10 @@ async function readApiResponse<T>(response: Response): Promise<T> {
 export async function reviewDealerSignup(
   input: {
     action: DealerSignupReviewAction;
-    applicationId: string;
+    applicationId?: string;
     reason?: string;
     kind?: DealerSignupDocumentKind;
+    settings?: Partial<DealerSignupPaymentSettings>;
   },
   options: DealerSignupRequestOptions = {},
 ): Promise<DealerSignupReviewResult> {
@@ -285,6 +318,7 @@ export async function reviewDealerSignup(
         application_id: input.applicationId,
         reason: input.reason,
         kind: input.kind,
+        payment_settings: input.settings,
       }),
     },
   );
@@ -371,6 +405,139 @@ export async function uploadDealerSlip(
     },
   );
   return await readApiResponse<DealerSignupSlipUploadResult>(response);
+}
+
+export type DealerSignupVerifyChannel = "phone" | "email";
+
+export type DealerSignupVerifySendResult = {
+  success: boolean;
+  channel: DealerSignupVerifyChannel;
+  sent: boolean;
+  already_verified?: boolean;
+  expires_at?: string;
+  resend_after_seconds?: number;
+};
+
+export type DealerSignupVerifyCheckResult = {
+  success: boolean;
+  verified: { phone: boolean; email: boolean };
+  verification_token?: string;
+  verification_expires_at?: string;
+};
+
+async function publicDealerSignupInvoke<T>(
+  functionName: string,
+  body: Record<string, unknown>,
+  options: { fetcher?: DealerSignupFetcher; supabaseUrl?: string } = {},
+): Promise<T> {
+  const fetcher = options.fetcher ?? fetch;
+  const response = await fetcher(
+    edgeFunctionUrl(functionName, options.supabaseUrl),
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...publishableKeyHeader(),
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  return await readApiResponse<T>(response);
+}
+
+/** One UUID for both OTP channels of a single signup attempt. */
+export function createDealerSignupVerificationSessionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const random = Math.random().toString(36).slice(2);
+  return `dealer-verify-${Date.now().toString(36)}-${random}`;
+}
+
+export function sendDealerSignupVerification(
+  input: {
+    sessionId: string;
+    channel: DealerSignupVerifyChannel;
+    phone?: string;
+    email?: string;
+  },
+  options: { fetcher?: DealerSignupFetcher; supabaseUrl?: string } = {},
+): Promise<DealerSignupVerifySendResult> {
+  return publicDealerSignupInvoke<DealerSignupVerifySendResult>(
+    "dealer-signup-verify",
+    {
+      action: "send",
+      session_id: input.sessionId,
+      channel: input.channel,
+      phone: input.phone,
+      email: input.email,
+    },
+    options,
+  );
+}
+
+export function checkDealerSignupVerification(
+  input: {
+    sessionId: string;
+    phone?: string;
+    email?: string;
+    channel?: DealerSignupVerifyChannel;
+    code?: string;
+    phoneCode?: string;
+    emailCode?: string;
+  },
+  options: { fetcher?: DealerSignupFetcher; supabaseUrl?: string } = {},
+): Promise<DealerSignupVerifyCheckResult> {
+  return publicDealerSignupInvoke<DealerSignupVerifyCheckResult>(
+    "dealer-signup-verify",
+    {
+      action: "check",
+      session_id: input.sessionId,
+      phone: input.phone,
+      email: input.email,
+      channel: input.channel,
+      code: input.code,
+      phone_code: input.phoneCode,
+      email_code: input.emailCode,
+    },
+    options,
+  );
+}
+
+export function confirmDealerSignupPayment(
+  input: { applicationId: string },
+  options: DealerSignupRequestOptions = {},
+): Promise<DealerSignupReviewResult> {
+  return reviewDealerSignup(
+    { action: "confirm_payment", applicationId: input.applicationId },
+    options,
+  );
+}
+
+export function rejectDealerSignupSlip(
+  input: { applicationId: string; reason: string },
+  options: DealerSignupRequestOptions = {},
+): Promise<DealerSignupReviewResult> {
+  return reviewDealerSignup(
+    { action: "reject_slip", applicationId: input.applicationId, reason: input.reason },
+    options,
+  );
+}
+
+export function getDealerSignupPaymentSettings(
+  options: DealerSignupRequestOptions = {},
+): Promise<DealerSignupReviewResult> {
+  return reviewDealerSignup({ action: "get_payment_settings" }, options);
+}
+
+export function setDealerSignupPaymentSettings(
+  input: { settings: DealerSignupPaymentSettings },
+  options: DealerSignupRequestOptions = {},
+): Promise<DealerSignupReviewResult> {
+  return reviewDealerSignup(
+    { action: "set_payment_settings", settings: input.settings },
+    options,
+  );
 }
 
 /** Stable idempotency key for one application form session. */

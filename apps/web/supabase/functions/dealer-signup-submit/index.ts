@@ -65,6 +65,22 @@ function buildDeps(): DealerSignupSubmitDeps {
       });
       if (error) throw error;
     },
+    consumeVerificationToken: async (input) => {
+      const { data, error } = await supabase.rpc(
+        "dealer_signup_consume_verification_token",
+        {
+          p_token_hash: input.tokenHash,
+          p_phone_normalized: input.phoneNormalized,
+          p_email_normalized: input.emailNormalized,
+        },
+      );
+      if (error) return null;
+      const row = (data || {}) as Record<string, unknown>;
+      return {
+        phone_verified_at: row.phone_verified_at ? String(row.phone_verified_at) : null,
+        email_verified_at: row.email_verified_at ? String(row.email_verified_at) : null,
+      };
+    },
     sendEmail: async (email) => {
       const accessToken = await getGmailAccessToken(
         supabase as unknown as Parameters<typeof getGmailAccessToken>[0],

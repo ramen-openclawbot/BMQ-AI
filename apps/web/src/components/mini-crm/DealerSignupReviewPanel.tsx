@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, Download, FileUp, Loader2, Mail, RefreshCw, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, BadgeCheck, Banknote, Check, Download, FileUp, Loader2, Mail, RefreshCw, Search, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,17 +14,21 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   DealerSignupApiError,
   getDealerSignupDocumentUrl,
+  getDealerSignupPaymentSettings,
   reviewDealerSignup,
+  setDealerSignupPaymentSettings,
   uploadDealerSignedContract,
   type DealerSignupDocumentKind,
+  type DealerSignupPaymentSettings,
   type DealerSignupReviewResult,
 } from "@/lib/dealer-signup-api";
 
 /*
  * CRM "Đại lý mới": the queue of /dai-ly-moi applications. Owner / crm edit
  * approve or reject; accounting downloads the generated contract, stamps it by
- * hand and uploads the stamped copy. The dealer becomes official (can order)
- * only after uploading a bank slip. Every permission is enforced again by the
+ * hand and uploads the stamped copy. After the dealer uploads a bank slip,
+ * owner / accounting confirm the transfer (or send the slip back with a
+ * reason); only then can the dealer order. Every permission is enforced again by the
  * dealer-signup-review Edge Function.
  */
 
@@ -51,19 +55,24 @@ type Application = {
   slip_storage_path: string | null;
   slip_uploaded_at: string | null;
   slip_token_expires_at: string | null;
+  slip_reject_reason: string | null;
+  payment_confirmed_at: string | null;
+  phone_verified_at: string | null;
+  email_verified_at: string | null;
   reviewed_at: string | null;
   created_at: string;
 };
 
-type Filter = "pending" | "waiting_slip" | "active" | "rejected";
+type Filter = "pending" | "waiting_slip" | "payment" | "active" | "rejected";
 
 const QUERY_KEY = ["crm-dealer-signup-applications"];
 const COLUMNS =
-  "id, application_code, status, approval_mode, applicant_name, business_name, cccd, cccd_valid_until, phone, email, address_text, nearest_distance_m, unlocated_dealer_count, last_error_code, reject_reason, crm_customer_id, contract_draft_path, contract_signed_path, contract_signed_uploaded_at, slip_storage_path, slip_uploaded_at, slip_token_expires_at, reviewed_at, created_at";
+  "id, application_code, status, approval_mode, applicant_name, business_name, cccd, cccd_valid_until, phone, email, address_text, nearest_distance_m, unlocated_dealer_count, last_error_code, reject_reason, crm_customer_id, contract_draft_path, contract_signed_path, contract_signed_uploaded_at, slip_storage_path, slip_uploaded_at, slip_token_expires_at, slip_reject_reason, payment_confirmed_at, phone_verified_at, email_verified_at, reviewed_at, created_at";
 
 const FILTER_STATUSES: Record<Filter, string[]> = {
   pending: ["manual_review", "contract_sent", "email_failed"],
   waiting_slip: ["approved_waiting_slip"],
+  payment: ["slip_submitted"],
   active: ["active"],
   rejected: ["rejected_manual", "rejected_too_close"],
 };
@@ -73,6 +82,7 @@ const STATUS_LABEL: Record<string, { label: string; tone: string }> = {
   contract_sent: { label: "Đã gửi hợp đồng · chờ duyệt", tone: "border-amber-300 bg-amber-50 text-amber-800" },
   email_failed: { label: "Lỗi gửi thư · chờ duyệt", tone: "border-red-300 bg-red-50 text-red-700" },
   approved_waiting_slip: { label: "Chờ bank slip", tone: "border-sky-300 bg-sky-50 text-sky-800" },
+  slip_submitted: { label: "Chờ xác nhận tiền", tone: "border-violet-300 bg-violet-50 text-violet-800" },
   active: { label: "Đại lý chính thức", tone: "border-emerald-300 bg-emerald-50 text-emerald-800" },
   rejected_manual: { label: "Đã từ chối", tone: "border-slate-300 bg-slate-50 text-slate-600" },
   rejected_too_close: { label: "Gần đại lý cũ", tone: "border-slate-300 bg-slate-50 text-slate-600" },
@@ -96,6 +106,8 @@ const ERROR_MESSAGE: Record<string, string> = {
   file_too_large: "Tệp vượt quá 10 MB.",
   reject_reason_required: "Vui lòng nhập lý do từ chối.",
   reject_reason_too_long: "Lý do tối đa 500 ký tự.",
+  application_not_awaiting_payment: "Hồ sơ này không còn ở trạng thái chờ xác nhận tiền.",
+  slip_reject_reason_required: "Vui lòng nhập lý do.",
 };
 
 const fmtDateTime = (value: string | null) =>
@@ -130,11 +142,16 @@ export function DealerSignupReviewPanel({
   canView,
   canReview,
   canUploadContract,
+  canConfirmPayment = false,
+  canEditPaymentSettings = false,
 }: {
   canView: boolean;
   canReview: boolean;
   canUploadContract: boolean;
+  canConfirmPayment?: boolean;
+  canEditPaymentSettings?: boolean;
 }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [filter, setFilter] = useState<Filter>("pending");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Application | null>(null);
@@ -155,7 +172,7 @@ export function DealerSignupReviewPanel({
 
   const rows = useMemo(() => query.data ?? [], [query.data]);
   const counts = useMemo(() => {
-    const result: Record<Filter, number> = { pending: 0, waiting_slip: 0, active: 0, rejected: 0 };
+    const result: Record<Filter, number> = { pending: 0, waiting_slip: 0, payment: 0, active: 0, rejected: 0 };
     for (const row of rows) {
       for (const key of Object.keys(FILTER_STATUSES) as Filter[]) {
         if (FILTER_STATUSES[key].includes(row.status)) result[key] += 1;
@@ -208,18 +225,27 @@ export function DealerSignupReviewPanel({
   const chips: Array<{ id: Filter; label: string }> = [
     { id: "pending", label: "Chờ duyệt" },
     { id: "waiting_slip", label: "Chờ bank slip" },
+    { id: "payment", label: "Chờ xác nhận tiền" },
     { id: "active", label: "Chính thức" },
     { id: "rejected", label: "Từ chối" },
   ];
 
   return (
     <Card data-dealer-signup-review="v1">
-      <CardHeader className="space-y-1">
-        <CardTitle className="text-lg">Đại lý mới</CardTitle>
-        <CardDescription>
-          Duyệt hồ sơ để tạo khách trong CRM và gửi thư chúc mừng kèm link upload bank slip. Khách đăng nhập được ngay
-          nhưng chỉ đặt bánh sau khi có bank slip.
-        </CardDescription>
+      <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          <CardTitle className="text-lg">Đại lý mới</CardTitle>
+          <CardDescription>
+            Duyệt hồ sơ để tạo khách trong CRM và gửi thư chúc mừng kèm link upload bank slip. Khách đăng nhập được ngay
+            nhưng chỉ đặt bánh sau khi kế toán xác nhận đã nhận tiền.
+          </CardDescription>
+        </div>
+        {canEditPaymentSettings ? (
+          <Button size="sm" variant="outline" className="shrink-0" onClick={() => setSettingsOpen(true)} data-dealer-payment-settings-open>
+            <Banknote className="mr-1 h-4 w-4" />
+            Tài khoản nhận tiền
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -277,7 +303,8 @@ export function DealerSignupReviewPanel({
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {row.application_code} · gửi {fmtDateTime(row.created_at)}
-                        {row.status === "approved_waiting_slip" && !row.contract_signed_path ? " · hợp đồng chưa đóng dấu" : ""}
+                        {row.status === "slip_submitted" && row.slip_uploaded_at ? ` · bank slip ${fmtDateTime(row.slip_uploaded_at)}` : ""}
+                        {["approved_waiting_slip", "slip_submitted"].includes(row.status) && !row.contract_signed_path ? " · hợp đồng chưa đóng dấu" : ""}
                       </p>
                     </div>
                     <span className="shrink-0 text-sm text-primary">Xem</span>
@@ -293,8 +320,10 @@ export function DealerSignupReviewPanel({
         application={current}
         canReview={canReview}
         canUploadContract={canUploadContract}
+        canConfirmPayment={canConfirmPayment}
         onClose={() => setSelected(null)}
       />
+      {canEditPaymentSettings ? <PaymentSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} /> : null}
     </Card>
   );
 }
@@ -312,17 +341,19 @@ function ApplicationDialog({
   application,
   canReview,
   canUploadContract,
+  canConfirmPayment,
   onClose,
 }: {
   application: Application | null;
   canReview: boolean;
   canUploadContract: boolean;
+  canConfirmPayment: boolean;
   onClose: () => void;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [mode, setMode] = useState<"view" | "approve" | "reject">("view");
+  const [mode, setMode] = useState<"view" | "approve" | "reject" | "confirm_payment" | "reject_slip">("view");
   const [reason, setReason] = useState("");
   const [busyDoc, setBusyDoc] = useState<DealerSignupDocumentKind | null>(null);
 
@@ -335,7 +366,10 @@ function ApplicationDialog({
   const refresh = () => queryClient.invalidateQueries({ queryKey: QUERY_KEY });
 
   const review = useMutation({
-    mutationFn: (input: { action: "approve" | "reject" | "resend_slip_link" | "regenerate_contract"; reason?: string }) =>
+    mutationFn: (input: {
+      action: "approve" | "reject" | "resend_slip_link" | "regenerate_contract" | "confirm_payment" | "reject_slip";
+      reason?: string;
+    }) =>
       reviewDealerSignup({ action: input.action, applicationId: application!.id, reason: input.reason }),
     onSuccess: (result: DealerSignupReviewResult, input) => {
       void refresh();
@@ -354,6 +388,19 @@ function ApplicationDialog({
         });
       } else if (input.action === "reject") {
         toast({ title: "Đã từ chối hồ sơ", description: result.email_sent === false ? "Chưa gửi được thư báo cho khách." : "Khách đã nhận thư báo." });
+      } else if (input.action === "confirm_payment") {
+        toast({
+          title: result.already_active ? "Khoản tiền đã được xác nhận trước đó" : "Đã xác nhận tiền",
+          description: "Đại lý đặt bánh được từ bây giờ.",
+        });
+        close();
+      } else if (input.action === "reject_slip") {
+        toast({
+          title: "Đã gửi lại bank slip cho khách",
+          description: result.email_sent === false ? "Chưa gửi được thư, bấm Gửi lại link." : "Khách nhận thư kèm lý do và link mới.",
+          variant: result.email_sent === false ? "destructive" : undefined,
+        });
+        close();
       } else if (input.action === "resend_slip_link") {
         toast({ title: result.email_sent === false ? "Chưa gửi được thư" : "Đã gửi lại link bank slip" });
       } else {
@@ -392,7 +439,8 @@ function ApplicationDialog({
 
   const status = STATUS_LABEL[application.status] ?? { label: application.status, tone: "" };
   const isPending = ["manual_review", "contract_sent", "email_failed"].includes(application.status);
-  const isApproved = ["approved_waiting_slip", "active"].includes(application.status);
+  const isApproved = ["approved_waiting_slip", "slip_submitted", "active"].includes(application.status);
+  const awaitingPayment = application.status === "slip_submitted";
   const busy = review.isPending || uploadSigned.isPending;
   const reviewReason = (application.last_error_code && REASON_LABEL[application.last_error_code])
     || (application.unlocated_dealer_count > 0 ? `Có ${application.unlocated_dealer_count} đại lý chưa có vị trí trên hệ thống` : "");
@@ -415,8 +463,8 @@ function ApplicationDialog({
         <dl className="space-y-1.5">
           <Field label="Họ tên" value={application.applicant_name} />
           <Field label="CCCD" value={`${application.cccd} · hết hạn ${fmtDate(application.cccd_valid_until)}`} />
-          <Field label="Điện thoại" value={application.phone} />
-          <Field label="Email" value={application.email} />
+          <Field label="Điện thoại" value={`${application.phone}${application.phone_verified_at ? " · đã xác minh" : ""}`} />
+          <Field label="Email" value={`${application.email}${application.email_verified_at ? " · đã xác minh" : ""}`} />
           <Field label="Địa chỉ" value={application.address_text} />
           <Field
             label="Đại lý gần nhất"
@@ -426,6 +474,10 @@ function ApplicationDialog({
           {application.reject_reason ? <Field label="Lý do từ chối" value={application.reject_reason} /> : null}
           <Field label="Ngày gửi" value={fmtDateTime(application.created_at)} />
           {application.reviewed_at ? <Field label="Ngày duyệt" value={fmtDateTime(application.reviewed_at)} /> : null}
+          {application.slip_reject_reason && application.status === "approved_waiting_slip" ? (
+            <Field label="Bank slip bị trả lại" value={application.slip_reject_reason} />
+          ) : null}
+          {application.payment_confirmed_at ? <Field label="Xác nhận tiền" value={fmtDateTime(application.payment_confirmed_at)} /> : null}
         </dl>
 
         {isApproved ? (
@@ -521,6 +573,70 @@ function ApplicationDialog({
           </div>
         ) : null}
 
+        {mode === "confirm_payment" ? (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+            Xác nhận đã nhận tiền chuyển khoản của <b>{application.business_name}</b>. Đại lý sẽ đặt bánh được ngay.
+            Hãy mở bank slip và đối chiếu với sao kê trước khi xác nhận.
+          </div>
+        ) : null}
+
+        {mode === "reject_slip" ? (
+          <div className="space-y-2">
+            <Label htmlFor="dealer-signup-slip-reason">Lý do (khách nhận trong thư, kèm link gửi bank slip mới)</Label>
+            <Textarea
+              id="dealer-signup-slip-reason"
+              value={reason}
+              maxLength={500}
+              rows={3}
+              autoFocus
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Ví dụ: Chưa thấy khoản chuyển 1.000.000 đ với nội dung BMQ DLM-..."
+            />
+            <p className="text-right text-xs text-muted-foreground">{reason.length}/500</p>
+          </div>
+        ) : null}
+
+        {awaitingPayment && canConfirmPayment ? (
+          <DialogFooter className="gap-2 sm:gap-2" data-dealer-payment-actions>
+            {mode === "view" ? (
+              <>
+                <Button variant="outline" disabled={busy} onClick={() => setMode("reject_slip")}>
+                  <X className="mr-1 h-4 w-4" />
+                  Chưa nhận được
+                </Button>
+                <Button disabled={busy} onClick={() => setMode("confirm_payment")} data-dealer-payment-confirm>
+                  <BadgeCheck className="mr-1 h-4 w-4" />
+                  Đã nhận tiền
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="outline" disabled={busy} onClick={() => { setMode("view"); setReason(""); }}>
+                  Quay lại
+                </Button>
+                {mode === "confirm_payment" ? (
+                  <Button disabled={busy} onClick={() => review.mutate({ action: "confirm_payment" })}>
+                    {review.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <BadgeCheck className="mr-1 h-4 w-4" />}
+                    Xác nhận đã nhận tiền
+                  </Button>
+                ) : (
+                  <Button
+                    variant="destructive"
+                    disabled={busy || !trimmedReason}
+                    onClick={() => review.mutate({ action: "reject_slip", reason: trimmedReason })}
+                  >
+                    {review.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <X className="mr-1 h-4 w-4" />}
+                    Trả lại bank slip
+                  </Button>
+                )}
+              </>
+            )}
+          </DialogFooter>
+        ) : null}
+        {awaitingPayment && !canConfirmPayment ? (
+          <p className="text-sm text-muted-foreground">Chủ hoặc kế toán sẽ đối chiếu và xác nhận khoản tiền này.</p>
+        ) : null}
+
         {mode === "reject" ? (
           <div className="space-y-2">
             <Label htmlFor="dealer-signup-reject-reason">Lý do từ chối (khách sẽ nhận trong thư)</Label>
@@ -577,6 +693,120 @@ function ApplicationDialog({
         {isPending && !canReview ? (
           <p className="text-sm text-muted-foreground">Chỉ chủ hoặc người có quyền sửa CRM mới duyệt được hồ sơ.</p>
         ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const EMPTY_SETTINGS = {
+  bank_name: "",
+  bank_bin: "",
+  account_number: "",
+  account_name: "",
+  amount_vnd: "1000000",
+  transfer_note_template: "BMQ {application_code}",
+};
+
+function PaymentSettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [form, setForm] = useState(EMPTY_SETTINGS);
+  const settings = useQuery({
+    queryKey: ["dealer-signup-payment-settings"],
+    enabled: open,
+    queryFn: async () => (await getDealerSignupPaymentSettings()).payment_settings ?? null,
+  });
+
+  useEffect(() => {
+    if (!open || settings.isLoading) return;
+    const value = settings.data;
+    setForm(value
+      ? { ...value, amount_vnd: String(value.amount_vnd) }
+      : EMPTY_SETTINGS);
+  }, [open, settings.isLoading, settings.data]);
+
+  const save = useMutation({
+    mutationFn: () =>
+      setDealerSignupPaymentSettings({
+        settings: {
+          ...form,
+          bank_name: form.bank_name.trim(),
+          bank_bin: form.bank_bin.trim(),
+          account_number: form.account_number.trim(),
+          account_name: form.account_name.trim(),
+          amount_vnd: Number(form.amount_vnd.replace(/\D/g, "")),
+          transfer_note_template: form.transfer_note_template.trim(),
+        } as DealerSignupPaymentSettings,
+      }),
+    onSuccess: () => {
+      void settings.refetch();
+      toast({ title: "Đã lưu tài khoản nhận tiền", description: "Thư và trang bank slip dùng thông tin mới từ bây giờ." });
+      onClose();
+    },
+    onError: (error) => {
+      toast({ title: "Chưa lưu được", description: messageFor(error, "Vui lòng kiểm tra lại."), variant: "destructive" });
+    },
+  });
+
+  const set = (key: keyof typeof EMPTY_SETTINGS) => (event: { target: { value: string } }) =>
+    setForm((prev) => ({ ...prev, [key]: event.target.value }));
+  const amount = Number(form.amount_vnd.replace(/\D/g, ""));
+  const valid =
+    form.bank_name.trim().length >= 2 &&
+    /^\d{6}$/.test(form.bank_bin.trim()) &&
+    /^\d{4,32}$/.test(form.account_number.trim()) &&
+    form.account_name.trim().length >= 2 &&
+    amount > 0 &&
+    form.transfer_note_template.includes("{application_code}");
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!next && !save.isPending) onClose(); }}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg" data-dealer-payment-settings>
+        <DialogHeader>
+          <DialogTitle>Tài khoản nhận tiền đại lý mới</DialogTitle>
+          <DialogDescription>
+            Hiện trong thư gửi khách và trang gửi bank slip, kèm mã QR chuyển khoản. Chỉ chủ xem và sửa được.
+          </DialogDescription>
+        </DialogHeader>
+        {settings.isLoading ? (
+          <LoadingState flat rows={3} label="Đang tải..." />
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="dps-bank">Ngân hàng</Label>
+              <Input id="dps-bank" value={form.bank_name} onChange={set("bank_name")} placeholder="Ví dụ: Techcombank" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="dps-bin">Mã BIN ngân hàng</Label>
+              <Input id="dps-bin" value={form.bank_bin} onChange={set("bank_bin")} inputMode="numeric" maxLength={6} placeholder="970407" />
+              <p className="text-xs text-muted-foreground">6 số, dùng để tạo mã QR (VietQR).</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="dps-account">Số tài khoản</Label>
+              <Input id="dps-account" value={form.account_number} onChange={set("account_number")} inputMode="numeric" />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="dps-name">Chủ tài khoản</Label>
+              <Input id="dps-name" value={form.account_name} onChange={set("account_name")} placeholder="Viết hoa không dấu như trên ngân hàng" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="dps-amount">Số tiền (đ)</Label>
+              <Input id="dps-amount" value={form.amount_vnd} onChange={set("amount_vnd")} inputMode="numeric" />
+              <p className="text-xs text-muted-foreground">{amount > 0 ? `${amount.toLocaleString("vi-VN")} đ` : "Phải lớn hơn 0"}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="dps-note">Nội dung chuyển khoản</Label>
+              <Input id="dps-note" value={form.transfer_note_template} onChange={set("transfer_note_template")} />
+              <p className="text-xs text-muted-foreground">Giữ {"{application_code}"}: hệ thống thay bằng mã hồ sơ.</p>
+            </div>
+          </div>
+        )}
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" disabled={save.isPending} onClick={onClose}>Đóng</Button>
+          <Button disabled={!valid || save.isPending || settings.isLoading} onClick={() => save.mutate()}>
+            {save.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Check className="mr-1 h-4 w-4" />}
+            Lưu
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
