@@ -1,5 +1,12 @@
-import type { KbAiParseSuggestion } from "./kbAiUtils";
 import { extractDeliveryDateFromSubject } from "./poDraftUtils";
+
+type EmailBodyAiParseConfig = {
+  item_split_rule?: string;
+  location_quantity_patterns?: string[];
+  exchange_keywords?: string[];
+  exchange_rule?: { keywords?: string[]; pattern?: string };
+  quantity_formula?: { expression?: string };
+};
 
 export const normalizeVietnameseText = (value?: string | null) =>
   String(value || "")
@@ -14,7 +21,7 @@ export const normalizeVietnameseText = (value?: string | null) =>
 export const parseEmailBodyToProductionItems = (
   subject?: string,
   body?: string,
-  aiConfig?: KbAiParseSuggestion | null,
+  aiConfig?: EmailBodyAiParseConfig | null,
 ) => {
   const rawText = String(body || "").replace(/\r/g, " ");
   const text = rawText.replace(/\s+/g, " ").trim();
