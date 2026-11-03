@@ -22,6 +22,9 @@ class MemoryStore implements DealerSignupStore {
   nextId = 1;
   updates: Array<{ id: string; patch: Partial<DealerSignupApplication> }> = [];
   rateLimitAllowed = true;
+  approvalCalls: Array<Record<string, unknown>> = [];
+  contractDraftCalls: Array<{ id: string; path: string }> = [];
+  uploadedDrafts = new Map<string, Uint8Array>();
 
   async findByIdempotencyKey(key: string): Promise<DealerSignupApplication | null> {
     return this.rows.get(key) ?? null;
@@ -120,6 +123,23 @@ function makeDeps(
       mails.push(email);
       return { id: `gmail-message-${mails.length}` };
     },
+    approveSignup: async (input) => {
+      store.approvalCalls.push(input as unknown as Record<string, unknown>);
+      return {
+        application_id: input.applicationId,
+        application_code: "DLM-20261102-0001",
+        status: "approved_waiting_slip",
+        crm_customer_id: "crm-customer-1",
+        already_approved: false,
+      };
+    },
+    uploadContractDraft: async (applicationId, pdf) => {
+      store.uploadedDrafts.set(applicationId, pdf);
+      return `${applicationId}/contract-draft.pdf`;
+    },
+    setContractDraft: async (id, path) => {
+      store.contractDraftCalls.push({ id, path });
+    },
     now: () => new Date("2026-11-02T03:00:00.000Z"),
     env: (key) => key === "DEALER_SIGNUP_BMQ_EMAIL" ? "bmq@example.test" : undefined,
     logger: () => {},
@@ -208,7 +228,7 @@ test("near-threshold manual_review tells BMQ the reason and sends no contract", 
   assert.equal([...store.rows.values()][0].status, "manual_review");
 });
 
-test("eligible sends one PDF to the customer, cc BMQ, and stores contract_sent", async () => {
+test("eligible approves once, stores the PDF and sends one contract with a bank slip link", async () => {
   const store = new MemoryStore();
   const mails: DealerSignupEmail[] = [];
   const response = await handleDealerSignupSubmit(
@@ -219,7 +239,9 @@ test("eligible sends one PDF to the customer, cc BMQ, and stores contract_sent",
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.result, "eligible");
-  assert.equal(body.status, "contract_sent");
+  assert.equal(body.status, "approved_waiting_slip");
+  assert.equal(body.dealer_onboarding_status, "waiting_slip");
+  assert.equal(body.crm_customer_id, "crm-customer-1");
   assert.equal(mails.length, 1);
 
   const mail = mails[0];
@@ -231,11 +253,58 @@ test("eligible sends one PDF to the customer, cc BMQ, and stores contract_sent",
     `HopDong-BMQ-${body.application_code}.pdf`,
   );
   assert.equal(mail.attachments?.[0].mimeType, "application/pdf");
+  assert.ok(mail.text.includes("dai-ly-moi/bank-slip?token="));
+  assert.ok(mail.html.includes("dai-ly-moi/bank-slip?token="));
+  assert.ok(mail.text.includes("số điện thoại đã đăng ký"));
+
+  assert.equal(store.approvalCalls.length, 1);
+  assert.equal(store.approvalCalls[0].mode, "auto");
+  assert.equal(store.approvalCalls[0].reviewerId, null);
+  assert.match(String(store.approvalCalls[0].slipTokenHash), /^[0-9a-f]{64}$/);
+  assert.equal(store.uploadedDrafts.size, 1);
+  assert.equal(store.contractDraftCalls.length, 1);
+  assert.equal(store.contractDraftCalls[0].path, `${[...store.rows.values()][0].id}/contract-draft.pdf`);
 
   const stored = [...store.rows.values()][0];
-  assert.equal(stored.status, "contract_sent");
+  assert.equal(stored.status, "approved_waiting_slip");
   assert.equal(stored.email_message_id, "gmail-message-1");
   assert.ok(stored.contract_sent_at);
+  assert.equal(stored.last_error_code, null);
+});
+
+test("duplicate phone during auto approval falls back to manual review without a contract", async () => {
+  const store = new MemoryStore();
+  const mails: DealerSignupEmail[] = [];
+  const deps = makeDeps(store, "eligible", mails, {
+    approveSignup: async (input) => {
+      store.approvalCalls.push(input as unknown as Record<string, unknown>);
+      throw Object.assign(
+        new Error("SĐT 0909123456 đang được dùng cho khách hàng Hộ kinh doanh Cũ."),
+        { code: "23505" },
+      );
+    },
+  });
+
+  const response = await handleDealerSignupSubmit(request(VALID_BODY), deps);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.result, "manual_review");
+  assert.equal(body.status, "manual_review");
+  assert.equal(body.duplicate_phone, true);
+  assert.equal(mails.length, 2);
+  assert.ok(mails.every((mail) => mail.attachments === undefined));
+
+  const bmqMail = mails.find((mail) => mail.to === "bmq@example.test");
+  assert.ok(bmqMail);
+  assert.ok(bmqMail.text.includes("Số điện thoại đã thuộc khách hàng khác"));
+  assert.equal(store.approvalCalls.length, 1);
+  assert.equal(store.uploadedDrafts.size, 0);
+  assert.equal(store.contractDraftCalls.length, 0);
+
+  const stored = [...store.rows.values()][0];
+  assert.equal(stored.status, "manual_review");
+  assert.equal(stored.last_error_code, "duplicate_phone");
 });
 
 test("the same idempotency key never sends a second email", async () => {
@@ -254,6 +323,9 @@ test("the same idempotency key never sends a second email", async () => {
   assert.equal(store.rows.size, 1);
   assert.equal(secondBody.application_code, firstBody.application_code);
   assert.equal(secondBody.email_message_id, firstBody.email_message_id);
+  assert.equal(store.approvalCalls.length, 1);
+  assert.equal(store.uploadedDrafts.size, 1);
+  assert.equal(store.contractDraftCalls.length, 1);
 });
 
 test("an email failure is stored as email_failed and a retry does not resend", async () => {

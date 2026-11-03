@@ -15,6 +15,7 @@ export type DealerCustomerProfile = {
   is_npp?: boolean | null;
   supplied_by_npp_customer_id?: string | null;
   order_locked?: boolean | null;
+  dealer_onboarding_status?: "waiting_slip" | "active" | null;
 };
 
 export type DealerSessionContext = {
@@ -149,7 +150,7 @@ export async function resolveDealerSession(supabase: DealerServiceClient, token:
   const { data, error } = await supabase
     .from("dealer_sessions")
     .select(
-      "id, customer_id, contact_id, expires_at, mini_crm_customers!inner(id, customer_name, customer_code, customer_group, address, is_active, is_npp, supplied_by_npp_customer_id, order_locked), dealer_customer_contacts(id, contact_name, phone_normalized, is_active, is_test)",
+      "id, customer_id, contact_id, expires_at, mini_crm_customers!inner(id, customer_name, customer_code, customer_group, address, is_active, is_npp, supplied_by_npp_customer_id, order_locked, dealer_onboarding_status), dealer_customer_contacts(id, contact_name, phone_normalized, is_active, is_test)",
     )
     .eq("token_hash", tokenHash)
     .is("revoked_at", null)

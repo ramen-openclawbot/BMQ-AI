@@ -565,7 +565,8 @@ function CheckResult({ result, thresholdKm }: { result: DealerSignupCheckResult;
 }
 
 function SubmittedCard({ result, email }: { result: DealerSignupSubmitResult; email: string }) {
-  const sent = result.status === "contract_sent";
+  const sent = result.status === "contract_sent" || result.status === "approved_waiting_slip";
+  const awaitingSlip = result.status === "approved_waiting_slip";
   const rejected = result.status === "rejected_too_close";
   return (
     <div role="status" className="mt-8 rounded-2xl border border-[#edd4df] bg-white p-6 sm:p-8">
@@ -575,7 +576,9 @@ function SubmittedCard({ result, email }: { result: DealerSignupSubmitResult; em
       </h3>
       <p className="mt-3 text-base leading-7 text-[#806873]">
         {sent
-          ? `BMQ đã gửi hợp đồng đại lý (PDF) tới ${email}. Anh/chị kiểm tra hộp thư (cả mục Spam), đọc kỹ, ký và gửi lại cho BMQ.`
+          ? awaitingSlip
+            ? `BMQ đã gửi hợp đồng đại lý (PDF) tới ${email}, kèm link upload bank slip. Anh/chị đăng nhập được dathang.banhmique.vn bằng số điện thoại vừa đăng ký; sau khi upload bank slip là đặt bánh được.`
+            : `BMQ đã gửi hợp đồng đại lý (PDF) tới ${email}. Anh/chị kiểm tra hộp thư (cả mục Spam), đọc kỹ, ký và gửi lại cho BMQ.`
           : rejected
           ? "Khi kiểm tra lại, vị trí này nằm trong bán kính của một đại lý BMQ hiện có. Anh/chị có thể chọn vị trí khác."
           : "Vị trí cần BMQ kiểm tra thêm. BMQ sẽ liên hệ anh/chị qua điện thoại hoặc email trong thời gian sớm nhất."}

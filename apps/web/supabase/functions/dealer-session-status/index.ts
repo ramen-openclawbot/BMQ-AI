@@ -9,6 +9,7 @@ import {
   resolveDealerSessionWithLock,
 } from "../_shared/dealer.ts";
 import { dealerOrderLockedResponseBody } from "../_shared/dealer-order-lock.ts";
+import { normalizeDealerOnboardingStatus } from "../_shared/dealer-onboarding.ts";
 
 // Lightweight session probe for the dealer portal. It performs no writes beyond
 // the last_seen_at touch already done by resolveDealerSession.
@@ -39,7 +40,12 @@ serve(async (req) => {
       return errorResponse(req, "dealer_session_invalid", 401, "dealer_session_invalid");
     }
 
-    return jsonResponse(req, { ok: true });
+    return jsonResponse(req, {
+      ok: true,
+      onboarding_status: normalizeDealerOnboardingStatus(
+        resolution.session.customer.dealer_onboarding_status,
+      ),
+    });
   } catch (error) {
     console.error("[dealer-session-status] Unexpected error", error);
     return errorResponse(req, "Không kiểm tra được phiên đại lý.", 500, "dealer_session_status_failed");

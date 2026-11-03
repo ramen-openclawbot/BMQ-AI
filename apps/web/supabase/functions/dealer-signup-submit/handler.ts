@@ -34,6 +34,15 @@ import {
   type DealerContractInput,
   type DealerContractPdfAssets,
 } from "../_shared/dealer-signup-contract.ts";
+import {
+  buildDealerContractEmailInsert,
+  dealerContractDraftPath,
+  dealerSignupPublicBaseUrl,
+  dealerSlipTokenExpiresAt,
+  generateDealerSlipToken,
+  hashDealerSlipToken,
+  type DealerSignupApprovalResult,
+} from "../_shared/dealer-signup-review.ts";
 
 export type DealerSignupEmail = {
   to: string;
@@ -66,6 +75,19 @@ export type DealerSignupSubmitDeps = {
   ) => Promise<Uint8Array>;
   loadContractAssets?: () => Promise<DealerContractPdfAssets>;
   sendEmail?: (email: DealerSignupEmail) => Promise<{ id: string }>;
+  /** Creates the CRM customer exactly once; returns an existing result on retry. */
+  approveSignup?: (input: {
+    applicationId: string;
+    mode: "auto" | "manual";
+    reviewerId: string | null;
+    customerGroup: string | null;
+    productGroup: string | null;
+    slipTokenHash: string;
+    slipExpiresAt: string;
+  }) => Promise<DealerSignupApprovalResult>;
+  /** Stores the generated PDF; returns its bucket path. */
+  uploadContractDraft?: (applicationId: string, pdf: Uint8Array) => Promise<string>;
+  setContractDraft?: (applicationId: string, path: string) => Promise<void>;
   fetcher?: Fetcher;
   env?: (key: string) => string | undefined;
   now?: () => Date;
@@ -163,11 +185,12 @@ function validateSignup(body: Record<string, unknown>): ValidationSuccess | Vali
 }
 
 function cachedResponse(application: DealerSignupApplication): Record<string, unknown> {
-  const result = application.status === "rejected_too_close"
+  const status = String(application.status);
+  const result = status === "rejected_too_close"
     ? "too_close"
-    : application.status === "contract_sent"
-    ? "eligible"
-    : "manual_review";
+    : status === "manual_review" || status === "rejected_manual" || status === "email_failed"
+    ? "manual_review"
+    : "eligible";
 
   return {
     success: true,
@@ -176,6 +199,9 @@ function cachedResponse(application: DealerSignupApplication): Record<string, un
     application_code: application.application_code,
     nearest_distance_m: application.nearest_distance_m,
     email_message_id: application.email_message_id,
+    ...(status === "approved_waiting_slip" || status === "active"
+      ? { dealer_onboarding_status: status === "active" ? "active" : "waiting_slip" }
+      : {}),
   };
 }
 
@@ -439,6 +465,155 @@ export async function handleDealerSignupSubmit(
 
     const term = contractTerm(contractDate);
     const attachmentName = `HopDong-BMQ-${inserted.application_code}.pdf`;
+
+    // New dealer onboarding: approve first (creates exactly one waiting_slip
+    // CRM customer), then store the same PDF and email one contract containing
+    // the bank-slip link. A failed approval falls back to manual review and
+    // never sends the contract.
+    const slipToken = generateDealerSlipToken();
+    const slipTokenHash = await hashDealerSlipToken(slipToken);
+    const slipExpiresAt = dealerSlipTokenExpiresAt(now());
+    const publicBaseUrl = dealerSignupPublicBaseUrl(env);
+
+    let approved: DealerSignupApprovalResult;
+    try {
+      if (!deps.approveSignup) throw new Error("approval_not_configured");
+      approved = await deps.approveSignup({
+        applicationId: inserted.id,
+        mode: "auto",
+        reviewerId: null,
+        customerGroup: null,
+        productGroup: null,
+        slipTokenHash,
+        slipExpiresAt,
+      });
+    } catch (error) {
+      const rawCode = safeErrorCode(error, "approval_failed");
+      const message = String((error as Error)?.message || "");
+      const duplicatePhone = rawCode === "23505" || message.includes("đang được dùng");
+      const code = duplicatePhone ? "duplicate_phone" : rawCode;
+      await deps.store.update(inserted.id, {
+        status: "manual_review",
+        last_error_code: code,
+      });
+      logger(`approval_failed:${code}`);
+
+      const reasonLabel = duplicatePhone
+        ? "Số điện thoại đã thuộc khách hàng khác — cần xét tay và xử lý số điện thoại"
+        : reviewReasonLabel(code);
+      const details: Array<[string, string]> = [
+        ["Mã hồ sơ", inserted.application_code],
+        ["Họ tên", input.applicantName],
+        ["Hộ kinh doanh", input.businessName],
+        ["CCCD", input.cccd],
+        ["Ngày hết hạn CCCD", formatContractDate(input.cccdValidUntil)],
+        ["Điện thoại", input.phone],
+        ["Email", input.email],
+        ["Địa chỉ", input.addressText],
+        ["Lý do xét tay", reasonLabel],
+      ];
+
+      const bmqMail: DealerSignupEmail = {
+        to: bmqEmail,
+        subject: `[Đăng ký đại lý] Cần xét tay – ${inserted.application_code}`,
+        text: emailText(
+          "Hồ sơ đăng ký đại lý cần xét tay",
+          [
+            "Hồ sơ đủ điều kiện nhưng chưa thể duyệt tự động. BMQ vui lòng kiểm tra và duyệt tay.",
+            "Khách chưa nhận hợp đồng và chưa được tạo tài khoản đại lý.",
+          ],
+          details,
+        ),
+        html: emailHtml(
+          "Hồ sơ đăng ký đại lý cần xét tay",
+          [
+            "Hồ sơ đủ điều kiện nhưng chưa thể duyệt tự động. BMQ vui lòng kiểm tra và duyệt tay.",
+            "Khách chưa nhận hợp đồng và chưa được tạo tài khoản đại lý.",
+          ],
+          details,
+        ),
+      };
+
+      const customerMail: DealerSignupEmail = {
+        to: input.email,
+        subject: `BMQ đã nhận hồ sơ đăng ký đại lý – ${inserted.application_code}`,
+        text: emailText(
+          "BMQ đã nhận hồ sơ đăng ký đại lý",
+          [
+            `Kính gửi ${input.applicantName},`,
+            "BMQ đã nhận được hồ sơ đăng ký đại lý của anh/chị.",
+            "BMQ sẽ liên hệ để kiểm tra thông tin trước khi gửi hợp đồng.",
+          ],
+          [["Mã hồ sơ", inserted.application_code]],
+        ),
+        html: emailHtml(
+          "BMQ đã nhận hồ sơ đăng ký đại lý",
+          [
+            `Kính gửi ${input.applicantName},`,
+            "BMQ đã nhận được hồ sơ đăng ký đại lý của anh/chị.",
+            "BMQ sẽ liên hệ để kiểm tra thông tin trước khi gửi hợp đồng.",
+          ],
+          [["Mã hồ sơ", inserted.application_code]],
+        ),
+      };
+
+      try {
+        const bmqSent = await requireEmailSender(deps)(bmqMail);
+        await requireEmailSender(deps)(customerMail);
+        await deps.store.update(inserted.id, { email_message_id: bmqSent.id });
+      } catch (mailError) {
+        logger(`manual_review_email_failed:${safeErrorCode(mailError, "email_send_failed")}`);
+      }
+
+      return dealerSignupJson(req, {
+        success: true,
+        result: "manual_review",
+        status: "manual_review",
+        application_code: inserted.application_code,
+        nearest_distance_m: decision.nearest_distance_m,
+        duplicate_phone: duplicatePhone,
+      });
+    }
+
+    const draftPath = dealerContractDraftPath(inserted.id);
+    let storedDraftPath = draftPath;
+    try {
+      if (!deps.uploadContractDraft || !deps.setContractDraft) {
+        throw new Error("contract_storage_not_configured");
+      }
+      storedDraftPath = await deps.uploadContractDraft(inserted.id, pdf);
+      await deps.setContractDraft(inserted.id, storedDraftPath);
+    } catch (error) {
+      const code = safeErrorCode(error, "contract_storage_failed");
+      await deps.store.update(inserted.id, {
+        status: "approved_waiting_slip" as DealerSignupApplication["status"],
+        last_error_code: code,
+      });
+      logger(`contract_storage_failed:${code}`);
+      return dealerSignupError(
+        req,
+        "Đã duyệt hồ sơ nhưng chưa lưu được hợp đồng. Vui lòng thử lại sau.",
+        500,
+        code,
+      );
+    }
+
+    const accountInsert = buildDealerContractEmailInsert({ slipToken, publicBaseUrl });
+    const contractParagraphs = [
+      `Kính gửi ${input.applicantName},`,
+      "BMQ gửi anh/chị hợp đồng phân phối bánh mì que BMQ (đại lý mở 01 điểm) đã điền thông tin đăng ký.",
+      "Vui lòng kiểm tra thông tin trong hợp đồng, ký và gửi lại bản ký cho BMQ.",
+      "Bản dự thảo chỉ có hiệu lực khi hai bên ký.",
+      ...accountInsert.text,
+    ];
+    const contractHtmlParagraphs = [
+      `Kính gửi ${input.applicantName},`,
+      "BMQ gửi anh/chị hợp đồng phân phối bánh mì que BMQ (đại lý mở 01 điểm) đã điền thông tin đăng ký.",
+      "Vui lòng kiểm tra thông tin trong hợp đồng, ký và gửi lại bản ký cho BMQ.",
+      "Bản dự thảo chỉ có hiệu lực khi hai bên ký.",
+      ...accountInsert.html,
+    ];
+
     const details: Array<[string, string]> = [
       ["Mã hồ sơ", inserted.application_code],
       ["Họ tên", input.applicantName],
@@ -456,22 +631,12 @@ export async function handleDealerSignupSubmit(
       subject: `Hợp đồng phân phối BMQ – ${inserted.application_code}`,
       text: emailText(
         "Hợp đồng phân phối bánh mì que BMQ",
-        [
-          `Kính gửi ${input.applicantName},`,
-          "BMQ gửi anh/chị hợp đồng phân phối bánh mì que BMQ (đại lý mở 01 điểm) đã điền thông tin đăng ký.",
-          "Vui lòng kiểm tra thông tin trong hợp đồng, ký và gửi lại bản ký cho BMQ.",
-          "Bản dự thảo chỉ có hiệu lực khi hai bên ký.",
-        ],
+        contractParagraphs,
         details,
       ),
       html: emailHtml(
         "Hợp đồng phân phối bánh mì que BMQ",
-        [
-          `Kính gửi ${input.applicantName},`,
-          "BMQ gửi anh/chị hợp đồng phân phối bánh mì que BMQ (đại lý mở 01 điểm) đã điền thông tin đăng ký.",
-          "Vui lòng kiểm tra thông tin trong hợp đồng, ký và gửi lại bản ký cho BMQ.",
-          "Bản dự thảo chỉ có hiệu lực khi hai bên ký.",
-        ],
+        contractHtmlParagraphs,
         details,
       ),
       attachments: [{
@@ -484,7 +649,7 @@ export async function handleDealerSignupSubmit(
     try {
       const sent = await requireEmailSender(deps)(customerMail);
       await deps.store.update(inserted.id, {
-        status: "contract_sent",
+        status: "approved_waiting_slip" as DealerSignupApplication["status"],
         contract_sent_at: now().toISOString(),
         email_message_id: sent.id,
         last_error_code: null,
@@ -493,10 +658,14 @@ export async function handleDealerSignupSubmit(
       return dealerSignupJson(req, {
         success: true,
         result: "eligible",
-        status: "contract_sent",
+        status: "approved_waiting_slip",
         application_code: inserted.application_code,
         nearest_distance_m: decision.nearest_distance_m,
         email_message_id: sent.id,
+        crm_customer_id: approved.crm_customer_id,
+        dealer_onboarding_status: "waiting_slip",
+        contract_draft_path: storedDraftPath,
+        slip_expires_at: slipExpiresAt,
       });
     } catch (error) {
       const code = safeErrorCode(error, "email_send_failed");

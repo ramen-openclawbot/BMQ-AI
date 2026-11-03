@@ -113,6 +113,20 @@ static_files = [
 # Public browser map configuration (OpenStreetMap tiles/geocoder, no keys).
 verify_jwt = false
 
+[functions.dealer-signup-review]
+# CRM review endpoint; JWT, owner/crm permissions and accounting document
+# access are checked inside handler.ts.
+verify_jwt = false
+# The contract PDF is generated at runtime from the checked-in Vietnamese fonts.
+static_files = [
+  "./functions/_shared/fonts/NotoSans-Regular.ttf",
+  "./functions/_shared/fonts/NotoSans-Bold.ttf",
+]
+
+[functions.dealer-signup-slip]
+# Public bank-slip page: token or dealer session is checked inside the function.
+verify_jwt = false
+
 [functions.dealer-order-submit]
 verify_jwt = false
 

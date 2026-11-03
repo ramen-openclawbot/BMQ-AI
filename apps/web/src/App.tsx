@@ -13,6 +13,8 @@ const PAYSLIP_HOST = "payroll.banhmique.vn";
 const PayslipPortalHost = lazy(() => import("@/pages/PayslipPortalHost"));
 // Public new-dealer franchise page: dathang.banhmique.vn/dai-ly-moi.
 const DealerSignupPage = lazy(() => import("@/pages/DealerSignupPage"));
+// Bank-slip upload from the new-dealer congratulations email.
+const DealerBankSlipPage = lazy(() => import("@/pages/DealerBankSlipPage"));
 // Supplier delivery-invoice upload page (public link from the order email).
 const SupplierUploadPortal = lazy(() => import("@/pages/SupplierUploadPortal"));
 const ADMIN_APP_TITLE = "BMQ AI Quản Trị";
@@ -77,10 +79,17 @@ function supplierUploadToken(): string | null {
   return match ? match[1] : null;
 }
 
-function isDealerSignupRoute(): boolean {
+function isDealerSignupHost(): boolean {
   const host = window.location.hostname;
-  const allowedHost = host === DEALER_ORDERING_HOST || host === "localhost" || host === "127.0.0.1";
-  return allowedHost && /^\/dai-ly-moi\/?$/.test(window.location.pathname);
+  return host === DEALER_ORDERING_HOST || host === "localhost" || host === "127.0.0.1";
+}
+
+function isDealerSignupRoute(): boolean {
+  return isDealerSignupHost() && /^\/dai-ly-moi\/?$/.test(window.location.pathname);
+}
+
+function isDealerBankSlipRoute(): boolean {
+  return isDealerSignupHost() && /^\/dai-ly-moi\/bank-slip\/?$/.test(window.location.pathname);
 }
 
 function isKioskReportHost(): boolean {
@@ -104,6 +113,14 @@ function App() {
     return (
       <Suspense fallback={<PageLoader />}>
         <PayslipPortalHost />
+      </Suspense>
+    );
+  }
+
+  if (isDealerBankSlipRoute()) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <DealerBankSlipPage />
       </Suspense>
     );
   }

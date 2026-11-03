@@ -22,7 +22,10 @@ export type DealerSignupStatus =
   | "rejected_too_close"
   | "manual_review"
   | "contract_sent"
-  | "email_failed";
+  | "email_failed"
+  | "approved_waiting_slip"
+  | "active"
+  | "rejected_manual";
 
 export type DealerSignupCheckInput = {
   lat: number;
@@ -76,12 +79,19 @@ export type PhotonFetcher = (
 export class DealerSignupApiError extends Error {
   readonly code: string | null;
   readonly rateLimited: boolean;
+  readonly status: number | null;
 
-  constructor(message: string, code: string | null = null, rateLimited = false) {
+  constructor(
+    message: string,
+    code: string | null = null,
+    rateLimited = false,
+    status: number | null = null,
+  ) {
     super(message);
     this.name = "DealerSignupApiError";
     this.code = code;
     this.rateLimited = rateLimited;
+    this.status = status;
   }
 }
 
@@ -116,6 +126,251 @@ export function submitDealerSignup(
   input: DealerSignupSubmitInput,
 ): Promise<DealerSignupSubmitResult> {
   return invoke<DealerSignupSubmitResult>("dealer-signup-submit", { ...input });
+}
+
+// ---------------------------------------------------------------------------
+// CRM review, signed contract and bank slip API
+// ---------------------------------------------------------------------------
+export type DealerSignupFetcher = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
+
+export type DealerSignupRequestOptions = {
+  accessToken?: string;
+  fetcher?: DealerSignupFetcher;
+  /** Optional override for tests or a non-Vite caller. */
+  supabaseUrl?: string;
+};
+
+export type DealerSignupReviewAction =
+  | "approve"
+  | "regenerate_contract"
+  | "resend_slip_link"
+  | "reject"
+  | "download";
+
+export type DealerSignupDocumentKind = "contract_draft" | "contract_signed" | "slip";
+
+export type DealerSignupReviewResult = {
+  success: boolean;
+  application_id?: string;
+  application_code?: string;
+  status?: DealerSignupStatus | string;
+  already_approved?: boolean;
+  crm_customer_id?: string | null;
+  dealer_onboarding_status?: "waiting_slip" | "active" | null;
+  contract_ready?: boolean;
+  contract_draft_path?: string;
+  email_sent?: boolean;
+  email_error_code?: string;
+  contract_error_code?: string;
+  slip_expires_at?: string;
+  reject_reason?: string;
+  path?: string;
+  uploaded_at?: string;
+  url?: string;
+  expires_in?: number;
+};
+
+export type DealerSignupDocumentUrl = {
+  success: boolean;
+  application_id?: string;
+  application_code?: string;
+  kind: DealerSignupDocumentKind;
+  url: string;
+  expires_in: number;
+};
+
+export type DealerSignupSlipStatus = "valid" | "expired" | "used" | "invalid";
+
+export type DealerSignupSlipStatusResult = {
+  success: boolean;
+  status: DealerSignupSlipStatus;
+  application_code?: string;
+  business_name?: string;
+  can_upload?: boolean;
+};
+
+export type DealerSignupSlipUploadResult = {
+  success: boolean;
+  status: "active";
+  already_active?: boolean;
+  application_code?: string;
+  business_name?: string;
+  email_sent?: boolean;
+};
+
+function edgeFunctionUrl(name: string, supabaseUrl?: string): string {
+  const base = supabaseUrl ||
+    (typeof import.meta.env === "object" && import.meta.env
+      ? import.meta.env.VITE_SUPABASE_URL
+      : "");
+  if (!base) {
+    throw new DealerSignupApiError("Thiếu cấu hình Supabase.", "missing_supabase_url");
+  }
+  return `${String(base).replace(/\/+$/, "")}/functions/v1/${name}`;
+}
+
+/** Supabase gateway key, sent like callEdgeFunction does; empty in tests. */
+function publishableKeyHeader(): Record<string, string> {
+  const key = typeof import.meta.env === "object" && import.meta.env
+    ? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
+    : "";
+  return key ? { apikey: String(key) } : {};
+}
+
+async function requireAccessToken(provided?: string): Promise<string> {
+  if (provided) return provided;
+  const { supabase } = await import("@/integrations/supabase/client");
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) {
+    throw new DealerSignupApiError(
+      "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
+      "unauthorized",
+      false,
+      401,
+    );
+  }
+  return token;
+}
+
+async function readApiResponse<T>(response: Response): Promise<T> {
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = await response.json() as Record<string, unknown>;
+  } catch {
+    payload = {};
+  }
+
+  if (!response.ok) {
+    throw new DealerSignupApiError(
+      String(payload.error || payload.message || `HTTP ${response.status}`),
+      typeof payload.code === "string" ? payload.code : null,
+      response.status === 429,
+      response.status,
+    );
+  }
+
+  return payload as T;
+}
+
+/**
+ * One CRM review action. The Edge Function enforces owner / crm edit on the
+ * server; this client only forwards the Supabase access token.
+ */
+export async function reviewDealerSignup(
+  input: {
+    action: DealerSignupReviewAction;
+    applicationId: string;
+    reason?: string;
+    kind?: DealerSignupDocumentKind;
+  },
+  options: DealerSignupRequestOptions = {},
+): Promise<DealerSignupReviewResult> {
+  const token = await requireAccessToken(options.accessToken);
+  const fetcher = options.fetcher ?? fetch;
+  const response = await fetcher(
+    `${edgeFunctionUrl("dealer-signup-review", options.supabaseUrl)}?action=${encodeURIComponent(input.action)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...publishableKeyHeader(),
+      },
+      body: JSON.stringify({
+        action: input.action,
+        application_id: input.applicationId,
+        reason: input.reason,
+        kind: input.kind,
+      }),
+    },
+  );
+  return await readApiResponse<DealerSignupReviewResult>(response);
+}
+
+/** Signed URL valid for five minutes; permission is checked server-side. */
+export async function getDealerSignupDocumentUrl(
+  input: { applicationId: string; kind: DealerSignupDocumentKind },
+  options: DealerSignupRequestOptions = {},
+): Promise<DealerSignupDocumentUrl> {
+  const result = await reviewDealerSignup(
+    { action: "download", applicationId: input.applicationId, kind: input.kind },
+    options,
+  );
+  if (!result.success) {
+    throw new DealerSignupApiError("Không tải được giấy tờ hồ sơ.", "document_missing");
+  }
+  return {
+    success: true,
+    application_id: result.application_id,
+    application_code: result.application_code,
+    kind: input.kind,
+    url: String(result.url || ""),
+    expires_in: Number(result.expires_in || 300),
+  };
+}
+
+/** Accounting/crm edit uploads the stamped contract (multipart). */
+export async function uploadDealerSignedContract(
+  input: { applicationId: string; file: File },
+  options: DealerSignupRequestOptions = {},
+): Promise<DealerSignupReviewResult> {
+  const token = await requireAccessToken(options.accessToken);
+  const fetcher = options.fetcher ?? fetch;
+  const form = new FormData();
+  form.set("application_id", input.applicationId);
+  form.set("file", input.file);
+
+  const response = await fetcher(
+    `${edgeFunctionUrl("dealer-signup-review", options.supabaseUrl)}?action=upload_signed_contract`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, ...publishableKeyHeader() },
+      body: form,
+    },
+  );
+  return await readApiResponse<DealerSignupReviewResult>(response);
+}
+
+/** Public link status; never returns CCCD or phone number. */
+export async function getDealerSlipStatus(
+  token: string,
+  options: { fetcher?: DealerSignupFetcher; supabaseUrl?: string } = {},
+): Promise<DealerSignupSlipStatusResult> {
+  const fetcher = options.fetcher ?? fetch;
+  const response = await fetcher(
+    `${edgeFunctionUrl("dealer-signup-slip", options.supabaseUrl)}?token=${encodeURIComponent(token)}`,
+    { method: "GET", headers: publishableKeyHeader() },
+  );
+  return await readApiResponse<DealerSignupSlipStatusResult>(response);
+}
+
+/** Upload a bank slip with the link token or an existing dealer session. */
+export async function uploadDealerSlip(
+  input: { file: File; token?: string; dealerToken?: string },
+  options: { fetcher?: DealerSignupFetcher; supabaseUrl?: string } = {},
+): Promise<DealerSignupSlipUploadResult> {
+  const fetcher = options.fetcher ?? fetch;
+  const form = new FormData();
+  form.set("file", input.file);
+  if (input.token) form.set("token", input.token);
+
+  const query = input.token ? `?token=${encodeURIComponent(input.token)}` : "";
+  const response = await fetcher(
+    `${edgeFunctionUrl("dealer-signup-slip", options.supabaseUrl)}${query}`,
+    {
+      method: "POST",
+      headers: {
+        ...publishableKeyHeader(),
+        ...(input.dealerToken ? { "x-dealer-session": input.dealerToken } : {}),
+      },
+      body: form,
+    },
+  );
+  return await readApiResponse<DealerSignupSlipUploadResult>(response);
 }
 
 /** Stable idempotency key for one application form session. */

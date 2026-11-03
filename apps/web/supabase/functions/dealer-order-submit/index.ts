@@ -10,6 +10,7 @@ import {
   resolveDealerSessionWithLock,
 } from "../_shared/dealer.ts";
 import { dealerOrderLockedResponseBody } from "../_shared/dealer-order-lock.ts";
+import { dealerOnboardingBlock } from "../_shared/dealer-onboarding.ts";
 import {
   defaultDeliveryDateTPlusOne,
   formatWarehouseOrderMessage,
@@ -128,6 +129,13 @@ serve(async (req) => {
     const sessionContext = sessionContextOrNull?.session ?? null;
     if (!sessionContext) {
       return errorResponse(req, "Phiên đại lý đã hết hạn. Vui lòng đăng nhập lại.", 401, "dealer_session_invalid");
+    }
+
+    // New dealer waiting for a bank slip may log in (is_active=true,
+    // order_locked=false) but must not create an order yet.
+    const onboardingBlock = dealerOnboardingBlock(sessionContext.customer);
+    if (onboardingBlock) {
+      return jsonResponse(req, onboardingBlock, 403);
     }
 
     const items = normalizeItems(body.items);

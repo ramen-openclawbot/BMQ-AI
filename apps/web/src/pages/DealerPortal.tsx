@@ -43,6 +43,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useDealerCartAssistant, type DealerCartAssistantHistoryTurn } from "@/hooks/useDealerCartAssistant";
 import { applyCartProposal, applyRouteProposal, type DealerRouteProposalLine } from "@/lib/dealer-cart-assistant";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
+import { DealerAwaitingSlipNotice } from "@/components/dealer/DealerAwaitingSlipNotice";
 import { cn } from "@/lib/utils";
 import "@/styles/dealer-order-history.css";
 import "@/styles/dealer-option-c.css";
@@ -524,6 +525,8 @@ export default function DealerPortal() {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [activeNav, setActiveNav] = useState("messages");
+  // New dealer approved but without a bank slip: login works, ordering waits.
+  const [onboardingStatus, setOnboardingStatus] = useState<"waiting_slip" | "active" | null>(null);
   const [catalogProducts, setCatalogProducts] = useState<Product[]>(() => readDealerCatalogCache().products);
   const [catalogStatus, setCatalogStatus] = useState<"idle" | "loading" | "live" | "error">("idle");
   const [catalogError, setCatalogError] = useState("");
@@ -633,6 +636,7 @@ export default function DealerPortal() {
     setSessionToken("");
     setLoginStep("phone");
     setActiveNav("messages");
+    setOnboardingStatus(null);
   }, [setSessionToken]);
 
   const handleDealerOrderLocked = useCallback((message?: string | null) => {
@@ -652,7 +656,10 @@ export default function DealerPortal() {
 
     let cancelled = false;
     const checkDealerSessionStatus = async () => {
-      const { error, isSessionExpired } = await callEdgeFunction<{ ok?: boolean }>(
+      const { data, error, isSessionExpired } = await callEdgeFunction<{
+        ok?: boolean;
+        onboarding_status?: "waiting_slip" | "active" | null;
+      }>(
         "dealer-session-status",
         { dealer_token: sessionToken },
         undefined,
@@ -663,8 +670,14 @@ export default function DealerPortal() {
         handleDealerOrderLocked(error);
         return;
       }
-      if (isSessionExpired) clearDealerSession();
+      if (isSessionExpired) {
+        clearDealerSession();
+        return;
+      }
+      if (data?.ok) setOnboardingStatus(data.onboarding_status ?? null);
     };
+
+    void checkDealerSessionStatus();
 
     const handleWindowFocus = () => {
       void checkDealerSessionStatus();
@@ -1170,6 +1183,7 @@ export default function DealerPortal() {
         handleDealerOrderLocked(readDealerOrderLockedMessage(payload));
         return false;
       }
+      if (payload?.code === "dealer_awaiting_bank_slip") setOnboardingStatus("waiting_slip");
       setOrderError(await getFunctionErrorMessage(error, "Không gửi được đơn hàng."));
       return false;
     } finally {
@@ -2006,6 +2020,7 @@ export default function DealerPortal() {
           </div>
         </header>
         <DealerTestAccountNotice isTest={dealerCustomer?.is_test === true} />
+        <DealerAwaitingSlipNotice status={onboardingStatus} sessionToken={sessionToken} onActivated={() => setOnboardingStatus("active")} />
 
         <main className="mx-auto w-full max-w-3xl px-4 pb-28 pt-5 sm:pt-7">
           <section className="space-y-4" data-dealer-order-history-filter>
@@ -2315,6 +2330,7 @@ export default function DealerPortal() {
           </div>
         </header>
         <DealerTestAccountNotice isTest={dealerCustomer?.is_test === true} />
+        <DealerAwaitingSlipNotice status={onboardingStatus} sessionToken={sessionToken} onActivated={() => setOnboardingStatus("active")} />
 
         <main className="mx-auto max-w-2xl pb-24">
           <button
@@ -2416,6 +2432,7 @@ export default function DealerPortal() {
           </div>
         </header>
         <DealerTestAccountNotice isTest={dealerCustomer?.is_test === true} />
+        <DealerAwaitingSlipNotice status={onboardingStatus} sessionToken={sessionToken} onActivated={() => setOnboardingStatus("active")} />
         <main className="mx-auto w-full max-w-2xl px-3 py-4 sm:px-4">
           <NppQuickOrderPanel
             routes={chatOrderRoutes}
@@ -2538,6 +2555,7 @@ export default function DealerPortal() {
         </div>
       </header>
       <DealerTestAccountNotice isTest={dealerCustomer?.is_test === true} />
+      <DealerAwaitingSlipNotice status={onboardingStatus} sessionToken={sessionToken} onActivated={() => setOnboardingStatus("active")} />
 
       {isCatalogRestoring ? (
         <section id="dealer-top" className="bg-[#fffaf0] text-[#3f2411]">

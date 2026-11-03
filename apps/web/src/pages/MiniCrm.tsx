@@ -23,6 +23,7 @@ import { KnowledgeBaseProfileEditor } from "@/components/mini-crm/KnowledgeBaseP
 import { KioskReportAdminPanel } from "@/components/mini-crm/KioskReportAdminPanel";
 import { AttendanceGeofenceAdminPanel } from "@/components/mini-crm/AttendanceGeofenceAdminPanel";
 import { DealerLocationPinPanel } from "@/components/mini-crm/DealerLocationPinPanel";
+import { DealerSignupReviewPanel } from "@/components/mini-crm/DealerSignupReviewPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   buildManualSummaryMessage,
@@ -523,7 +524,7 @@ export default function MiniCrm() {
   const [setupModalOpen, setSetupModalOpen] = useState(false);
   const [setupDealerPhone, setSetupDealerPhone] = useState("");
   const [viewCustomer, setViewCustomer] = useState<any | null>(null);
-  const [miniCrmSection, setMiniCrmSection] = useState<"customers" | "locations" | "dealer_pins" | "staff" | "attendance_geofences">("customers");
+  const [miniCrmSection, setMiniCrmSection] = useState<"customers" | "dealer_signups" | "locations" | "dealer_pins" | "staff" | "attendance_geofences">("customers");
   const [setupPriceRows, setSetupPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
   const [setupEmailBodyTemplate, setSetupEmailBodyTemplate] = useState("");
   const [setupIsNpp, setSetupIsNpp] = useState(false);
@@ -2162,8 +2163,10 @@ export default function MiniCrm() {
 
   const filteredCustomers = useMemo(() => {
     const keyword = normalizeVietnameseText(customerSearch);
-    if (!keyword) return customers;
-    return customers.filter((c: any) => {
+    // New dealers waiting for a bank slip live in "Đại lý mới" until official.
+    const official = customers.filter((c: any) => c?.dealer_onboarding_status !== "waiting_slip");
+    if (!keyword) return official;
+    return official.filter((c: any) => {
       const name = normalizeVietnameseText(c?.customer_name);
       const group = normalizeVietnameseText(GROUP_LABEL_MAP[c?.customer_group] || c?.customer_group || "");
       const productGroup = normalizeVietnameseText(getBusinessProductLabel(c?.product_group, finishedSkus as BusinessSkuOption[]));
@@ -2959,12 +2962,13 @@ export default function MiniCrm() {
 
       <Tabs
         value={miniCrmSection}
-        onValueChange={(value) => setMiniCrmSection(value as "customers" | "locations" | "dealer_pins" | "staff" | "attendance_geofences")}
+        onValueChange={(value) => setMiniCrmSection(value as "customers" | "dealer_signups" | "locations" | "dealer_pins" | "staff" | "attendance_geofences")}
         className="w-full"
         data-kiosk-report-admin-function="kiosk-report-admin"
       >
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 md:w-auto md:grid-cols-5">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 md:w-auto md:grid-cols-6">
           <TabsTrigger value="customers">Khách hàng</TabsTrigger>
+          <TabsTrigger value="dealer_signups">Đại lý mới</TabsTrigger>
           <TabsTrigger value="locations">Điểm bán</TabsTrigger>
           <TabsTrigger value="dealer_pins">Vị trí đại lý</TabsTrigger>
           <TabsTrigger value="staff">Nhân viên bán hàng</TabsTrigger>
@@ -3310,6 +3314,14 @@ export default function MiniCrm() {
 
       {miniCrmSection === "locations" && (
         <KioskReportAdminPanel mode="locations" canView={canViewKioskAdmin} canEdit={canEditKioskAdmin} />
+      )}
+
+      {miniCrmSection === "dealer_signups" && (
+        <DealerSignupReviewPanel
+          canView={canViewKioskAdmin}
+          canReview={canEditKioskAdmin}
+          canUploadContract={canEditKioskAdmin || canEditModule("accounting")}
+        />
       )}
 
       {miniCrmSection === "dealer_pins" && (
