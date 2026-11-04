@@ -36,6 +36,7 @@ from .auth import Owner, verify_owner
 from .backend import BmqMerchantBackend
 from .config import Settings, strip_anthropic_api_key
 from .document_link_tools import build_document_link_tools
+from .fast_reply import fast_reply, fast_reply_group
 from .purchase_order_tools import build_purchase_order_tools
 from .revenue_snapshot import is_snapshot_command
 from .snapshot_tools import build_snapshot_tools
@@ -83,6 +84,8 @@ SUSHI_SYSTEM_PROMPT = (
     "tiếng Anh khi người dùng viết bằng tiếng Anh. Trong cả hai ngôn ngữ luôn tự xưng là BMQ Agent: tiếng "
     "Việt không bao giờ xưng em hay tôi và gọi người dùng là anh; tiếng Anh tự gọi mình là 'BMQ Agent', "
     "không dùng 'I' hay 'me'."
+    "\n\nTrả lời gọn: mặc định tối đa khoảng 120 từ; số liệu trình bày bằng vài dòng ngắn hoặc bảng nhỏ; "
+    "chỉ trả lời dài hơn khi anh yêu cầu chi tiết hoặc danh sách đầy đủ."
 )
 
 
@@ -626,6 +629,29 @@ def create_app(
                     },
                 ],
                 "tool_calls": ["bmq_revenue_snapshot"],
+                "pending_changes": [
+                    _serialize_change(change) for change in pending
+                ],
+            }
+        fast = fast_reply(payload.message)
+        if fast is not None:
+            logger.info(
+                "fast_reply group=%s", fast_reply_group(payload.message)
+            )
+            async with chat_session.lock:
+                chat_session.last_used = time.monotonic()
+            context = _session_context(chat_session.session_id, owner)
+            pending = await chat_session.backend.get_pending_changes(context)
+            return {
+                "session_id": chat_session.session_id,
+                "text": fast["text"],
+                "ui": [
+                    {
+                        "component": "suggestions",
+                        "payload": {"suggestions": fast["suggestions"]},
+                    }
+                ],
+                "tool_calls": ["bmq_fast_reply"],
                 "pending_changes": [
                     _serialize_change(change) for change in pending
                 ],

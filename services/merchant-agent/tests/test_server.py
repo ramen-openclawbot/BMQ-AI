@@ -239,6 +239,86 @@ def test_chat_snapshot_command_skips_turn_runner(settings: Settings) -> None:
     assert captured["turns"] == [], "snapshot fast path must not call turn_runner"
 
 
+def test_chat_greeting_fast_reply_skips_turn_runner(settings: Settings) -> None:
+    captured: dict[str, Any] = {"turns": []}
+
+    async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
+        captured["turns"].append(text)
+        return TurnResult(text="không được gọi")
+
+    fake = FakeBackend()
+    app = _app(settings, fake, captured, turn_runner=fake_turn)
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={"session_id": "session-fast-reply", "message": "Chào em"},
+        )
+        context_sent = app.state.sessions["session-fast-reply"].context_sent
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {
+        "session_id",
+        "text",
+        "ui",
+        "tool_calls",
+        "pending_changes",
+    }
+    assert body["session_id"] == "session-fast-reply"
+    assert body["tool_calls"] == ["bmq_fast_reply"]
+    assert body["ui"] == [
+        {
+            "component": "suggestions",
+            "payload": {
+                "suggestions": [
+                    "Snapshot doanh thu",
+                    "Doanh thu tháng này theo kênh",
+                    "PO hôm nay của nhà cung cấp nào?",
+                ]
+            },
+        }
+    ]
+    assert body["pending_changes"][0]["change_id"] == "change-1"
+    assert "BMQ Agent" in body["text"]
+    assert captured["turns"] == [], "fast reply must not call turn_runner"
+    assert context_sent is False, "fast reply must not mark the context as sent"
+
+
+def test_chat_greeting_with_extra_content_uses_turn_runner(
+    settings: Settings,
+) -> None:
+    captured: dict[str, Any] = {"turns": []}
+
+    async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
+        captured["turns"].append(text)
+        return TurnResult(text="AI trả lời")
+
+    fake = FakeBackend()
+    app = _app(settings, fake, captured, turn_runner=fake_turn)
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={
+                "session_id": "session-extra-content",
+                "message": "chào em, doanh thu hôm nay?",
+            },
+        )
+
+    assert response.status_code == 200
+    assert captured["turns"] == ["chào em, doanh thu hôm nay?"]
+    assert response.json()["text"] == "AI trả lời"
+    assert response.json()["tool_calls"] == []
+
+
+def test_sushi_system_prompt_asks_for_compact_answers() -> None:
+    from bmq_merchant.server import SUSHI_SYSTEM_PROMPT
+
+    assert "tối đa khoảng 120 từ" in SUSHI_SYSTEM_PROMPT
+    assert "Trả lời gọn" in SUSHI_SYSTEM_PROMPT
+
+
 def test_chat_snapshot_error_returns_502_without_breaking_session(
     settings: Settings,
 ) -> None:
@@ -257,7 +337,7 @@ def test_chat_snapshot_error_returns_502_without_breaking_session(
         recovered = client.post(
             "/v1/chat",
             headers={"Authorization": "Bearer owner-token"},
-            json={"session_id": "session-broken", "message": "Xin chào"},
+            json={"session_id": "session-broken", "message": "Doanh thu hôm nay?"},
         )
         assert "session-broken" in app.state.sessions
 

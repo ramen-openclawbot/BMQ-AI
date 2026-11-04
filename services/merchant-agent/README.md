@@ -167,6 +167,24 @@ cd services/merchant-agent
 "/Volumes/Samsung SSD 9100 PRO 1TB Media/VNAgent/worktrees/bmq-ai-merchant-agent-20261018/services/merchant-agent/.venv/bin/python" -m pytest -q
 ```
 
+## Trả lời nhanh không cần AI
+
+`POST /v1/chat` trả ngay các câu chào, cảm ơn/xác nhận và hỏi trợ giúp mà không
+gọi model, sau nhánh ảnh bankslip và nhánh snapshot doanh thu. Câu chỉ khớp khi
+đúng nguyên câu sau chuẩn hoá (chữ thường, bỏ dấu tiếng Việt kể cả `đ`, bỏ dấu
+câu/emoji ở hai đầu, gộp khoảng trắng) và tối đa 40 ký tự:
+
+- Chào hỏi: `chào`, `xin chào`, `chào em`, `hi`, `hello`, `alo`, `chào buổi sáng`, `chào BMQ Agent`...
+- Cảm ơn/xác nhận: `cảm ơn`, `thanks`, `ok`, `oke`, `được rồi`, `tốt`, `dạ`, `vâng`, `đúng rồi`...
+- Hỏi trợ giúp: `em làm được gì`, `giúp gì`, `hướng dẫn`, `help`, `trợ giúp`, `BMQ Agent là gì`, `em là ai`...
+
+Phản hồi có `tool_calls: ["bmq_fast_reply"]`, text ngắn tự xưng "BMQ Agent" và
+block `suggestions` như nhánh snapshot. Câu có thêm nội dung (ví dụ
+`chào em, doanh thu hôm nay?`) vẫn đi luồng AI bình thường.
+
+Thêm câu: sửa các set `GREETING`, `THANKS_ACK`, `HELP` trong
+`bmq_merchant/fast_reply.py`, chỉ thêm dạng đã chuẩn hoá (chữ thường, không dấu).
+
 ## Migration
 
 File `apps/web/supabase/migrations/20261102180000_merchant_agent.sql` đã được
