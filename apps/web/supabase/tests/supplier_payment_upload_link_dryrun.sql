@@ -1,8 +1,8 @@
 begin;
 
--- Rollback-only dry run cho 20261104100000_supplier_payment_upload_link.sql.
+-- Rollback-only dry run cho 20261104110000_supplier_payment_upload_link.sql.
 --
--- CHẠY SAU khi migration 20261104100000_supplier_payment_upload_link.sql đã được
+-- CHẠY SAU khi migration 20261104110000_supplier_payment_upload_link.sql đã được
 -- áp lên database (Maestro áp migration rồi chạy file này; \i không dùng được).
 -- Mọi fixture dùng id cố định 00000000-… và rollback ở cuối, không gửi Zalo/email
 -- thật và không đụng dữ liệu thật.
