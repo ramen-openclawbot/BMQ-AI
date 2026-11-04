@@ -2,7 +2,8 @@ begin;
 
 -- Rollback-only dry run cho 20261104110000_supplier_payment_upload_link.sql.
 --
--- CHẠY SAU khi migration 20261104110000_supplier_payment_upload_link.sql đã được
+-- CHẠY SAU khi migration 20261104110000_supplier_payment_upload_link.sql và
+-- 20261104130000_supplier_payment_zalo_wording.sql đã được
 -- áp lên database (Maestro áp migration rồi chạy file này; \i không dùng được).
 -- Mọi fixture dùng id cố định 00000000-… và rollback ở cuối, không gửi Zalo/email
 -- thật và không đụng dữ liệu thật.
@@ -309,7 +310,7 @@ begin
 
   v_expected :=
     'BMQ đã thanh toán PO-DRYRUN-UPLOAD-0001, PO-DRYRUN-UPLOAD-0002, PO-DRYRUN-UPLOAD-0003, số tiền 3.000.000 đ. Anh/Chị vui lòng kiểm tra email để xem ảnh UNC.'
-    || E'\n' || 'Quý nhà cung cấp vui lòng upload phiếu giao hàng/hoá đơn tại các link sau:'
+    || E'\n\n' || 'Upload phiếu giao hàng/hoá đơn tại các link sau:'
     || E'\n' || '• PO-DRYRUN-UPLOAD-0001: https://ai.banhmique.vn/ncc/hoa-don/' || v_tokens[1]
     || E'\n' || '• PO-DRYRUN-UPLOAD-0002: https://ai.banhmique.vn/ncc/hoa-don/' || v_tokens[2]
     || E'\n' || 'Trân trọng.';
@@ -399,7 +400,7 @@ begin
   v_token := substring(v_message from 'hoa-don/([A-Za-z0-9_-]+)');
   v_expected :=
     'BMQ đã thanh toán PO-DRYRUN-UPLOAD-0004, số tiền 500.000 đ. Anh/Chị vui lòng kiểm tra email để xem ảnh UNC.'
-    || E'\n' || 'Quý nhà cung cấp vui lòng upload phiếu giao hàng/hoá đơn tại link sau:'
+    || E'\n\n' || 'Upload phiếu giao hàng/hoá đơn tại link sau:'
     || E'\n' || 'https://ai.banhmique.vn/ncc/hoa-don/' || v_token
     || E'\n' || 'Trân trọng.';
 
