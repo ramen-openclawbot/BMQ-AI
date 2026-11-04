@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Phone, Mail, Package, Pencil, Save, X, FileText, CreditCard, Banknote, Clock, FileUp, ExternalLink, Trash2, UserRound, ShoppingCart } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Phone, Mail, Package, Pencil, Save, X, FileText, CreditCard, Banknote, Clock, FileUp, ExternalLink, Trash2, UserRound, ShoppingCart, Truck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Supplier } from "@/hooks/useSuppliers";
 import { db } from "@/lib/supabase-helpers";
@@ -36,6 +37,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
   const [bankAccountName, setBankAccountName] = useState("");
   const [defaultPaymentMethod, setDefaultPaymentMethod] = useState<"bank_transfer" | "cash">("bank_transfer");
   const [paymentTermsDays, setPaymentTermsDays] = useState(0);
+  const [payBeforeDelivery, setPayBeforeDelivery] = useState(false);
   const [contractUrl, setContractUrl] = useState<string | null>(null);
   const [contractFile, setContractFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -74,6 +76,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
       setBankAccountName(supplier.bank_account_name || "");
       setDefaultPaymentMethod(supplier.default_payment_method || "bank_transfer");
       setPaymentTermsDays(supplier.payment_terms_days || 0);
+      setPayBeforeDelivery(Boolean(supplier.pay_before_delivery));
       setContractUrl(supplier.contract_url || null);
       setContractFile(null);
       setIsEditing(false);
@@ -93,6 +96,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
         setBankAccountName(supplier.bank_account_name || "");
         setDefaultPaymentMethod(supplier.default_payment_method || "bank_transfer");
         setPaymentTermsDays(supplier.payment_terms_days || 0);
+      setPayBeforeDelivery(Boolean(supplier.pay_before_delivery));
         setContractUrl(supplier.contract_url || null);
         setContractFile(null);
       }
@@ -140,6 +144,8 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
           default_payment_method: defaultPaymentMethod,
           payment_terms_days: paymentTermsDays || null,
           contract_url: newContractUrl,
+          // Only an owner may change it; the server rejects it for anyone else.
+          ...(isOwner ? { pay_before_delivery: payBeforeDelivery } : {}),
         })
         .eq("id", supplier.id);
 
@@ -353,6 +359,27 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                 />
               </div>
 
+              {/* Pay before delivery */}
+              <div className="flex items-start justify-between gap-3 p-3 border rounded-lg" data-bmq-supplier-prepay>
+                <div className="min-w-0">
+                  <Label htmlFor="edit_pay_before_delivery" className="cursor-pointer">
+                    Thanh toán trước rồi mới giao hàng
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {isOwner
+                      ? "Duyệt chi không cần ảnh phiếu giao hàng."
+                      : "Duyệt chi không cần ảnh phiếu giao hàng. Chỉ chủ doanh nghiệp được đổi."}
+                  </p>
+                </div>
+                <Switch
+                  id="edit_pay_before_delivery"
+                  checked={payBeforeDelivery}
+                  onCheckedChange={setPayBeforeDelivery}
+                  disabled={!isOwner}
+                  className="shrink-0 mt-0.5"
+                />
+              </div>
+
               {/* Contract Upload */}
               <div className="space-y-2">
                 <Label>Hợp đồng (PDF)</Label>
@@ -432,6 +459,17 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                   </p>
                 </div>
               </div>
+
+              {/* Pay before delivery Display */}
+              {supplier.pay_before_delivery && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50" data-bmq-supplier-prepay-view>
+                  <Truck className="h-5 w-5 text-primary" />
+                  <div className="min-w-0">
+                    <p className="text-sm text-muted-foreground">Trả trước</p>
+                    <p className="font-medium">Thanh toán trước rồi mới giao hàng</p>
+                  </div>
+                </div>
+              )}
 
               {/* Payment Terms Display */}
               {(supplier.payment_terms_days ?? 0) > 0 && (

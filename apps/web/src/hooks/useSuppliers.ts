@@ -15,6 +15,8 @@ export interface Supplier {
   default_payment_method: 'bank_transfer' | 'cash' | null;
   contract_url: string | null;
   payment_terms_days: number | null;
+  // Thanh toán trước rồi mới giao hàng: duyệt chi không cần ảnh phiếu giao hàng.
+  pay_before_delivery?: boolean | null;
 }
 
 export function useSuppliers() {
@@ -23,7 +25,7 @@ export function useSuppliers() {
     queryFn: async () => {
       const { data, error } = await db
         .from("suppliers")
-        .select("id,name,category,description,phone,email,contact_name,bank_account_name,default_payment_method,contract_url,payment_terms_days,created_at")
+        .select("id,name,category,description,phone,email,contact_name,bank_account_name,default_payment_method,contract_url,payment_terms_days,pay_before_delivery,created_at")
         .order("created_at", { ascending: false })
         .limit(200);
       if (error) throw error;

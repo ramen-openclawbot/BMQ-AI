@@ -129,7 +129,7 @@ function settle(st) {
   ], error: null };
   if (st.table === "payment_requests") return { data: null, error: null, count: 3 };
   if (st.table === "suppliers") return { data: [
-    { id: PT, name: "Phúc Thịnh", category: "Bột mì", description: null, phone: "0909 111 222", email: "botmiphucthinh@gmail.com", contact_name: localStorage.getItem("qa-pt-contact"), bank_account_name: null, default_payment_method: "bank_transfer", contract_url: null, payment_terms_days: 7, created_at: "2026-01-01T00:00:00Z" },
+    { id: PT, name: "Phúc Thịnh", category: "Bột mì", description: null, phone: "0909 111 222", email: "botmiphucthinh@gmail.com", contact_name: localStorage.getItem("qa-pt-contact"), bank_account_name: null, default_payment_method: "bank_transfer", contract_url: null, payment_terms_days: 7, pay_before_delivery: localStorage.getItem("qa-pt-prepay") === "1", created_at: "2026-01-01T00:00:00Z" },
     { id: MG, name: "Mega Market", category: null, description: null, phone: null, email: null, contact_name: null, bank_account_name: null, default_payment_method: "bank_transfer", contract_url: null, payment_terms_days: null, created_at: "2026-02-01T00:00:00Z" },
     { id: TV, name: "TV Food", category: "Bơ sữa", description: null, phone: "028 3333 4444", email: "hongtinh2603@gmail.com", contact_name: "Chị Tình", bank_account_name: null, default_payment_method: "bank_transfer", contract_url: null, payment_terms_days: 15, created_at: "2026-03-01T00:00:00Z" },
     { id: "00000000-0000-4000-8000-0000000000aa", name: "Đại Phát (cũ)", category: null, description: null, phone: null, email: "dai@example.test", contact_name: null, bank_account_name: null, default_payment_method: "cash", contract_url: null, payment_terms_days: null, created_at: "2025-01-01T00:00:00Z" },
@@ -157,6 +157,7 @@ function builder(table, args) {
           st.table = "update:suppliers";
           st.args = callArgs[0] || {};
           if (st.args.contact_name) localStorage.setItem("qa-pt-contact", st.args.contact_name);
+          if (st.args.pay_before_delivery === true) localStorage.setItem("qa-pt-prepay", "1");
         }
         return proxy;
       };
@@ -661,6 +662,24 @@ try {
     assert.match(await page.locator("[data-bmq-supplier-requests]").innerText(), /1 phiếu chưa trả · còn 4\.842\.000 đ/);
     const saved = (await calls(page)).find((c) => c.startsWith("update:suppliers:"));
     assert.ok(saved && saved.includes('"contact_name":"Anh Phúc"'), `profile save ${saved}`);
+    // Owner turns on "Thanh toán trước rồi mới giao hàng"; the profile then shows Trả trước.
+    await page.getByRole("button", { name: "Sửa NCC" }).click();
+    const prepay = page.locator("#edit_pay_before_delivery");
+    assert.equal(await prepay.getAttribute("aria-checked"), "false", "prepay starts off");
+    await prepay.click();
+    assert.equal(await prepay.getAttribute("aria-checked"), "true", "prepay toggles on");
+    const sw = await page.locator("[data-bmq-supplier-prepay]").evaluate((el) => {
+      const box = el.getBoundingClientRect(); const knob = el.querySelector("button").getBoundingClientRect();
+      return { spill: el.scrollWidth - el.clientWidth, knobInside: knob.right <= box.right + 0.5 && knob.left >= box.left };
+    });
+    assert.ok(sw.spill <= 0 && sw.knobInside, `prepay row layout ${JSON.stringify(sw)} @${vp.width}`);
+    await page.locator("[data-bmq-supplier-prepay]").scrollIntoViewIfNeeded();
+    await shot(page, `supplier-prepay-edit-${vp.width}.png`);
+    await page.getByRole("button", { name: "Lưu" }).click();
+    await page.waitForSelector("[data-bmq-supplier-prepay-view]");
+    assert.match(await page.locator("[data-bmq-supplier-prepay-view]").innerText(), /Trả trước[\s\S]*Thanh toán trước rồi mới giao hàng/);
+    const savedPrepay = (await calls(page)).filter((c) => c.startsWith("update:suppliers:")).pop();
+    assert.ok(savedPrepay && savedPrepay.includes('"pay_before_delivery":true'), `prepay save ${savedPrepay}`);
     await shot(page, `supplier-dialog-${vp.width}.png`);
     assert.equal(await page.locator("[data-bmq-supplier-order-link]").getAttribute("href"), `/dat-hang?ncc=${PT}`);
     assert.deepEqual(errors, []);
@@ -672,7 +691,7 @@ try {
     await so.page.waitForSelector("[data-bmq-supplier-order-link]");
     assert.match(await so.page.getByRole("dialog").innerText(), /Phúc Thịnh/);
     await so.context.close();
-    pass(`Nhà cung cấp: profile facts, filters, contact, links @${vp.width}`);
+    pass(`Nhà cung cấp: profile facts, filters, contact, trả trước, links @${vp.width}`);
   }
 
   // Long catalog: finder, filters, quick fill, Enter to the next box, sticky total bar.
