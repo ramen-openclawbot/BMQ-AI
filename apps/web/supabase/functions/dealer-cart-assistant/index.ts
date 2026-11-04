@@ -28,6 +28,7 @@ import {
 } from "../_shared/dealer-cart-gates.ts";
 import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
+import { dealerCartFastReply } from "../_shared/dealer-cart-fast-reply.ts";
 
 const MAX_MESSAGE_CHARS = 1000;
 const MAX_HISTORY_TURNS = 10;
@@ -324,6 +325,17 @@ serve(async (req) => {
 
     if (!session) {
       return errorResponse(req, "Phiên đại lý đã hết hạn. Vui lòng đăng nhập lại.", 401, "dealer_session_required");
+    }
+
+    const fastReply = dealerCartFastReply(message);
+    if (fastReply) {
+      console.log(`[dealer-cart-assistant] fast_reply group=${fastReply.group}`);
+      return jsonResponse(req, {
+        success: true,
+        reply: fastReply.reply,
+        proposal: null,
+        warnings: [],
+      });
     }
 
     const routes = await loadDealerRoutes(supabase, session);
