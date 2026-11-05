@@ -39,14 +39,21 @@ import type {
   BepBnIssueReviewInput,
   BepBnPeriodData,
   BepBnPeriodInput,
+  BepBnPeriodSummary,
   UseBepBnData,
 } from "@/components/payroll/bep-bn/types";
-import type { AttendanceRow, PayrollEmployee } from "@/lib/payroll-bn/types.ts";
+import type {
+  AttendanceRow,
+  PayrollEmployee,
+  PayrollResult,
+} from "@/lib/payroll-bn/types.ts";
 
 const PERIODS_QUERY_KEY = ["payroll-bn", "periods"] as const;
 const periodQueryKey = (periodId: string) => ["payroll-bn", "period", periodId] as const;
 const previousEmployeesQueryKey = (periodId: string) =>
   ["payroll-bn", "previous-employees", periodId] as const;
+const previousPayrollQueryKey = (periodId: string) =>
+  ["payroll-bn", "previous-payroll", periodId] as const;
 const issueReviewsQueryKey = (periodId: string) => ["payroll-bn", "issue-reviews", periodId] as const;
 const contactsQueryKey = ["payroll-bn", "contacts"] as const;
 const publishedCountQueryKey = (periodId: string) =>
@@ -55,6 +62,11 @@ const publishedCountQueryKey = (periodId: string) =>
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   return "Không tải được dữ liệu. Vui lòng thử lại.";
+}
+
+interface PreviousPayroll {
+  payroll: PayrollResult;
+  periodCode: string;
 }
 
 export const useBepBnData: UseBepBnData = (periodId) => {
@@ -70,6 +82,17 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     retry: 1,
   });
 
+  // Latest period whose date_from is strictly before the selected one.
+  const currentPeriod = periodId
+    ? periodsQuery.data?.find((period) => period.id === periodId)
+    : undefined;
+  const previousPeriod = currentPeriod
+    ? (periodsQuery.data ?? []).reduce<BepBnPeriodSummary | null>((latest, period) => {
+        if (period.dateFrom >= currentPeriod.dateFrom) return latest;
+        return latest === null || period.dateFrom > latest.dateFrom ? period : latest;
+      }, null)
+    : null;
+
   const dataQuery = useQuery({
     queryKey: periodQueryKey(periodId ?? "none"),
     queryFn: () => loadPeriodData(client, periodId as string),
@@ -83,6 +106,35 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     queryFn: () => loadPreviousCatalog(client, periodId as string),
     enabled: Boolean(periodId),
     staleTime: 30_000,
+    retry: 1,
+  });
+
+  // Same inputs as the current draft: the previous period's attendance after
+  // its own "không tính" reviews. Any failure only removes the comparison.
+  const previousPayrollQuery = useQuery({
+    queryKey: previousPayrollQueryKey(previousPeriod?.id ?? "none"),
+    queryFn: async (): Promise<PreviousPayroll | null> => {
+      if (!previousPeriod) return null;
+      try {
+        const [periodData, reviews] = await Promise.all([
+          loadPeriodData(client, previousPeriod.id),
+          listIssueReviews(client, previousPeriod.id),
+        ]);
+        if (!periodData) return null;
+        const payroll = computePayroll({
+          period: periodData.period,
+          employees: periodData.employees,
+          measures: periodData.measures,
+          rows: applyIssueReviews(periodData.rows, reviews),
+          adjustments: periodData.adjustments,
+        });
+        return { payroll, periodCode: previousPeriod.code };
+      } catch {
+        return null;
+      }
+    },
+    enabled: Boolean(previousPeriod),
+    staleTime: 15_000,
     retry: 1,
   });
 
@@ -306,6 +358,8 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     dataLoading: Boolean(periodId) && dataQuery.isLoading,
     dataError: dataQuery.error ? errorMessage(dataQuery.error) : null,
     previousEmployees: previousEmployeesQuery.data ?? [],
+    previousPayroll: previousPayrollQuery.data?.payroll ?? null,
+    previousPeriodCode: previousPayrollQuery.data?.periodCode ?? null,
     issueReviews: issueReviewsQuery.data ?? [],
     attendanceApprovedAt: dataQuery.data?.attendanceApprovedAt ?? null,
     importAttendance: (input) => importMutation.mutateAsync(input),

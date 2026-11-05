@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { computePayroll } from "@/lib/payroll-bn/engine.ts";
 import { buildPayrollNotes } from "@/lib/payroll-bn/notes.ts";
+import { comparePayroll } from "@/lib/payroll-bn/compare.ts";
 import type { IssueReview } from "@/lib/payroll-bn/issue-review.ts";
 import { buildPayrollExportRows, buildPayrollWorkbook, payrollExportFileName } from "@/lib/payroll-bn/export.ts";
 import { addRational, rationalToNumber } from "@/lib/payroll-bn/money.ts";
@@ -56,6 +57,11 @@ export function PayrollDraftSection({ data, source, canEdit, issueReviews }: Pay
         issueReviews,
       ),
     [result.employees, data.adjustments, issueReviews],
+  );
+
+  const comparison = useMemo(
+    () => comparePayroll(result, source.previousPayroll),
+    [result, source.previousPayroll],
   );
 
   const groups = GROUP_ORDER.map((group) => ({
@@ -150,7 +156,7 @@ export function PayrollDraftSection({ data, source, canEdit, issueReviews }: Pay
               <table className="w-max min-w-full border-collapse text-sm">
                 <thead className="text-xs [&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-card [&_th]:shadow-[inset_0_-1px_0_hsl(var(--border))] [&_th:first-child]:z-30">
                   <tr>
-                    <th className="left-0 min-w-[132px] px-3 py-2 text-left font-medium sm:min-w-[180px]">Nhân viên</th>
+                    <th className="left-0 min-w-[188px] px-3 py-2 text-left font-medium sm:min-w-[220px]">Nhân viên</th>
                     <HeaderCell>NC chuẩn</HeaderCell>
                     <HeaderCell>NC thực tế</HeaderCell>
                     <HeaderCell>Ngày lễ</HeaderCell>
@@ -162,6 +168,9 @@ export function PayrollDraftSection({ data, source, canEdit, issueReviews }: Pay
                     <HeaderCell>Phụ cấp</HeaderCell>
                     <HeaderCell>Tổng thu nhập</HeaderCell>
                     <HeaderCell>Thực nhận</HeaderCell>
+                    <HeaderCell>
+                      ± % so {source.previousPeriodCode ? `kỳ ${source.previousPeriodCode}` : "tháng trước"}
+                    </HeaderCell>
                     <th className="min-w-[220px] px-3 py-2 text-left font-medium">Ghi chú</th>
                   </tr>
                 </thead>
@@ -174,14 +183,15 @@ export function PayrollDraftSection({ data, source, canEdit, issueReviews }: Pay
                           line={line}
                           label={line.employeeName}
                           sublabel={`${line.employeeCode} · ${line.employmentType === "part_time" ? "Part-time" : "Chính thức"}`}
+                          change={comparison.byEmployee.get(line.employeeCode) ?? null}
                           note={notes.get(line.employeeCode)?.join("; ") ?? (line.flags.includes("terminated") ? "Nghỉ việc trong kỳ" : "")}
                           onAdjust={canAdjust && !line.flags.includes("terminated") ? () => openAdjust(line.employeeCode) : undefined}
                         />
                       ))}
-                      {entry.summary ? <LineRow line={entry.summary} label={`Nhóm ${entry.group}`} variant="group" /> : null}
+                      {entry.summary ? <LineRow line={entry.summary} label={`Nhóm ${entry.group}`} variant="group" change={comparison.byGroup.get(entry.group) ?? null} /> : null}
                     </Fragment>
                   ))}
-                  <LineRow line={result.total} label="Tổng cộng" variant="total" />
+                  <LineRow line={result.total} label="Tổng cộng" variant="total" change={comparison.total} />
                 </tbody>
               </table>
             </div>
@@ -205,6 +215,15 @@ export function PayrollDraftSection({ data, source, canEdit, issueReviews }: Pay
   );
 }
 
+/** "+12,3%", "−4,0%", "0,0%" or "—" when there is nothing to compare with. */
+function formatChange(change: number | null): string {
+  if (change === null) return "—";
+  const text = Math.abs(change).toFixed(1).replace(".", ",");
+  if (change > 0) return `+${text}%`;
+  if (change < 0) return `−${text}%`;
+  return `${text}%`;
+}
+
 function HeaderCell({ children }: { children: React.ReactNode }) {
   return <th className="min-w-[96px] px-3 py-2 text-right font-medium">{children}</th>;
 }
@@ -218,6 +237,7 @@ function LineRow({
   label,
   sublabel,
   note,
+  change = null,
   variant = "employee",
   onAdjust,
 }: {
@@ -225,6 +245,8 @@ function LineRow({
   label: string;
   sublabel?: string;
   note?: string;
+  /** Percent change of net pay against the previous period; null = not comparable. */
+  change?: number | null;
   variant?: "employee" | "group" | "total";
   onAdjust?: () => void;
 }) {
@@ -232,11 +254,11 @@ function LineRow({
   const stickyBg = variant === "total" ? "bg-muted" : variant === "group" ? "bg-secondary" : "bg-card";
   return (
     <tr className={cn("border-t", variant === "group" && "bg-secondary font-medium", variant === "total" && "bg-muted font-semibold")}>
-      <td className={cn("sticky left-0 z-10 max-w-[150px] px-3 py-2 sm:max-w-none", stickyBg)}>
+      <td className={cn("sticky left-0 z-10 min-w-[188px] px-3 py-2 sm:min-w-[220px]", stickyBg)}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="truncate">{label}</div>
-            {sublabel ? <div className="truncate text-xs text-muted-foreground">{sublabel}</div> : null}
+            <div className="break-words leading-snug">{label}</div>
+            {sublabel ? <div className="break-words text-xs text-muted-foreground">{sublabel}</div> : null}
           </div>
           {onAdjust ? (
             <Button
@@ -262,6 +284,18 @@ function LineRow({
       <NumberCell>{formatMoney(line.allowance)}</NumberCell>
       <NumberCell>{formatMoney(line.grossPay)}</NumberCell>
       <NumberCell strong>{formatVnd(line.netPayRounded)}</NumberCell>
+      <td
+        className={cn(
+          "whitespace-nowrap px-3 py-2 text-right text-xs font-medium tabular-nums",
+          change === null || change === 0
+            ? "text-muted-foreground"
+            : change > 0
+              ? "text-emerald-600"
+              : "text-red-600",
+        )}
+      >
+        {formatChange(change)}
+      </td>
       <td className="px-3 py-2 text-xs text-muted-foreground">{note}</td>
     </tr>
   );

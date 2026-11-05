@@ -12,6 +12,7 @@ import type {
   PayrollEmployeeMeasures,
   PayrollGroup,
   PayrollPeriod,
+  PayrollResult,
 } from "@/lib/payroll-bn/types.ts";
 import type { AnomalyCode } from "@/lib/payroll-bn/anomalies.ts";
 import type { IssueDecision, IssueReview } from "@/lib/payroll-bn/issue-review.ts";
@@ -103,6 +104,10 @@ export interface BepBnDataSource {
   dataError: string | null;
   /** Catalogue of the latest period before the selected one (for suggestions). */
   previousEmployees: PayrollEmployee[];
+  /** Computed payroll of the latest period before the selected one, or null. */
+  previousPayroll: PayrollResult | null;
+  /** Code of that previous period, or null when there is none. */
+  previousPeriodCode: string | null;
   issueReviews: IssueReview[];
   /** When the selected period's attendance was approved, or null. */
   attendanceApprovedAt: string | null;
