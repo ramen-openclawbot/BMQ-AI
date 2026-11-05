@@ -122,6 +122,14 @@ const store: DealerSignupReviewStore = {
     if (error) throw error;
   },
 
+  async setContractAddress(id: string, contractAddressText: string) {
+    const { error } = await supabase.rpc("dealer_signup_set_contract_address", {
+      p_application_id: id,
+      p_contract_address_text: contractAddressText,
+    });
+    if (error) throw error;
+  },
+
   async setSignedContract(id: string, path: string, uploadedBy: string) {
     const { error } = await supabase.rpc("dealer_signup_set_signed_contract", {
       p_application_id: id,

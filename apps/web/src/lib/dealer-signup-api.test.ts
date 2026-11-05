@@ -19,6 +19,7 @@ import {
   uploadDealerSlip,
   type DealerSignupFetcher,
   type DealerSignupPaymentSettings,
+  type DealerSignupSubmitInput,
   type PhotonFetcher,
 } from "./dealer-signup-api.ts";
 
@@ -143,6 +144,69 @@ test("reviewDealerSignup forwards the JWT and action to the review function", as
   });
   assert.equal(result.status, "approved_waiting_slip");
   assert.equal(result.email_sent, true);
+});
+
+test("signup submit input carries a separate contract address", () => {
+  const input: DealerSignupSubmitInput = {
+    applicant_name: "Nguyễn Thị Hồng",
+    business_name: "Hộ kinh doanh Bánh mì Hồng",
+    cccd: "079123456789",
+    cccd_valid_until: "2035-06-30",
+    phone: "0909123456",
+    email: "hong@example.test",
+    address_text: "12 Lê Lợi, Phường Bến Thành, Quận 1, TP.HCM",
+    contract_address_text: "45 Nguyễn Trãi, Phường Bến Thành, Quận 1, TP.HCM",
+    lat: 10.7769,
+    lng: 106.7009,
+    terms_accepted: true,
+    idempotency_key: "idem-key-20261102",
+    verification_token: "verification-token-20261102-abcdef",
+  };
+
+  assert.equal(
+    input.contract_address_text,
+    "45 Nguyễn Trãi, Phường Bến Thành, Quận 1, TP.HCM",
+  );
+  assert.notEqual(input.contract_address_text, input.address_text);
+});
+
+test("reviewDealerSignup forwards update_contract_address and the contract address", async () => {
+  let requestedUrl = "";
+  let requestedInit: RequestInit | undefined;
+  const fetcher: DealerSignupFetcher = async (input, init) => {
+    requestedUrl = String(input);
+    requestedInit = init;
+    return jsonResponse({
+      success: true,
+      application_id: "11111111-1111-4111-8111-111111111111",
+      contract_address_text: "45 Nguyễn Trãi, Phường Bến Thành, Quận 1, TP.HCM",
+      contract_ready: true,
+    });
+  };
+
+  const result = await reviewDealerSignup(
+    {
+      action: "update_contract_address",
+      applicationId: "11111111-1111-4111-8111-111111111111",
+      contractAddressText: "45 Nguyễn Trãi, Phường Bến Thành, Quận 1, TP.HCM",
+    },
+    { accessToken: ACCESS_TOKEN, fetcher, supabaseUrl: SUPABASE_URL },
+  );
+
+  assert.equal(
+    requestedUrl,
+    "https://project.test/functions/v1/dealer-signup-review?action=update_contract_address",
+  );
+  assert.deepEqual(JSON.parse(String(requestedInit?.body)), {
+    action: "update_contract_address",
+    application_id: "11111111-1111-4111-8111-111111111111",
+    contract_address_text: "45 Nguyễn Trãi, Phường Bến Thành, Quận 1, TP.HCM",
+  });
+  assert.equal(result.contract_ready, true);
+  assert.equal(
+    result.contract_address_text,
+    "45 Nguyễn Trãi, Phường Bến Thành, Quận 1, TP.HCM",
+  );
 });
 
 test("review errors keep the server code and HTTP status", async () => {

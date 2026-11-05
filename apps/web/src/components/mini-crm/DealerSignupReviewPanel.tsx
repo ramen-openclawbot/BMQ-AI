@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, BadgeCheck, Banknote, Check, Download, FileUp, Loader2, Mail, RefreshCw, Search, X } from "lucide-react";
+import { AlertTriangle, BadgeCheck, Banknote, Check, Download, FileUp, Loader2, Mail, Pencil, RefreshCw, Search, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,7 @@ type Application = {
   phone: string;
   email: string;
   address_text: string;
+  contract_address_text: string | null;
   nearest_distance_m: number | null;
   unlocated_dealer_count: number;
   last_error_code: string | null;
@@ -67,7 +68,7 @@ type Filter = "pending" | "waiting_slip" | "payment" | "active" | "rejected";
 
 const QUERY_KEY = ["crm-dealer-signup-applications"];
 const COLUMNS =
-  "id, application_code, status, approval_mode, applicant_name, business_name, cccd, cccd_valid_until, phone, email, address_text, nearest_distance_m, unlocated_dealer_count, last_error_code, reject_reason, crm_customer_id, contract_draft_path, contract_signed_path, contract_signed_uploaded_at, slip_storage_path, slip_uploaded_at, slip_token_expires_at, slip_reject_reason, payment_confirmed_at, phone_verified_at, email_verified_at, reviewed_at, created_at";
+  "id, application_code, status, approval_mode, applicant_name, business_name, cccd, cccd_valid_until, phone, email, address_text, contract_address_text, nearest_distance_m, unlocated_dealer_count, last_error_code, reject_reason, crm_customer_id, contract_draft_path, contract_signed_path, contract_signed_uploaded_at, slip_storage_path, slip_uploaded_at, slip_token_expires_at, slip_reject_reason, payment_confirmed_at, phone_verified_at, email_verified_at, reviewed_at, created_at";
 
 const FILTER_STATUSES: Record<Filter, string[]> = {
   pending: ["manual_review", "contract_sent", "email_failed"],
@@ -360,6 +361,7 @@ function ApplicationDialog({
   const close = () => {
     setMode("view");
     setReason("");
+    setEditingAddress(false);
     onClose();
   };
 
@@ -380,6 +382,37 @@ function ApplicationDialog({
     return queryClient.getQueryData<Application[]>(QUERY_KEY)
       ?.find((row) => row.id === application?.id) ?? null;
   };
+
+  const [editingAddress, setEditingAddress] = useState(false);
+  const [addressDraft, setAddressDraft] = useState("");
+
+  // Sửa địa chỉ bên ký hợp đồng; hồ sơ đã duyệt thì tạo lại hợp đồng ngay để
+  // bản PDF không còn ghi địa chỉ cũ.
+  const saveContractAddress = useMutation({
+    mutationFn: async (input: { address: string; regenerate: boolean }) => {
+      await reviewDealerSignup({
+        action: "update_contract_address",
+        applicationId: application!.id,
+        contractAddressText: input.address,
+      });
+      if (!input.regenerate) return null;
+      return reviewDealerSignup({ action: "regenerate_contract", applicationId: application!.id });
+    },
+    onSuccess: async (regenerated) => {
+      await refreshApplications();
+      setEditingAddress(false);
+      toast({
+        title: "Đã lưu địa chỉ bên ký hợp đồng",
+        description: regenerated
+          ? regenerated.contract_ready === false ? "Chưa tạo lại được hợp đồng, bấm Tạo lại hợp đồng." : "Hợp đồng đã được tạo lại với địa chỉ mới."
+          : undefined,
+      });
+    },
+    onError: async (error) => {
+      await refreshApplications();
+      toast({ title: "Không lưu được địa chỉ", description: messageFor(error, "Vui lòng thử lại."), variant: "destructive" });
+    },
+  });
 
   const review = useMutation({
     mutationFn: (input: {
@@ -471,7 +504,9 @@ function ApplicationDialog({
   const isPending = ["manual_review", "contract_sent", "email_failed"].includes(application.status);
   const isApproved = ["approved_waiting_slip", "slip_submitted", "active"].includes(application.status);
   const awaitingPayment = application.status === "slip_submitted";
-  const busy = review.isPending || uploadSigned.isPending;
+  const busy = review.isPending || uploadSigned.isPending || saveContractAddress.isPending;
+  const isRejected = ["rejected_manual", "rejected_too_close"].includes(application.status);
+  const canEditContractAddress = canReview && !isRejected && !application.contract_signed_path;
   const reviewReason = (application.last_error_code && REASON_LABEL[application.last_error_code])
     || (application.unlocated_dealer_count > 0 ? `Có ${application.unlocated_dealer_count} đại lý chưa có vị trí trên hệ thống` : "");
   const trimmedReason = reason.trim();
@@ -495,7 +530,54 @@ function ApplicationDialog({
           <Field label="CCCD" value={`${application.cccd} · hết hạn ${fmtDate(application.cccd_valid_until)}`} />
           <Field label="Điện thoại" value={`${application.phone}${application.phone_verified_at ? " · đã xác minh" : ""}`} />
           <Field label="Email" value={`${application.email}${application.email_verified_at ? " · đã xác minh" : ""}`} />
-          <Field label="Địa chỉ" value={application.address_text} />
+          <Field label="Địa chỉ bán hàng" value={application.address_text} />
+          {editingAddress ? (
+            <div className="grid grid-cols-[8.5rem_1fr] gap-2 text-sm">
+              <dt className="pt-2 text-muted-foreground">Địa chỉ ký HĐ</dt>
+              <dd className="min-w-0 space-y-2">
+                <Input
+                  value={addressDraft}
+                  onChange={(event) => setAddressDraft(event.target.value)}
+                  maxLength={500}
+                  placeholder="Theo giấy đăng ký kinh doanh hoặc CCCD"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    disabled={busy || addressDraft.trim().length < 5}
+                    onClick={() => saveContractAddress.mutate({ address: addressDraft.trim(), regenerate: isApproved })}
+                  >
+                    {saveContractAddress.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Check className="mr-1 h-4 w-4" />}
+                    {isApproved ? "Lưu và tạo lại hợp đồng" : "Lưu"}
+                  </Button>
+                  <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditingAddress(false)}>Hủy</Button>
+                </div>
+              </dd>
+            </div>
+          ) : (
+            <div className="grid grid-cols-[8.5rem_1fr] gap-2 text-sm">
+              <dt className="text-muted-foreground">Địa chỉ ký HĐ</dt>
+              <dd className="min-w-0 break-words">
+                {application.contract_address_text || (
+                  <span className="text-muted-foreground">Giống địa chỉ bán hàng</span>
+                )}
+                {canEditContractAddress ? (
+                  <button
+                    type="button"
+                    className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-2 hover:underline"
+                    onClick={() => {
+                      setAddressDraft(application.contract_address_text || application.address_text);
+                      setEditingAddress(true);
+                    }}
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Sửa
+                  </button>
+                ) : null}
+              </dd>
+            </div>
+          )}
           <Field
             label="Đại lý gần nhất"
             value={application.nearest_distance_m !== null ? `${(application.nearest_distance_m / 1000).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} km đường xe máy` : ""}
@@ -531,7 +613,8 @@ function ApplicationDialog({
                     {busyDoc === "contract_draft" ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Download className="mr-1 h-4 w-4" />}
                     Tải hợp đồng
                   </Button>
-                ) : canReview ? (
+                ) : null}
+                {canReview && !application.contract_signed_path ? (
                   <Button size="sm" variant="outline" disabled={busy} onClick={() => review.mutate({ action: "regenerate_contract" })}>
                     <RefreshCw className="mr-1 h-4 w-4" />
                     Tạo lại hợp đồng

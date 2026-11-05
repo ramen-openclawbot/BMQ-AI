@@ -51,6 +51,7 @@ export type DealerSignupSubmitInput = {
   phone: string;
   email: string;
   address_text: string;
+  contract_address_text: string;
   lat: number;
   lng: number;
   terms_accepted: boolean;
@@ -149,6 +150,7 @@ export type DealerSignupRequestOptions = {
 export type DealerSignupReviewAction =
   | "approve"
   | "regenerate_contract"
+  | "update_contract_address"
   | "resend_slip_link"
   | "reject"
   | "download"
@@ -188,6 +190,7 @@ export type DealerSignupReviewResult = {
   dealer_onboarding_status?: "waiting_slip" | "slip_submitted" | "active" | null;
   contract_ready?: boolean;
   contract_draft_path?: string;
+  contract_address_text?: string;
   email_sent?: boolean;
   email_error_code?: string;
   contract_error_code?: string;
@@ -298,6 +301,7 @@ export async function reviewDealerSignup(
     applicationId?: string;
     reason?: string;
     kind?: DealerSignupDocumentKind;
+    contractAddressText?: string;
     settings?: Partial<DealerSignupPaymentSettings>;
   },
   options: DealerSignupRequestOptions = {},
@@ -318,6 +322,7 @@ export async function reviewDealerSignup(
         application_id: input.applicationId,
         reason: input.reason,
         kind: input.kind,
+        contract_address_text: input.contractAddressText,
         payment_settings: input.settings,
       }),
     },

@@ -43,6 +43,7 @@ export type DealerSignupReviewApplication = {
   email: string;
   business_name: string;
   address_text: string;
+  contract_address_text?: string | null;
   crm_customer_id: string | null;
   contract_draft_path: string | null;
   contract_signed_path: string | null;

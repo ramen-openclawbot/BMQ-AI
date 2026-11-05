@@ -22,7 +22,7 @@ Và
 BÊN NHẬN ĐẠI LÍ:
 Tên hộ kinh doanh / doanh nghiệp: {business_name}
 Đại diện bởi: {applicant_name}
-Địa chỉ: {address_text}
+Địa chỉ: {contract_address_text}
 CCCD/CMND/HC: {cccd}    Có giá trị đến: {cccd_valid_until}
 Điện thoại: {phone}
 Email: {email}

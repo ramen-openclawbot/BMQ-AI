@@ -22,6 +22,7 @@ const INPUT: DealerContractInput = {
   phone: "0909123456",
   email: "hong@example.test",
   address_text: "12 Lê Lợi, Phường Bến Thành, Quận 1, TP.HCM",
+  contract_address_text: "45 Nguyễn Trãi, Phường Bến Thành, Quận 1, TP.HCM",
 };
 
 const FONT_BASE = new URL("./fonts/", import.meta.url);
@@ -106,6 +107,9 @@ test("contract text fills customer fields and keeps the reviewed terms", () => {
   assert.ok(text.includes("0909123456"));
   assert.ok(text.includes("hong@example.test"));
   assert.ok(text.includes("12 Lê Lợi, Phường Bến Thành, Quận 1, TP.HCM"));
+  assert.ok(text.includes(`Địa chỉ: ${INPUT.contract_address_text}`));
+  assert.ok(text.includes(`- ${INPUT.address_text} Là trong vòng phạm vi bán kính 1km.`));
+  assert.ok(!text.includes(`Địa chỉ: ${INPUT.address_text}`));
   assert.ok(text.includes("bán kính 1km"));
   assert.ok(text.includes("1 | <= 3.000 | - | 6,500"));
   assert.ok(text.includes("2 | <= 6.000 và không được ít hơn 3.000 | 500 | 6,000"));
@@ -120,6 +124,14 @@ test("contract text fills customer fields and keeps the reviewed terms", () => {
   assert.ok(text.includes("từ ngày 02/11/2026 đến hết ngày 01/11/2027"));
   assert.ok(!text.includes("{application_code}"));
   assert.ok(!text.includes("undefined"));
+});
+
+test("Bên B falls back to the selling address when no contract address is set", () => {
+  const { contract_address_text: _contractAddress, ...legacyInput } = INPUT;
+  const text = buildDealerContractText(legacyInput);
+
+  assert.ok(text.includes(`Địa chỉ: ${INPUT.address_text}`));
+  assert.ok(text.includes(`- ${INPUT.address_text} Là trong vòng phạm vi bán kính 1km.`));
 });
 
 test("generated PDF is valid and carries the application and customer metadata", async () => {
@@ -140,6 +152,7 @@ test("generated PDF is valid and carries the application and customer metadata",
   assert.ok(subject.includes(INPUT.cccd));
   assert.ok(subject.includes(INPUT.phone));
   assert.ok(subject.includes(INPUT.address_text));
+  assert.ok(subject.includes(String(INPUT.contract_address_text)));
   const keywords = doc.getKeywords() || "";
   assert.ok(keywords.includes("6,500"));
   assert.ok(keywords.includes("bán kính 1km"));

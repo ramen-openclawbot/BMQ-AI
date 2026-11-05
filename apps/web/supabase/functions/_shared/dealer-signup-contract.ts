@@ -20,6 +20,8 @@ export type DealerContractInput = {
   phone: string;
   email: string;
   address_text: string;
+  /** Legal/signing address for Bên B; falls back to address_text when absent. */
+  contract_address_text?: string | null;
 };
 
 export type DealerContractPdfAssets = {
@@ -51,7 +53,7 @@ Và
 BÊN NHẬN ĐẠI LÍ:
 Tên hộ kinh doanh / doanh nghiệp: {business_name}
 Đại diện bởi: {applicant_name}
-Địa chỉ: {address_text}
+Địa chỉ: {contract_address_text}
 CCCD/CMND/HC: {cccd}    Có giá trị đến: {cccd_valid_until}
 Điện thoại: {phone}
 Email: {email}
@@ -176,6 +178,7 @@ export function contractTerm(contractDate: string): { start: string; end: string
 
 export function buildDealerContractText(input: DealerContractInput): string {
   const term = contractTerm(input.contract_date);
+  const contractAddress = String(input.contract_address_text ?? "").trim() || input.address_text;
   const replacements: Record<string, string> = {
     application_code: input.application_code,
     contract_date: formatContractDate(input.contract_date),
@@ -188,6 +191,7 @@ export function buildDealerContractText(input: DealerContractInput): string {
     phone: input.phone,
     email: input.email,
     address_text: input.address_text,
+    contract_address_text: contractAddress,
   };
 
   return CONTRACT_TEMPLATE.replace(/\{([a-z0-9_]+)\}/g, (match, key: string) => {
@@ -324,8 +328,9 @@ export async function buildDealerSignupContractPdf(
   doc.setAuthor("CÔNG TY CỔ PHẦN THỰC PHẨM BMQ");
   doc.setCreator("BMQ-AI");
   doc.setProducer("BMQ-AI");
+  const contractAddress = String(input.contract_address_text ?? "").trim() || input.address_text;
   doc.setSubject(
-    `Hợp đồng ${input.application_code} | ${input.applicant_name} | CCCD ${input.cccd} | ${input.phone} | ${input.address_text}`,
+    `Hợp đồng ${input.application_code} | ${input.applicant_name} | CCCD ${input.cccd} | ${input.phone} | ${input.address_text} | ${contractAddress}`,
   );
   doc.setKeywords([
     input.application_code,

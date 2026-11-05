@@ -34,6 +34,7 @@ function application(
     email: "hong@example.test",
     business_name: "Hộ kinh doanh Bánh mì Hồng",
     address_text: "12 Lê Lợi, Phường Bến Thành, Quận 1, TP.HCM",
+    contract_address_text: null,
     crm_customer_id: null,
     contract_draft_path: null,
     contract_signed_path: null,
@@ -49,6 +50,7 @@ class MemoryStore implements DealerSignupReviewStore {
   approvalCalls: Parameters<DealerSignupReviewStore["approve"]>[0][] = [];
   approvalResult: DealerSignupApprovalResult | null = null;
   draftCalls: Array<{ id: string; path: string }> = [];
+  contractAddressCalls: Array<{ id: string; contractAddressText: string }> = [];
   signedCalls: Array<{ id: string; path: string; uploadedBy: string }> = [];
   rejectCalls: Array<{ id: string; reviewerId: string; reason: string }> = [];
   lastErrors: Array<{ id: string; code: string }> = [];
@@ -85,6 +87,11 @@ class MemoryStore implements DealerSignupReviewStore {
   async setContractDraft(id: string, path: string) {
     this.draftCalls.push({ id, path });
     if (this.app) this.app.contract_draft_path = path;
+  }
+
+  async setContractAddress(id: string, contractAddressText: string) {
+    this.contractAddressCalls.push({ id, contractAddressText });
+    if (this.app) this.app.contract_address_text = contractAddressText;
   }
 
   async setSignedContract(id: string, path: string, uploadedBy: string) {
@@ -414,7 +421,7 @@ test("CRM view permission cannot approve or reject", async () => {
   const store = new MemoryStore();
   const deps = makeDeps(store, { authenticate: async () => CRM_VIEW });
 
-  for (const action of ["approve", "reject", "regenerate_contract", "resend_slip_link"]) {
+  for (const action of ["approve", "reject", "regenerate_contract", "update_contract_address", "resend_slip_link"]) {
     const response = await handleDealerSignupReview(
       post(action, { application_id: APP_ID, reason: "x" }),
       deps,
@@ -529,6 +536,119 @@ test("download returns 404 when the document is missing", async () => {
   );
   assert.equal(response.status, 404);
   assert.equal((await response.json()).code, "document_missing");
+});
+
+test("update_contract_address stores the address and regenerate uses it", async () => {
+  const store = new MemoryStore();
+  store.app = application({
+    status: "approved_waiting_slip",
+    crm_customer_id: "crm-customer-1",
+    contract_draft_path: `${APP_ID}/contract-draft.pdf`,
+  });
+  const deps = makeDeps(store, { authenticate: async () => CRM_EDIT });
+  const newAddress = "45 Nguyễn Trãi, Phường Bến Thành, Quận 1, TP.HCM";
+
+  const response = await handleDealerSignupReview(
+    post("update_contract_address", {
+      application_id: APP_ID,
+      contract_address_text: `  ${newAddress}  `,
+    }),
+    deps,
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.application_id, APP_ID);
+  assert.equal(body.contract_address_text, newAddress);
+  assert.equal(body.contract_ready, true);
+  assert.equal(store.contractAddressCalls.length, 1);
+  assert.deepEqual(store.contractAddressCalls[0], {
+    id: APP_ID,
+    contractAddressText: newAddress,
+  });
+  // The action must not regenerate the PDF on its own.
+  assert.equal(deps.pdfInputs.length, 0);
+
+  const regenerated = await handleDealerSignupReview(
+    post("regenerate_contract", { application_id: APP_ID }),
+    deps,
+  );
+  assert.equal(regenerated.status, 200);
+  assert.equal(deps.pdfInputs.length, 1);
+  assert.equal(deps.pdfInputs[0].contract_address_text, newAddress);
+  assert.equal(deps.pdfInputs[0].address_text, "12 Lê Lợi, Phường Bến Thành, Quận 1, TP.HCM");
+});
+
+test("update_contract_address reports contract_ready false when no draft exists", async () => {
+  const store = new MemoryStore();
+  store.app = application({ status: "manual_review" });
+  const deps = makeDeps(store);
+
+  const response = await handleDealerSignupReview(
+    post("update_contract_address", {
+      application_id: APP_ID,
+      contract_address_text: "45 Nguyễn Trãi, Phường Bến Thành, Quận 1, TP.HCM",
+    }),
+    deps,
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.contract_ready, false);
+});
+
+test("update_contract_address is denied to CRM view and rejects rejected applications", async () => {
+  const store = new MemoryStore();
+  store.app = application({
+    status: "approved_waiting_slip",
+    crm_customer_id: "crm-customer-1",
+  });
+  const viewDeps = makeDeps(store, { authenticate: async () => CRM_VIEW });
+  const denied = await handleDealerSignupReview(
+    post("update_contract_address", {
+      application_id: APP_ID,
+      contract_address_text: "45 Nguyễn Trãi, Phường Bến Thành, Quận 1, TP.HCM",
+    }),
+    viewDeps,
+  );
+  assert.equal(denied.status, 403);
+  assert.equal((await denied.json()).code, "forbidden");
+  assert.equal(store.contractAddressCalls.length, 0);
+
+  const deps = makeDeps(store);
+  for (const status of ["rejected_manual", "rejected_too_close"] as const) {
+    store.app = application({ status });
+    const response = await handleDealerSignupReview(
+      post("update_contract_address", {
+        application_id: APP_ID,
+        contract_address_text: "45 Nguyễn Trãi, Phường Bến Thành, Quận 1, TP.HCM",
+      }),
+      deps,
+    );
+    assert.equal(response.status, 409, status);
+    assert.equal((await response.json()).code, "application_rejected");
+  }
+  assert.equal(store.contractAddressCalls.length, 0);
+});
+
+test("update_contract_address validates the address length", async () => {
+  const store = new MemoryStore();
+  store.app = application({ status: "approved_waiting_slip" });
+  const deps = makeDeps(store);
+
+  for (const value of [undefined, "1234", "   ", "x".repeat(501)]) {
+    const response = await handleDealerSignupReview(
+      post("update_contract_address", {
+        application_id: APP_ID,
+        contract_address_text: value,
+      }),
+      deps,
+    );
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).code, "invalid_contract_address");
+  }
+  assert.equal(store.contractAddressCalls.length, 0);
 });
 
 test("regenerate contract and resend slip link use one PDF/email without re-approving", async () => {

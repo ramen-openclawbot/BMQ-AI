@@ -63,6 +63,7 @@ export type DealerSignupReviewStore = {
     slipExpiresAt: string;
   }): Promise<DealerSignupApprovalResult>;
   setContractDraft(id: string, path: string): Promise<void>;
+  setContractAddress(id: string, contractAddressText: string): Promise<void>;
   setSignedContract(id: string, path: string, uploadedBy: string): Promise<void>;
   reject(id: string, reviewerId: string, reason: string): Promise<void>;
   setLastError(id: string, code: string): Promise<void>;
@@ -192,6 +193,7 @@ function buildContractInput(
     phone: application.phone,
     email: application.email,
     address_text: application.address_text,
+    contract_address_text: application.contract_address_text ?? null,
   };
 }
 
@@ -340,6 +342,8 @@ export async function handleDealerSignupReview(
         return await handleApprove(req, deps, body, actor, now, env, logger);
       case "regenerate_contract":
         return await handleRegenerateContract(req, deps, body, now, logger);
+      case "update_contract_address":
+        return await handleUpdateContractAddress(req, deps, body);
       case "resend_slip_link":
         return await handleResendSlipLink(req, deps, body, now, env, logger);
       case "reject":
@@ -522,6 +526,45 @@ async function handleRegenerateContract(
     await deps.store.setLastError(loaded.id, code);
     return errorJson(req, "Không tạo lại được hợp đồng.", 500, code);
   }
+}
+
+async function handleUpdateContractAddress(
+  req: Request,
+  deps: DealerSignupReviewDeps,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const contractAddressText = typeof body.contract_address_text === "string"
+    ? body.contract_address_text.replace(/\s+/g, " ").trim()
+    : "";
+  if (contractAddressText.length < 5 || contractAddressText.length > 500) {
+    return errorJson(
+      req,
+      "Vui lòng nhập địa chỉ bên ký hợp đồng.",
+      400,
+      "invalid_contract_address",
+    );
+  }
+
+  const loaded = await loadApplication(req, deps, body.application_id ?? body.applicationId);
+  if (loaded instanceof Response) return loaded;
+
+  if (loaded.status === "rejected_manual" || loaded.status === "rejected_too_close") {
+    return errorJson(
+      req,
+      "Hồ sơ đã bị từ chối, không thể sửa địa chỉ bên ký hợp đồng.",
+      409,
+      "application_rejected",
+    );
+  }
+
+  await deps.store.setContractAddress(loaded.id, contractAddressText);
+
+  return json(req, {
+    success: true,
+    application_id: loaded.id,
+    contract_address_text: contractAddressText,
+    contract_ready: Boolean(loaded.contract_draft_path),
+  });
 }
 
 async function handleResendSlipLink(

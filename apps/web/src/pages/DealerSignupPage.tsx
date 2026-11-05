@@ -134,6 +134,9 @@ export default function DealerSignupPage() {
     email: "",
     terms_accepted: false,
   });
+  // Địa chỉ bên ký hợp đồng (Bên B); mặc định giống địa chỉ bán hàng.
+  const [contractAddressSame, setContractAddressSame] = useState(true);
+  const [contractAddress, setContractAddress] = useState("");
 
   const mapEl = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LMap | null>(null);
@@ -310,6 +313,7 @@ export default function DealerSignupPage() {
     form.cccd_valid_until !== "" &&
     /^(0|\+84)\d{9,10}$/.test(form.phone.replace(/[\s.]/g, "")) &&
     /\S+@\S+\.\S+/.test(form.email.trim()) &&
+    (contractAddressSame || contractAddress.trim().length >= 5) &&
     form.terms_accepted &&
     verificationToken !== "";
 
@@ -327,6 +331,7 @@ export default function DealerSignupPage() {
         phone: form.phone.replace(/[\s.]/g, ""),
         email: form.email.trim(),
         address_text: address.trim(),
+        contract_address_text: contractAddressSame ? address.trim() : contractAddress.trim(),
         lat: pin.lat,
         lng: pin.lng,
         terms_accepted: form.terms_accepted,
@@ -484,7 +489,7 @@ export default function DealerSignupPage() {
               <div className="rounded-2xl border border-[#edd4df] bg-white p-5 sm:p-6">
                 <StepTitle n={1} title="Vị trí điểm bán" />
                 <div className="mt-4 space-y-3">
-                  <Field label="Địa chỉ chính xác" hint="Ví dụ: 125 Tô Ký, Phường Đông Hưng Thuận, TP.HCM">
+                  <Field label="Địa chỉ bán hàng" hint="Ví dụ: 125 Tô Ký, Phường Đông Hưng Thuận, TP.HCM">
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <input
                         className={inputClass}
@@ -566,6 +571,28 @@ export default function DealerSignupPage() {
                     <Field label="CCCD có giá trị đến">
                       <input className={inputClass} type="date" value={form.cccd_valid_until} onChange={update("cccd_valid_until")} />
                     </Field>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    <label className="flex items-start gap-3 text-sm leading-6">
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-5 w-5 shrink-0 accent-[#d94f8a]"
+                        checked={contractAddressSame}
+                        onChange={(e) => setContractAddressSame(e.target.checked)}
+                      />
+                      <span>Địa chỉ bên ký hợp đồng giống địa chỉ bán hàng</span>
+                    </label>
+                    {!contractAddressSame ? (
+                      <Field label="Địa chỉ bên ký hợp đồng" hint="Ghi theo giấy đăng ký kinh doanh hoặc CCCD. Địa chỉ này được điền vào hợp đồng.">
+                        <input
+                          className={inputClass}
+                          value={contractAddress}
+                          onChange={(e) => setContractAddress(e.target.value)}
+                          placeholder="Số nhà, tên đường, phường, tỉnh/thành"
+                          maxLength={500}
+                        />
+                      </Field>
+                    ) : null}
                   </div>
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
                     <VerifyField

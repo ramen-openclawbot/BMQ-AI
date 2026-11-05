@@ -115,6 +115,7 @@ type ValidatedSignup = {
   phone: string;
   email: string;
   addressText: string;
+  contractAddressText: string;
   lat: number;
   lng: number;
   idempotencyKey: string;
@@ -166,6 +167,17 @@ function validateSignup(body: Record<string, unknown>): ValidationSuccess | Vali
     return { ok: false, error: "Địa chỉ không hợp lệ.", code: "invalid_address" };
   }
 
+  const contractAddressText = typeof body.contract_address_text === "string"
+    ? body.contract_address_text.replace(/\s+/g, " ").trim()
+    : "";
+  if (contractAddressText.length < 5 || contractAddressText.length > 500) {
+    return {
+      ok: false,
+      error: "Vui lòng nhập địa chỉ bên ký hợp đồng.",
+      code: "invalid_contract_address",
+    };
+  }
+
   const lat = parseFiniteNumber(body.lat);
   const lng = parseFiniteNumber(body.lng);
   if (lat === null || lng === null || !isWithinVietnam(lat, lng)) {
@@ -195,6 +207,7 @@ function validateSignup(body: Record<string, unknown>): ValidationSuccess | Vali
       phone,
       email,
       addressText,
+      contractAddressText,
       lat,
       lng,
       idempotencyKey,
@@ -342,7 +355,7 @@ export async function handleDealerSignupSubmit(
     const baseRow: Omit<
       DealerSignupApplicationWithVerification,
       "application_code" | "status"
-    > = {
+    > & { contract_address_text: string } = {
       applicant_name: input.applicantName,
       cccd: input.cccd,
       cccd_valid_until: input.cccdValidUntil,
@@ -350,6 +363,7 @@ export async function handleDealerSignupSubmit(
       email: input.email,
       business_name: input.businessName,
       address_text: input.addressText,
+      contract_address_text: input.contractAddressText,
       lat: input.lat,
       lng: input.lng,
       nearest_dealer_customer_id: decision.nearest_dealer_customer_id,
@@ -425,7 +439,8 @@ export async function handleDealerSignupSubmit(
         ["Ngày hết hạn CCCD", formatContractDate(input.cccdValidUntil)],
         ["Điện thoại", input.phone],
         ["Email", input.email],
-        ["Địa chỉ", input.addressText],
+        ["Địa chỉ bán hàng", input.addressText],
+        ["Địa chỉ bên ký hợp đồng", input.contractAddressText],
         ["Lý do xét tay", reviewReasonLabel(decision.reason_code)],
         ["Đại lý thiếu vị trí", String(decision.unlocated_dealer_count)],
       ];
@@ -509,6 +524,7 @@ export async function handleDealerSignupSubmit(
       phone: input.phone,
       email: input.email,
       address_text: input.addressText,
+      contract_address_text: input.contractAddressText,
     };
 
     let pdf: Uint8Array;
@@ -571,7 +587,8 @@ export async function handleDealerSignupSubmit(
         ["Ngày hết hạn CCCD", formatContractDate(input.cccdValidUntil)],
         ["Điện thoại", input.phone],
         ["Email", input.email],
-        ["Địa chỉ", input.addressText],
+        ["Địa chỉ bán hàng", input.addressText],
+        ["Địa chỉ bên ký hợp đồng", input.contractAddressText],
         ["Lý do xét tay", reasonLabel],
       ];
 
@@ -683,7 +700,8 @@ export async function handleDealerSignupSubmit(
       ["CCCD", input.cccd],
       ["Ngày hết hạn CCCD", formatContractDate(input.cccdValidUntil)],
       ["Điện thoại", input.phone],
-      ["Địa chỉ", input.addressText],
+      ["Địa chỉ bán hàng", input.addressText],
+      ["Địa chỉ bên ký hợp đồng", input.contractAddressText],
       ["Hiệu lực hợp đồng", `${formatContractDate(term.start)} – ${formatContractDate(term.end)}`],
     ];
 

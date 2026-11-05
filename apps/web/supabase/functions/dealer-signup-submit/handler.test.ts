@@ -16,6 +16,7 @@ import type {
   EligibilityDecision,
   EligibilityResult,
 } from "../_shared/dealer-signup-distance.ts";
+import type { DealerContractInput } from "../_shared/dealer-signup-contract.ts";
 
 class MemoryStore implements DealerSignupStore {
   rows = new Map<string, DealerSignupApplication>();
@@ -89,6 +90,7 @@ const VALID_BODY = {
   phone: "0909 123 456",
   email: "hong@example.test",
   address_text: "12 Lê Lợi, Phường Bến Thành, Quận 1, TP.HCM",
+  contract_address_text: "45 Nguyễn Trãi, Phường Bến Thành, Quận 1, TP.HCM",
   lat: 10.7769,
   lng: 106.7009,
   terms_accepted: true,
@@ -171,6 +173,31 @@ test("invalid customer data returns 400 and writes nothing", async () => {
   assert.equal(mails.length, 0);
 });
 
+test("a missing or too-short contract address is rejected before any write", async () => {
+  for (const contractAddress of [undefined, "1234", "   "]) {
+    const store = new MemoryStore();
+    const mails: DealerSignupEmail[] = [];
+    const body = { ...VALID_BODY } as Record<string, unknown>;
+    if (contractAddress === undefined) {
+      delete body.contract_address_text;
+    } else {
+      body.contract_address_text = contractAddress;
+    }
+
+    const response = await handleDealerSignupSubmit(
+      request(body),
+      makeDeps(store, "eligible", mails),
+    );
+
+    assert.equal(response.status, 400);
+    const payload = await response.json();
+    assert.equal(payload.code, "invalid_contract_address");
+    assert.equal(payload.error, "Vui lòng nhập địa chỉ bên ký hợp đồng.");
+    assert.equal(store.rows.size, 0);
+    assert.equal(mails.length, 0);
+  }
+});
+
 test("a too-close application is stored but sends no email", async () => {
   const store = new MemoryStore();
   const mails: DealerSignupEmail[] = [];
@@ -240,10 +267,14 @@ test("near-threshold manual_review tells BMQ the reason and sends no contract", 
 test("eligible approves once, stores the PDF and sends one contract with a bank slip link", async () => {
   const store = new MemoryStore();
   const mails: DealerSignupEmail[] = [];
-  const response = await handleDealerSignupSubmit(
-    request(VALID_BODY),
-    makeDeps(store, "eligible", mails),
-  );
+  const pdfInputs: DealerContractInput[] = [];
+  const deps = makeDeps(store, "eligible", mails, {
+    buildContractPdf: async (input) => {
+      pdfInputs.push(input);
+      return new TextEncoder().encode("%PDF-1.4\nfake contract\n%%EOF");
+    },
+  });
+  const response = await handleDealerSignupSubmit(request(VALID_BODY), deps);
 
   assert.equal(response.status, 200);
   const body = await response.json();
@@ -265,6 +296,8 @@ test("eligible approves once, stores the PDF and sends one contract with a bank 
   assert.ok(mail.text.includes("dai-ly-moi/bank-slip?token="));
   assert.ok(mail.html.includes("dai-ly-moi/bank-slip?token="));
   assert.ok(mail.text.includes("số điện thoại đã đăng ký"));
+  assert.ok(mail.text.includes(`Địa chỉ bán hàng: ${VALID_BODY.address_text}`));
+  assert.ok(mail.text.includes(`Địa chỉ bên ký hợp đồng: ${VALID_BODY.contract_address_text}`));
 
   assert.equal(store.approvalCalls.length, 1);
   assert.equal(store.approvalCalls[0].mode, "auto");
@@ -276,6 +309,13 @@ test("eligible approves once, stores the PDF and sends one contract with a bank 
 
   const stored = [...store.rows.values()][0];
   assert.equal(stored.status, "approved_waiting_slip");
+  assert.equal(
+    (stored as unknown as Record<string, unknown>).contract_address_text,
+    VALID_BODY.contract_address_text,
+  );
+  assert.equal(pdfInputs.length, 1);
+  assert.equal(pdfInputs[0].contract_address_text, VALID_BODY.contract_address_text);
+  assert.equal(pdfInputs[0].address_text, VALID_BODY.address_text);
   assert.equal(stored.email_message_id, "gmail-message-1");
   assert.ok(stored.contract_sent_at);
   assert.equal(stored.last_error_code, null);
