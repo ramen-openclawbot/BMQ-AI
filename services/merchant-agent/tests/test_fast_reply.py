@@ -2,12 +2,25 @@ from __future__ import annotations
 
 import pytest
 
-from bmq_merchant.fast_reply import fast_reply, fast_reply_group
+from bmq_merchant.fast_reply import (
+    PAYROLL_SUGGESTIONS,
+    fast_reply,
+    fast_reply_group,
+)
 
 EXPECTED_SUGGESTIONS = [
     "Snapshot doanh thu",
     "Doanh thu tháng này theo kênh",
     "PO hôm nay của nhà cung cấp nào?",
+]
+
+PAYROLL_PAGES = [
+    "/payroll",
+    "/payroll/",
+    "/payroll?tab=payroll",
+    "/payroll · Bảng lương: bảng lương và đợt chi lương nhân viên",
+    "/salary-payouts",
+    "/salary-payouts/abc",
 ]
 
 
@@ -93,6 +106,101 @@ def test_thanks_ack_group(message: str) -> None:
 )
 def test_help_group(message: str) -> None:
     _assert_group(message, "help")
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Lương tháng 10 bao nhiêu",
+        "lương tháng 10 bao nhiêu?",
+        "Bảng lương tháng này",
+        "bảng lương tháng 10",
+        "Tiền lương tháng 10 bao nhiêu?",
+        "tien luong thang 10",
+        "Trả lương tháng 10 thế nào?",
+        "ky luong nay da chot chua?",
+        "LƯƠNG THÁNG 10 BAO NHIÊU?",
+        "Cho tôi xem lương tháng 10 của nhân viên ở bộ phận bếp",
+    ],
+)
+@pytest.mark.parametrize("page", PAYROLL_PAGES)
+def test_payroll_question_gets_one_safe_reply(message: str, page: str) -> None:
+    assert fast_reply_group(message, page) == "payroll"
+    reply = fast_reply(message, page)
+    assert reply is not None
+    assert set(reply) == {"text", "suggestions"}
+    text = reply["text"]
+    assert "BMQ Agent" in text
+    assert "không đọc được số lương" in text
+    assert "tab Bảng lương" in text
+    assert "kỳ đang chọn" in text
+    assert "chấm công" in text
+    assert not any(char.isdigit() for char in text), text
+    assert "vào màn" not in text.casefold()
+    assert reply["suggestions"] == PAYROLL_SUGGESTIONS
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        None,
+        "",
+        "/",
+        "/finance",
+        "/payment-requests",
+        "/salary",
+        "/payrolls",
+        "/production/qa",
+    ],
+)
+def test_payroll_question_on_another_page_is_not_a_fast_reply(
+    page: str | None,
+) -> None:
+    message = "Lương tháng 10 bao nhiêu"
+    assert fast_reply(message, page) is None
+    assert fast_reply_group(message, page) is None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Doanh thu tháng 10 bao nhiêu?",
+        "Chi phí tháng này thế nào?",
+        "PO hôm nay của nhà cung cấp nào?",
+        "Công nợ đại lý A còn bao nhiêu?",
+        "chào em, doanh thu hôm nay?",
+    ],
+)
+@pytest.mark.parametrize("page", ["/payroll", "/salary-payouts/abc"])
+def test_other_question_on_payroll_is_not_a_fast_reply(
+    message: str, page: str
+) -> None:
+    assert fast_reply(message, page) is None
+    assert fast_reply_group(message, page) is None
+
+
+@pytest.mark.parametrize(
+    ("message", "group"),
+    [
+        ("Chào em!", "greeting"),
+        ("Cảm ơn nhé", "thanks"),
+        ("Em làm được gì?", "help"),
+    ],
+)
+def test_existing_fast_replies_are_unchanged_on_payroll(
+    message: str, group: str
+) -> None:
+    assert fast_reply_group(message, "/payroll") == group
+    assert fast_reply(message, "/payroll") == fast_reply(message)
+
+
+def test_payroll_suggestions_do_not_ask_for_salary_numbers() -> None:
+    assert len(PAYROLL_SUGGESTIONS) >= 2
+    for suggestion in PAYROLL_SUGGESTIONS:
+        normalized = suggestion.casefold()
+        assert "bao nhiêu" not in normalized
+        assert "số lương" not in normalized
+        assert "luong" in normalized or "lương" in normalized
 
 
 @pytest.mark.parametrize(

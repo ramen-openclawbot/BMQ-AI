@@ -25,10 +25,25 @@ test("prefixes match whole path segments only", () => {
 });
 
 test("pages whose data the agent cannot read offer no suggestions", () => {
-  for (const path of ["/", "/payroll", "/production/qa", "/finance-control/revenue/debt", "/salary-payouts/1"]) {
+  for (const path of ["/", "/production/qa", "/finance-control/revenue/debt"]) {
     assert.equal(merchantPageGuide(path)?.suggestions, undefined, path);
   }
   assert.equal(merchantPageGuide("/payment-requests")?.suggestions?.length, 4);
+});
+
+test("payroll guides say the agent cannot read salary and suggest where to look", () => {
+  for (const path of ["/payroll", "/salary-payouts/1"]) {
+    const guide = merchantPageGuide(path);
+    assert.ok(guide, path);
+    assert.match(guide.purpose, /không đọc được số lương/);
+    const suggestions = guide.suggestions;
+    assert.ok(suggestions && suggestions.length >= 2, path);
+    for (const suggestion of suggestions) {
+      assert.match(suggestion, /lương/i);
+      assert.doesNotMatch(suggestion, /bao nhiêu|số lương|thu nhập/i);
+    }
+    assert.match(merchantPageContext(path), /không đọc được số lương/);
+  }
 });
 
 test("page context carries the path, label and purpose within the server limit", () => {

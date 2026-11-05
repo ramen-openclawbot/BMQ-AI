@@ -285,6 +285,105 @@ def test_chat_greeting_fast_reply_skips_turn_runner(settings: Settings) -> None:
     assert context_sent is False, "fast reply must not mark the context as sent"
 
 
+def test_chat_payroll_question_answers_once_without_turn_runner(
+    settings: Settings,
+) -> None:
+    captured: dict[str, Any] = {"turns": []}
+
+    async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
+        captured["turns"].append(text)
+        return TurnResult(text="không được gọi")
+
+    fake = FakeBackend()
+    app = _app(settings, fake, captured, turn_runner=fake_turn)
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={
+                "session_id": "session-payroll",
+                "message": "Lương tháng 10 bao nhiêu",
+                "page": "/payroll · Bảng lương: bảng lương và đợt chi lương nhân viên",
+            },
+        )
+        context_sent = app.state.sessions["session-payroll"].context_sent
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tool_calls"] == ["bmq_fast_reply"]
+    assert captured["turns"] == [], "payroll fast reply must not call turn_runner"
+    assert context_sent is False
+    assert "BMQ Agent" in body["text"]
+    assert "không đọc được số lương" in body["text"]
+    assert "tab Bảng lương" in body["text"]
+    assert "kỳ đang chọn" in body["text"]
+    assert "chấm công" in body["text"]
+    assert "10" not in body["text"], "the reply must not repeat a salary number"
+    assert not any(
+        block["component"] == "sushi_answer" for block in body["ui"]
+    ), "one question must not produce a second answer"
+    assert [block["component"] for block in body["ui"]] == ["suggestions"]
+
+
+def test_chat_payroll_question_on_another_page_uses_turn_runner(
+    settings: Settings,
+) -> None:
+    captured: dict[str, Any] = {"turns": []}
+
+    async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
+        captured["turns"].append(text)
+        return TurnResult(text="AI trả lời")
+
+    fake = FakeBackend()
+    app = _app(settings, fake, captured, turn_runner=fake_turn)
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={
+                "session_id": "session-payroll-other-page",
+                "message": "Lương tháng 10 bao nhiêu",
+                "page": "/finance · Finance: báo cáo tài chính",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["text"] == "AI trả lời"
+    assert captured["turns"] == [
+        "[Trang: /finance · Finance: báo cáo tài chính]\nLương tháng 10 bao nhiêu"
+    ]
+
+
+def test_chat_other_question_on_payroll_uses_turn_runner(
+    settings: Settings,
+) -> None:
+    captured: dict[str, Any] = {"turns": []}
+
+    async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
+        captured["turns"].append(text)
+        return TurnResult(text="AI trả lời")
+
+    fake = FakeBackend()
+    app = _app(settings, fake, captured, turn_runner=fake_turn)
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={
+                "session_id": "session-payroll-other-question",
+                "message": "Doanh thu tháng 10 bao nhiêu?",
+                "page": "/payroll · Bảng lương: bảng lương và đợt chi lương nhân viên",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["text"] == "AI trả lời"
+    assert captured["turns"] == [
+        "[Trang: /payroll · Bảng lương: bảng lương và đợt chi lương nhân viên]\n"
+        "Doanh thu tháng 10 bao nhiêu?"
+    ]
+
+
 def test_chat_greeting_with_extra_content_uses_turn_runner(
     settings: Settings,
 ) -> None:
@@ -733,6 +832,7 @@ def test_ask_sushi_tool_queues_ui_and_refreshes_the_owner_token(
     first_body = first.json()
     second_body = second.json()
     assert first_body["ui"][-1]["component"] == "sushi_answer"
+    assert first_body["text"] == "Đã kiểm tra"
     assert sum(
         block["component"] == "sushi_answer" for block in first_body["ui"]
     ) == 1
@@ -740,7 +840,9 @@ def test_ask_sushi_tool_queues_ui_and_refreshes_the_owner_token(
         block["component"] == "sushi_answer" for block in second_body["ui"]
     ) == 1
     payload = first_body["ui"][-1]["payload"]
-    assert payload["answer"] == "Tổng công nợ nhà cung cấp là 10 triệu."
+    # The model turn already wrote the one answer; the card keeps only its
+    # structured extras so the same answer is not shown twice.
+    assert payload["answer"] == ""
     assert payload["images"] == [{"url": "https://img/1.jpg"}]
     assert payload["costBlock"] == {"mode": "example_line"}
     assert payload["citations"] == [{"id": "cite-1"}]
@@ -766,6 +868,27 @@ def test_ask_sushi_tool_queues_ui_and_refreshes_the_owner_token(
     assert "BMQ Agent" in options.system_prompt
     assert "VNAgent" not in options.system_prompt
     assert "Sushi" not in options.system_prompt, "internal names stay out of the prompt text"
+
+
+def test_single_turn_ui_has_one_answer_and_keeps_structured_extras() -> None:
+    from bmq_merchant.server import _ui_without_second_answer
+
+    blocks = [
+        {
+            "component": "sushi_answer",
+            "payload": {
+                "answer": "Tổng công nợ nhà cung cấp là 10 triệu.",
+                "costBlock": {"mode": "example_line"},
+                "details": "chi tiết",
+            },
+        }
+    ]
+    cleaned = _ui_without_second_answer(blocks, "Câu trả lời của BMQ Agent")
+    assert cleaned[0]["payload"]["answer"] == ""
+    assert cleaned[0]["payload"]["costBlock"] == {"mode": "example_line"}
+    assert cleaned[0]["payload"]["details"] == "chi tiết"
+    # A turn without model text still keeps the tool answer as its fallback.
+    assert _ui_without_second_answer(blocks, "") == blocks
 
 
 def test_ask_sushi_error_is_a_tool_error_without_ui(

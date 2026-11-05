@@ -179,6 +179,31 @@ def _serialize_change(change: StagedChange) -> dict[str, Any]:
     return change.model_dump(mode="json")
 
 
+def _ui_without_second_answer(
+    ui: list[dict[str, Any]], text: str
+) -> list[dict[str, Any]]:
+    """Keep one textual answer per turn.
+
+    A ``sushi_answer`` block can carry the raw answer plus structured extras
+    (cost card, UNC images, details, citations).  The model already writes the
+    turn's answer into ``text``, so showing the same answer again inside the
+    block creates a second answer for one question.  When the model replied,
+    blank the copied text and keep the extras; if it did not reply, keep the
+    block's answer as the fallback.
+    """
+
+    if not text.strip():
+        return ui
+    cleaned: list[dict[str, Any]] = []
+    for block in ui:
+        if block.get("component") == "sushi_answer":
+            payload = block.get("payload")
+            if isinstance(payload, dict) and str(payload.get("answer") or "").strip():
+                block = {**block, "payload": {**payload, "answer": ""}}
+        cleaned.append(block)
+    return cleaned
+
+
 def _bearer_token(authorization: str | None) -> str:
     if not authorization:
         return ""
@@ -633,10 +658,11 @@ def create_app(
                     _serialize_change(change) for change in pending
                 ],
             }
-        fast = fast_reply(payload.message)
+        fast = fast_reply(payload.message, payload.page)
         if fast is not None:
             logger.info(
-                "fast_reply group=%s", fast_reply_group(payload.message)
+                "fast_reply group=%s",
+                fast_reply_group(payload.message, payload.page),
             )
             async with chat_session.lock:
                 chat_session.last_used = time.monotonic()
@@ -678,8 +704,11 @@ def create_app(
                 result = await turn_runner(
                     chat_session.client, message, toolset=chat_session.toolset
                 )
-                ui = list(getattr(result, "ui", []) or []) + list(
-                    chat_session.pending_ui
+                turn_text = str(getattr(result, "text", "") or "")
+                ui = _ui_without_second_answer(
+                    list(getattr(result, "ui", []) or [])
+                    + list(chat_session.pending_ui),
+                    turn_text,
                 )
             finally:
                 chat_session.pending_ui.clear()
@@ -689,7 +718,7 @@ def create_app(
         pending = await chat_session.backend.get_pending_changes(context)
         return {
             "session_id": chat_session.session_id,
-            "text": str(getattr(result, "text", "") or ""),
+            "text": turn_text,
             "ui": ui,
             "tool_calls": list(getattr(result, "tool_calls", []) or []),
             "pending_changes": [_serialize_change(change) for change in pending],

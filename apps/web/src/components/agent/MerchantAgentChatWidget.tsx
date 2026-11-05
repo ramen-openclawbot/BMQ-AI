@@ -192,7 +192,9 @@ function SushiBlock({ payload, ownerId }: { payload: Record<string, unknown>; ow
   }) : [];
   const details = typeof payload.details === "string" ? payload.details : "";
   const citations = Array.isArray(payload.citations) ? payload.citations as Array<Record<string, unknown>> : [];
-  if (!answer && !cost.success && !images.length) return null;
+  // The turn text is the single answer; this card only adds structured extras
+  // (cost line, UNC images, details, sources) so it may render without answer.
+  if (!answer && !cost.success && !images.length && !details && !citations.length) return null;
   return (
     <div className="ac-card" data-merchant-ui="sushi">
       {answer ? <div className="whitespace-pre-wrap break-words text-[14px] leading-6">{answer}</div> : null}

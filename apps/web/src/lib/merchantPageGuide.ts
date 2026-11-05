@@ -4,9 +4,11 @@
 //
 // Suggestions only ask what the merchant agent can actually read today: revenue lines,
 // dealer orders/prices, SKUs, POs, phiếu nhập, PRs, suppliers, supplier payments/debt,
-// cost classification and the low-stock count. Pages whose data it cannot read (payroll,
-// QA, kiểm kê detail) get a description but no suggestions, so the chat falls back to the
-// general starters.
+// cost classification and the low-stock count. Pages whose data it cannot read (QA,
+// kiểm kê detail) get a description but no suggestions, so the chat falls back to the
+// general starters. Payroll is the exception: its guide says BMQ Agent cannot read
+// salary data and its suggestions only ask where to look, so the deterministic payroll
+// reply answers them without a model call or a salary number.
 
 export type MerchantPageGuide = {
   prefix: string;
@@ -17,6 +19,12 @@ export type MerchantPageGuide = {
 
 // The server rejects a longer page field (services/merchant-agent server.py, max_length=300).
 export const MERCHANT_PAGE_CONTEXT_MAX = 300;
+
+const PAYROLL_SUGGESTIONS = [
+  "Lương tháng này xem ở đâu?",
+  "Bảng lương tháng này đã tạo chưa?",
+  "Kỳ lương đang chọn xem ở đâu?",
+];
 
 const KHO_SUGGESTIONS = [
   "Có bao nhiêu mặt hàng đang tồn thấp?",
@@ -37,7 +45,12 @@ const GUIDES: MerchantPageGuide[] = [
       "Phiếu nào cần phiếu nhập mà chưa có?",
     ],
   },
-  { prefix: "/salary-payouts", label: "Đợt chi lương", purpose: "một đợt chi lương nhân viên" },
+  {
+    prefix: "/salary-payouts",
+    label: "Đợt chi lương",
+    purpose: "một đợt chi lương nhân viên; BMQ Agent không đọc được số lương hay chi tiết đợt chi, chỉ hướng dẫn xem tab Bảng lương của kỳ đang chọn và trạng thái duyệt chấm công",
+    suggestions: PAYROLL_SUGGESTIONS,
+  },
   {
     prefix: "/finance-control/payables",
     label: "Công nợ phải trả",
@@ -154,7 +167,12 @@ const GUIDES: MerchantPageGuide[] = [
     purpose: "hóa đơn đầu vào của nhà cung cấp",
     suggestions: ["Phiếu chi nào chưa có hóa đơn?", "Đang nợ nhà cung cấp bao nhiêu?"],
   },
-  { prefix: "/payroll", label: "Bảng lương", purpose: "bảng lương và đợt chi lương nhân viên" },
+  {
+    prefix: "/payroll",
+    label: "Bảng lương",
+    purpose: "bảng lương và đợt chi lương nhân viên; BMQ Agent không đọc được số lương, chỉ hướng dẫn xem tab Bảng lương của kỳ đang chọn và trạng thái duyệt chấm công",
+    suggestions: PAYROLL_SUGGESTIONS,
+  },
 ];
 
 const matches = (pathname: string, prefix: string) =>
