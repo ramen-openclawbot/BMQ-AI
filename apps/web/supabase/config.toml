@@ -105,8 +105,8 @@ verify_jwt = false
 # The checked-in Vietnamese PDF fonts must be part of the deployed bundle.
 verify_jwt = false
 static_files = [
-  "./functions/_shared/fonts/NotoSans-Regular.ttf",
-  "./functions/_shared/fonts/NotoSans-Bold.ttf",
+  "./functions/_shared/fonts/NotoSans-Regular-vi.ttf",
+  "./functions/_shared/fonts/NotoSans-Bold-vi.ttf",
 ]
 
 [functions.dealer-signup-config]
@@ -119,8 +119,8 @@ verify_jwt = false
 verify_jwt = false
 # The contract PDF is generated at runtime from the checked-in Vietnamese fonts.
 static_files = [
-  "./functions/_shared/fonts/NotoSans-Regular.ttf",
-  "./functions/_shared/fonts/NotoSans-Bold.ttf",
+  "./functions/_shared/fonts/NotoSans-Regular-vi.ttf",
+  "./functions/_shared/fonts/NotoSans-Bold-vi.ttf",
 ]
 
 [functions.dealer-signup-slip]
