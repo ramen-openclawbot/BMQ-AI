@@ -15,8 +15,8 @@ import {
 
 const FONT_BASE = new URL("../_shared/fonts/", import.meta.url);
 const PDF_ASSETS = Promise.all([
-  Deno.readFile(new URL("NotoSans-Regular.ttf", FONT_BASE)),
-  Deno.readFile(new URL("NotoSans-Bold.ttf", FONT_BASE)),
+  Deno.readFile(new URL("NotoSans-Regular-vi.ttf", FONT_BASE)),
+  Deno.readFile(new URL("NotoSans-Bold-vi.ttf", FONT_BASE)),
 ]).then(([regular, bold]) => ({ regular, bold }));
 
 function buildDeps(): DealerSignupSubmitDeps {

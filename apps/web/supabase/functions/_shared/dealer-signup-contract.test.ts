@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PDFDocument } from "npm:pdf-lib@1.17.1";
+import fontkit from "npm:@pdf-lib/fontkit@1.1.1";
 
 import {
   buildDealerContractText,
   buildDealerSignupContractPdf,
   contractTerm,
   formatContractDate,
+  wrapText,
   type DealerContractInput,
 } from "./dealer-signup-contract.ts";
 
@@ -26,10 +28,64 @@ const FONT_BASE = new URL("./fonts/", import.meta.url);
 
 async function readFonts() {
   const [regular, bold] = await Promise.all([
-    Deno.readFile(new URL("NotoSans-Regular.ttf", FONT_BASE)),
-    Deno.readFile(new URL("NotoSans-Bold.ttf", FONT_BASE)),
+    Deno.readFile(new URL("NotoSans-Regular-vi.ttf", FONT_BASE)),
+    Deno.readFile(new URL("NotoSans-Bold-vi.ttf", FONT_BASE)),
   ]);
   return { regular, bold };
+}
+
+/** Embedded fonts for layout tests, plus the raw subset files. */
+async function embedFonts() {
+  const bytes = await readFonts();
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit as never);
+  const regular = await doc.embedFont(bytes.regular, { subset: false });
+  const bold = await doc.embedFont(bytes.bold, { subset: false });
+  return { regular, bold, bytes };
+}
+
+/** The previous implementation, kept verbatim as the line-breaking reference. */
+function referenceWrapText(
+  text: string,
+  font: { widthOfTextAtSize(text: string, size: number): number },
+  size: number,
+  maxWidth: number,
+): string[] {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return [""];
+
+  const words = normalized.split(" ");
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+      current = candidate;
+      continue;
+    }
+
+    if (current) lines.push(current);
+
+    if (font.widthOfTextAtSize(word, size) <= maxWidth) {
+      current = word;
+      continue;
+    }
+
+    let chunk = "";
+    for (const char of word) {
+      if (font.widthOfTextAtSize(`${chunk}${char}`, size) > maxWidth && chunk) {
+        lines.push(chunk);
+        chunk = char;
+      } else {
+        chunk += char;
+      }
+    }
+    current = chunk;
+  }
+
+  if (current) lines.push(current);
+  return lines.length ? lines : [""];
 }
 
 test("contract term runs from the sending date through the day before next year", () => {
@@ -67,7 +123,10 @@ test("contract text fills customer fields and keeps the reviewed terms", () => {
 });
 
 test("generated PDF is valid and carries the application and customer metadata", async () => {
+  const started = performance.now();
   const bytes = await buildDealerSignupContractPdf(INPUT, await readFonts());
+  const elapsed = performance.now() - started;
+  console.log(`[dealer-signup-contract] PDF build time: ${elapsed.toFixed(1)} ms`);
 
   assert.ok(bytes.length > 5000, `PDF too small: ${bytes.length}`);
   assert.equal(new TextDecoder().decode(bytes.slice(0, 5)), "%PDF-");
@@ -75,12 +134,71 @@ test("generated PDF is valid and carries the application and customer metadata",
   const doc = await PDFDocument.load(bytes);
   assert.ok(doc.getPageCount() >= 1);
   assert.ok((doc.getTitle() || "").includes(INPUT.application_code));
+  assert.ok((doc.getTitle() || "").includes("Hợp đồng"));
   const subject = doc.getSubject() || "";
   assert.ok(subject.includes(INPUT.applicant_name));
   assert.ok(subject.includes(INPUT.cccd));
   assert.ok(subject.includes(INPUT.phone));
   assert.ok(subject.includes(INPUT.address_text));
-  assert.ok((doc.getKeywords() || "").includes("6,500"));
+  const keywords = doc.getKeywords() || "";
+  assert.ok(keywords.includes("6,500"));
+  assert.ok(keywords.includes("bán kính 1km"));
+  assert.ok(keywords.includes(INPUT.business_name));
+});
+
+test("subset fonts cover every Vietnamese character used in the contract", async () => {
+  const text = buildDealerContractText(INPUT);
+  assert.ok(text.includes("Hợp đồng"));
+  assert.ok(text.includes("Giá bán sỉ BMQ chưa bao gồm VAT 10%"));
+  assert.ok(text.includes("Phí gia nhập: 0 VNĐ"));
+
+  const bytes = await readFonts();
+  assert.ok(bytes.regular.length < 200_000, `regular subset too large: ${bytes.regular.length}`);
+  assert.ok(bytes.bold.length < 200_000, `bold subset too large: ${bytes.bold.length}`);
+
+  // Include ₫ explicitly: the subset range must keep currency symbols even if
+  // the current contract spells "VNĐ" instead.
+  const required = [...new Set([...text, "₫"])]
+    .map((char) => char.codePointAt(0))
+    .filter((codePoint): codePoint is number => codePoint !== undefined && codePoint >= 0x20)
+    .sort((a, b) => a - b);
+
+  for (const [name, fontBytes] of [["regular", bytes.regular], ["bold", bytes.bold]] as const) {
+    const font = fontkit.create(fontBytes);
+    const missing = required.filter((codePoint) => !font.hasGlyphForCodePoint(codePoint));
+    assert.deepEqual(
+      missing.map((codePoint) => `U+${codePoint.toString(16).toUpperCase()}`),
+      [],
+      `${name} font is missing contract glyphs`,
+    );
+  }
+});
+
+test("wrapText produces exactly the reference lines for the full contract", async () => {
+  const { regular, bold } = await embedFonts();
+  const fullText = buildDealerContractText(INPUT);
+  const lines = fullText.split("\n").map((line) => line.trimEnd());
+  const contentWidth = 595.28 - 48 * 2;
+
+  const cases = [
+    { name: "centered title", font: bold, size: 13.5, width: contentWidth },
+    { name: "centered subtitle", font: bold, size: 11, width: contentWidth },
+    { name: "centered draft", font: bold, size: 10, width: contentWidth },
+    { name: "draft note", font: regular, size: 9.5, width: contentWidth },
+    { name: "heading", font: bold, size: 10, width: contentWidth },
+    { name: "body", font: regular, size: 9.2, width: contentWidth },
+    { name: "table cell", font: bold, size: 8.6, width: contentWidth / 4 - 8 },
+  ];
+
+  for (const testCase of cases) {
+    lines.forEach((line, index) => {
+      assert.deepEqual(
+        wrapText(line, testCase.font, testCase.size, testCase.width),
+        referenceWrapText(line, testCase.font, testCase.size, testCase.width),
+        `${testCase.name} differs at line ${index}: ${line.slice(0, 60)}`,
+      );
+    });
+  }
 });
 
 test("contract body matches the owner template file exactly", async () => {

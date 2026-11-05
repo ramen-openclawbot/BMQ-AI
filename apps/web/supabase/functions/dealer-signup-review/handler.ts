@@ -195,6 +195,35 @@ function buildContractInput(
   };
 }
 
+/** Best-effort error note: a failed write must not turn approval into a 500. */
+async function recordLastError(
+  deps: DealerSignupReviewDeps,
+  id: string,
+  code: string,
+  logger: (line: string) => void,
+): Promise<void> {
+  try {
+    await deps.store.setLastError(id, code);
+  } catch (error) {
+    logger(`set_last_error_failed:${safeCode(error, "db_error")}`);
+  }
+}
+
+/** Renders the contract and persists its draft path in one reusable step. */
+async function buildAndStoreContractDraft(
+  deps: DealerSignupReviewDeps,
+  application: DealerSignupReviewApplication,
+  contractDate: string,
+): Promise<{ path: string }> {
+  const pdfInput = buildContractInput(application, contractDate);
+  const assets = await deps.loadContractAssets();
+  const pdf = await deps.buildContractPdf(pdfInput, assets);
+  const path = dealerContractDraftPath(application.id);
+  await deps.uploadDocument(path, pdf, "application/pdf");
+  await deps.store.setContractDraft(application.id, path);
+  return { path };
+}
+
 async function loadApplication(
   req: Request,
   deps: DealerSignupReviewDeps,
@@ -411,22 +440,8 @@ async function handleApprove(
     });
   }
 
-  const pdfInput = buildContractInput(loaded, vietnamDate(approvalTime));
-  let contractReady = false;
-  let pdfError: string | null = null;
-  try {
-    const assets = await deps.loadContractAssets();
-    const pdf = await deps.buildContractPdf(pdfInput, assets);
-    const path = dealerContractDraftPath(loaded.id);
-    await deps.uploadDocument(path, pdf, "application/pdf");
-    await deps.store.setContractDraft(loaded.id, path);
-    contractReady = true;
-  } catch (error) {
-    pdfError = safeCode(error, "contract_pdf_failed");
-    await deps.store.setLastError(loaded.id, pdfError);
-    logger(`contract_failed:${pdfError}`);
-  }
-
+  // Send the slip-link email before rendering the PDF. The mail does not need
+  // the contract, so the customer still gets the link if PDF generation fails.
   let emailSent = false;
   let emailError: string | null = null;
   try {
@@ -443,8 +458,19 @@ async function handleApprove(
     emailSent = true;
   } catch (error) {
     emailError = safeCode(error, "email_send_failed");
-    await deps.store.setLastError(loaded.id, emailError);
+    await recordLastError(deps, loaded.id, emailError, logger);
     logger(`email_failed:${emailError}`);
+  }
+
+  let contractReady = false;
+  let contractError: string | null = null;
+  try {
+    await buildAndStoreContractDraft(deps, loaded, vietnamDate(approvalTime));
+    contractReady = true;
+  } catch (error) {
+    contractError = safeCode(error, "contract_pdf_failed");
+    await recordLastError(deps, loaded.id, contractError, logger);
+    logger(`contract_failed:${contractError}`);
   }
 
   return json(req, {
@@ -458,7 +484,7 @@ async function handleApprove(
     contract_ready: contractReady,
     email_sent: emailSent,
     slip_expires_at: slipExpiresAt,
-    ...(pdfError ? { contract_error_code: pdfError } : {}),
+    ...(contractError ? { contract_error_code: contractError } : {}),
     ...(emailError ? { email_error_code: emailError } : {}),
   });
 }
@@ -477,13 +503,12 @@ async function handleRegenerateContract(
     return errorJson(req, "Chỉ tạo lại hợp đồng cho hồ sơ đã duyệt.", 409, "application_not_approved");
   }
 
-  const pdfInput = buildContractInput(loaded, contractDateFor(loaded, now()));
   try {
-    const assets = await deps.loadContractAssets();
-    const pdf = await deps.buildContractPdf(pdfInput, assets);
-    const path = dealerContractDraftPath(loaded.id);
-    await deps.uploadDocument(path, pdf, "application/pdf");
-    await deps.store.setContractDraft(loaded.id, path);
+    const { path } = await buildAndStoreContractDraft(
+      deps,
+      loaded,
+      contractDateFor(loaded, now()),
+    );
     return json(req, {
       success: true,
       application_id: loaded.id,

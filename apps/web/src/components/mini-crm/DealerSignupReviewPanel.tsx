@@ -365,15 +365,31 @@ function ApplicationDialog({
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: QUERY_KEY });
 
+  // After a review action, read the persisted status back before deciding what
+  // to tell the operator. The approve API may have committed the customer even
+  // when the PDF or email step failed.
+  const refreshApplications = async (): Promise<Application | null> => {
+    // The parent derives the open dialog's row from this query, so a refetch is
+    // enough to show the persisted status. A failed refetch must not block the toast.
+    try {
+      await refresh();
+      await queryClient.refetchQueries({ queryKey: QUERY_KEY, type: "active" });
+    } catch {
+      return null;
+    }
+    return queryClient.getQueryData<Application[]>(QUERY_KEY)
+      ?.find((row) => row.id === application?.id) ?? null;
+  };
+
   const review = useMutation({
     mutationFn: (input: {
       action: "approve" | "reject" | "resend_slip_link" | "regenerate_contract" | "confirm_payment" | "reject_slip";
       reason?: string;
     }) =>
       reviewDealerSignup({ action: input.action, applicationId: application!.id, reason: input.reason }),
-    onSuccess: (result: DealerSignupReviewResult, input) => {
-      void refresh();
-      queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
+    onSuccess: async (result: DealerSignupReviewResult, input) => {
+      await refreshApplications();
+      void queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
       setMode("view");
       setReason("");
       if (input.action === "approve") {
@@ -407,7 +423,21 @@ function ApplicationDialog({
         toast({ title: result.contract_ready === false ? "Chưa tạo được hợp đồng" : "Đã tạo hợp đồng" });
       }
     },
-    onError: (error) => {
+    onError: async (error, input) => {
+      const refreshed = await refreshApplications();
+      const approvedDespiteError = input.action === "approve" && refreshed !== null &&
+        (["approved_waiting_slip", "active"].includes(refreshed.status) ||
+          Boolean(refreshed.crm_customer_id));
+      if (approvedDespiteError) {
+        setMode("view");
+        setReason("");
+        toast({
+          title: "Đã duyệt, nhưng chưa hoàn tất",
+          description: "Hồ sơ đã được duyệt nhưng chưa hoàn tất hợp đồng hoặc thư. Bấm 'Tạo lại hợp đồng' hoặc 'Gửi lại link' để hoàn tất.",
+          variant: "destructive",
+        });
+        return;
+      }
       toast({ title: "Không thực hiện được", description: messageFor(error, "Vui lòng thử lại."), variant: "destructive" });
     },
   });

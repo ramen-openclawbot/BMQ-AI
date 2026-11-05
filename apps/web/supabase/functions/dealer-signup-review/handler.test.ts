@@ -277,6 +277,97 @@ test("manual approval creates one customer, one PDF and one congratulations emai
   assert.ok(deps.mails[0].text.includes("dai-ly-moi/bank-slip?token="));
 });
 
+test("approval sends the slip-link email before building the contract", async () => {
+  const store = new MemoryStore();
+  const events: string[] = [];
+  const deps = makeDeps(store, {
+    sendEmail: async (email) => {
+      events.push("email");
+      deps.mails.push(email);
+      return { id: "mail-1" };
+    },
+    buildContractPdf: async (input) => {
+      events.push("pdf");
+      deps.pdfInputs.push(input);
+      return PDF_BYTES;
+    },
+  });
+
+  const response = await handleDealerSignupReview(post("approve", { application_id: APP_ID }), deps);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.email_sent, true);
+  assert.equal(body.contract_ready, true);
+  assert.deepEqual(events, ["email", "pdf"]);
+});
+
+test("a failing contract build still returns approval success with the email link sent", async () => {
+  const store = new MemoryStore();
+  const deps = makeDeps(store, {
+    buildContractPdf: async () => {
+      throw Object.assign(new Error("worker limit"), { code: "worker_limit" });
+    },
+  });
+
+  const response = await handleDealerSignupReview(post("approve", { application_id: APP_ID }), deps);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.status, "approved_waiting_slip");
+  assert.equal(body.contract_ready, false);
+  assert.equal(body.email_sent, true);
+  assert.equal(body.contract_error_code, "worker_limit");
+  assert.equal(deps.mails.length, 1);
+  assert.equal(deps.uploads.length, 0);
+  assert.equal(store.draftCalls.length, 0);
+  assert.deepEqual(store.lastErrors, [{ id: APP_ID, code: "worker_limit" }]);
+});
+
+test("a failing email still builds and stores the contract", async () => {
+  const store = new MemoryStore();
+  const deps = makeDeps(store, {
+    sendEmail: async () => {
+      throw Object.assign(new Error("gmail unavailable"), { code: "gmail_unavailable" });
+    },
+  });
+
+  const response = await handleDealerSignupReview(post("approve", { application_id: APP_ID }), deps);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.status, "approved_waiting_slip");
+  assert.equal(body.email_sent, false);
+  assert.equal(body.email_error_code, "gmail_unavailable");
+  assert.equal(body.contract_ready, true);
+  assert.equal(deps.pdfInputs.length, 1);
+  assert.equal(deps.uploads.length, 1);
+  assert.equal(store.draftCalls.length, 1);
+  assert.deepEqual(store.lastErrors, [{ id: APP_ID, code: "gmail_unavailable" }]);
+});
+
+test("a failing error note does not turn a PDF failure into a 500", async () => {
+  const store = new MemoryStore();
+  store.setLastError = async () => {
+    throw new Error("db down");
+  };
+  const deps = makeDeps(store, {
+    buildContractPdf: async () => {
+      throw Object.assign(new Error("worker limit"), { code: "worker_limit" });
+    },
+  });
+
+  const response = await handleDealerSignupReview(post("approve", { application_id: APP_ID }), deps);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.contract_ready, false);
+  assert.equal(body.email_sent, true);
+});
+
 test("approving an already approved application creates no second customer, PDF or email", async () => {
   const store = new MemoryStore();
   store.app = application({

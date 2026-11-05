@@ -206,35 +206,79 @@ const DEFAULT_FONT_BASE = new URL("./fonts/", import.meta.url);
 
 export async function loadDefaultContractFonts(): Promise<DealerContractPdfAssets> {
   const [regular, bold] = await Promise.all([
-    Deno.readFile(new URL("NotoSans-Regular.ttf", DEFAULT_FONT_BASE)),
-    Deno.readFile(new URL("NotoSans-Bold.ttf", DEFAULT_FONT_BASE)),
+    Deno.readFile(new URL("NotoSans-Regular-vi.ttf", DEFAULT_FONT_BASE)),
+    Deno.readFile(new URL("NotoSans-Bold-vi.ttf", DEFAULT_FONT_BASE)),
   ]);
   return { regular, bold };
 }
 
-function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
+type TextWidthCache = {
+  space: number;
+  words: Map<string, number>;
+};
+
+// Widths are cached per embedded font object and font size. The contract has a
+// small, repeated vocabulary, so this avoids re-measuring words line by line.
+const textWidthCaches = new WeakMap<PDFFont, Map<number, TextWidthCache>>();
+
+function textWidthCacheFor(font: PDFFont, size: number): TextWidthCache {
+  let bySize = textWidthCaches.get(font);
+  if (!bySize) {
+    bySize = new Map();
+    textWidthCaches.set(font, bySize);
+  }
+  let cache = bySize.get(size);
+  if (!cache) {
+    cache = { space: font.widthOfTextAtSize(" ", size), words: new Map() };
+    bySize.set(size, cache);
+  }
+  return cache;
+}
+
+function cachedWordWidth(
+  font: PDFFont,
+  size: number,
+  cache: TextWidthCache,
+  word: string,
+): number {
+  let width = cache.words.get(word);
+  if (width === undefined) {
+    width = font.widthOfTextAtSize(word, size);
+    cache.words.set(word, width);
+  }
+  return width;
+}
+
+export function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (!normalized) return [""];
 
   const words = normalized.split(" ");
   const lines: string[] = [];
+  const cache = textWidthCacheFor(font, size);
   let current = "";
+  let currentWidth = 0;
 
   for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
-    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
-      current = candidate;
+    const wordWidth = cachedWordWidth(font, size, cache, word);
+    const candidateWidth = current ? currentWidth + cache.space + wordWidth : wordWidth;
+    if (candidateWidth <= maxWidth) {
+      current = current ? `${current} ${word}` : word;
+      currentWidth = candidateWidth;
       continue;
     }
 
     if (current) lines.push(current);
 
-    if (font.widthOfTextAtSize(word, size) <= maxWidth) {
+    if (wordWidth <= maxWidth) {
       current = word;
+      currentWidth = wordWidth;
       continue;
     }
 
-    // Split a single over-long token (URL, long name) by characters.
+    // Split a single over-long token (URL, long name) by characters. Keep the
+    // original per-character measurement here, including its kern/shaping
+    // behaviour, so over-long tokens break exactly as before.
     let chunk = "";
     for (const char of word) {
       if (font.widthOfTextAtSize(`${chunk}${char}`, size) > maxWidth && chunk) {
@@ -245,6 +289,7 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
       }
     }
     current = chunk;
+    currentWidth = font.widthOfTextAtSize(current, size);
   }
 
   if (current) lines.push(current);
@@ -269,8 +314,11 @@ export async function buildDealerSignupContractPdf(
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit as never);
 
-  const regularFont = await doc.embedFont(fonts.regular, { subset: true });
-  const boldFont = await doc.embedFont(fonts.bold, { subset: true });
+  // The checked-in -vi fonts are already subsetted to the characters this
+  // contract needs, so skipping pdf-lib/fontkit subsetting avoids the
+  // compute-heavy save step that exceeded the Edge worker limit.
+  const regularFont = await doc.embedFont(fonts.regular, { subset: false });
+  const boldFont = await doc.embedFont(fonts.bold, { subset: false });
 
   doc.setTitle(`Hợp đồng phân phối BMQ - ${input.application_code}`);
   doc.setAuthor("CÔNG TY CỔ PHẦN THỰC PHẨM BMQ");
