@@ -50,21 +50,15 @@ function Ratio({ ratio }: { ratio: number | null }) {
 
 /**
  * Key figure for the top of Sản xuất: one month's delivered share of KFM POs (owner 03/11: any month,
- * tap for the day-by-day detail). Early in a month nothing is confirmed yet: until the month is picked
- * by hand the figure shows last month, labelled as such.
+ * tap for the day-by-day detail). It always opens on the current month (owner 05/11), even before any
+ * delivery is confirmed; earlier months are one tap back.
  */
 export function KfmDeliveryKpi({ todayIso }: { todayIso: string }) {
   const current = `${todayIso.slice(0, 7)}-01`;
   const [picked, setPicked] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const thisRange = useMemo(() => monthRange(todayIso), [todayIso]);
-  const lastRange = useMemo(() => monthRange(shiftMonth(current, -1)), [current]);
-  const thisQuery = useKfmDeliveryVsPo(picked ? null : thisRange.from, picked ? null : thisRange.to);
-  const useLast = !picked && Boolean(thisQuery.data && thisQuery.data.totals.confirmedCount === 0);
-  const pickedRange = useMemo(() => (picked ? monthRange(picked) : null), [picked]);
-  const shownRange = pickedRange ?? (useLast ? lastRange : thisRange);
-  const otherQuery = useKfmDeliveryVsPo(picked || useLast ? shownRange.from : null, picked || useLast ? shownRange.to : null);
-  const query = picked || useLast ? otherQuery : thisQuery;
+  const shownRange = useMemo(() => monthRange(picked ?? todayIso), [picked, todayIso]);
+  const query = useKfmDeliveryVsPo(shownRange.from, shownRange.to);
   const month = shownRange.from;
   const t = query.data?.totals;
   const band = deliveryRatioBand(t?.ratio ?? null);
