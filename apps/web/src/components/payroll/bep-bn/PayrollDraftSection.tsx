@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Download, FileText, Loader2, PencilLine } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,13 +13,11 @@ import { computePayroll } from "@/lib/payroll-bn/engine.ts";
 import { buildPayrollNotes } from "@/lib/payroll-bn/notes.ts";
 import { comparePayroll } from "@/lib/payroll-bn/compare.ts";
 import type { IssueReview } from "@/lib/payroll-bn/issue-review.ts";
-import { buildPayrollExportRows, buildPayrollWorkbook, payrollExportFileName } from "@/lib/payroll-bn/export.ts";
-import { addRational, rationalToNumber } from "@/lib/payroll-bn/money.ts";
-import type { AdjustmentField, PayrollEmployeeLine, PayrollGroup, PayrollLine } from "@/lib/payroll-bn/types.ts";
+import { buildPayrollExportRows, buildPayrollWorkbook, formatChange, payrollExportFileName, withChangeColumn } from "@/lib/payroll-bn/export.ts";
+import { rationalToNumber } from "@/lib/payroll-bn/money.ts";
+import type { AdjustmentField, PayrollEmployeeLine } from "@/lib/payroll-bn/types.ts";
 import type { BepBnDataSource, BepBnPeriodData } from "./types";
-import { ADJUSTMENT_LABELS, VALUELESS_ADJUSTMENTS, formatAdjustmentValue, formatMoney, formatQuantity, formatVnd } from "./format";
-
-const GROUP_ORDER: PayrollGroup[] = ["Văn phòng", "Bếp bánh", "Kho BN"];
+import { ADJUSTMENT_LABELS, VALUELESS_ADJUSTMENTS, formatAdjustmentValue, formatVnd } from "./format";
 
 interface PayrollDraftSectionProps {
   data: BepBnPeriodData;
@@ -64,11 +62,8 @@ export function PayrollDraftSection({ data, source, canEdit, issueReviews }: Pay
     [result, source.previousPayroll],
   );
 
-  const groups = GROUP_ORDER.map((group) => ({
-    group,
-    employees: result.employees.filter((line) => line.group === group),
-    summary: result.groups.find((line) => line.group === group),
-  })).filter((entry) => entry.employees.length > 0);
+  const exportRows = () =>
+    withChangeColumn(buildPayrollExportRows(data.period, result, notes), comparison, source.previousPeriodCode);
 
   const download = (blob: Blob, fileName: string) => {
     const url = URL.createObjectURL(blob);
@@ -80,7 +75,7 @@ export function PayrollDraftSection({ data, source, canEdit, issueReviews }: Pay
   };
 
   const exportExcel = () => {
-    const bytes = buildPayrollWorkbook(buildPayrollExportRows(data.period, result, notes));
+    const bytes = buildPayrollWorkbook(exportRows());
     download(
       new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
       payrollExportFileName(data.period),
@@ -93,7 +88,7 @@ export function PayrollDraftSection({ data, source, canEdit, issueReviews }: Pay
     try {
       // jsPDF is loaded only when a PDF is requested.
       const { buildPayrollPdf } = await import("@/lib/payroll-bn/export-pdf.ts");
-      const blob = await buildPayrollPdf(buildPayrollExportRows(data.period, result, notes));
+      const blob = await buildPayrollPdf(exportRows());
       download(blob, payrollExportFileName(data.period).replace(/\.xlsx$/, ".pdf"));
     } catch (error) {
       toast({
@@ -118,7 +113,7 @@ export function PayrollDraftSection({ data, source, canEdit, issueReviews }: Pay
           <div className="space-y-1.5">
             <CardTitle className="text-base">Bảng lương nháp</CardTitle>
             <CardDescription>
-              Ngày công và giờ công là các cột riêng. Thực nhận làm tròn đến 1.000 đồng ở bước cuối; dòng nhóm cộng các số đã làm tròn.
+              Xuất PDF hoặc Excel để xem bảng lương chi tiết, có cột ± % so kỳ trước. Thực nhận làm tròn đến 1.000 đồng ở bước cuối.
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2 self-start">
@@ -152,49 +147,25 @@ export function PayrollDraftSection({ data, source, canEdit, issueReviews }: Pay
           {result.employees.length === 0 ? (
             <p className="text-sm text-muted-foreground">Kỳ này chưa có danh mục nhân viên.</p>
           ) : (
-            <div className="max-h-[560px] overflow-auto rounded-md border">
-              <table className="w-max min-w-full border-collapse text-sm">
-                <thead className="text-xs [&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-card [&_th]:shadow-[inset_0_-1px_0_hsl(var(--border))] [&_th:first-child]:z-30">
-                  <tr>
-                    <th className="left-0 min-w-[188px] px-3 py-2 text-left font-medium sm:min-w-[220px]">Nhân viên</th>
-                    <HeaderCell>NC chuẩn</HeaderCell>
-                    <HeaderCell>NC thực tế</HeaderCell>
-                    <HeaderCell>Ngày lễ</HeaderCell>
-                    <HeaderCell>NC tính lương</HeaderCell>
-                    <HeaderCell>Giờ part-time</HeaderCell>
-                    <HeaderCell>Giờ TC</HeaderCell>
-                    <HeaderCell>Lương ngày công</HeaderCell>
-                    <HeaderCell>Lương TC</HeaderCell>
-                    <HeaderCell>Phụ cấp</HeaderCell>
-                    <HeaderCell>Tổng thu nhập</HeaderCell>
-                    <HeaderCell>Thực nhận</HeaderCell>
-                    <HeaderCell>
-                      ± % so {source.previousPeriodCode ? `kỳ ${source.previousPeriodCode}` : "tháng trước"}
-                    </HeaderCell>
-                    <th className="min-w-[220px] px-3 py-2 text-left font-medium">Ghi chú</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groups.map((entry) => (
-                    <Fragment key={entry.group}>
-                      {entry.employees.map((line) => (
-                        <LineRow
-                          key={line.employeeCode}
-                          line={line}
-                          label={line.employeeName}
-                          sublabel={`${line.employeeCode} · ${line.employmentType === "part_time" ? "Part-time" : "Chính thức"}`}
-                          change={comparison.byEmployee.get(line.employeeCode) ?? null}
-                          note={notes.get(line.employeeCode)?.join("; ") ?? (line.flags.includes("terminated") ? "Nghỉ việc trong kỳ" : "")}
-                          onAdjust={canAdjust && !line.flags.includes("terminated") ? () => openAdjust(line.employeeCode) : undefined}
-                        />
-                      ))}
-                      {entry.summary ? <LineRow line={entry.summary} label={`Nhóm ${entry.group}`} variant="group" change={comparison.byGroup.get(entry.group) ?? null} /> : null}
-                    </Fragment>
-                  ))}
-                  <LineRow line={result.total} label="Tổng cộng" variant="total" change={comparison.total} />
-                </tbody>
-              </table>
-            </div>
+            <p className="text-sm text-muted-foreground">
+              {result.employees.length} nhân viên. Tổng thực nhận{" "}
+              <span className="font-semibold text-foreground tabular-nums">{formatVnd(result.total.netPayRounded)}</span>
+              {comparison.total !== null ? (
+                <>
+                  {" · "}
+                  <span
+                    className={cn(
+                      "font-medium tabular-nums",
+                      comparison.total > 0 ? "text-emerald-600" : comparison.total < 0 ? "text-red-600" : "",
+                    )}
+                  >
+                    {formatChange(comparison.total)}
+                  </span>{" "}
+                  so {source.previousPeriodCode}
+                </>
+              ) : null}
+              . Xem chi tiết từng người trong file PDF hoặc Excel.
+            </p>
           )}
         </CardContent>
       </Card>
@@ -212,92 +183,6 @@ export function PayrollDraftSection({ data, source, canEdit, issueReviews }: Pay
         />
       ) : null}
     </div>
-  );
-}
-
-/** "+12,3%", "−4,0%", "0,0%" or "—" when there is nothing to compare with. */
-function formatChange(change: number | null): string {
-  if (change === null) return "—";
-  const text = Math.abs(change).toFixed(1).replace(".", ",");
-  if (change > 0) return `+${text}%`;
-  if (change < 0) return `−${text}%`;
-  return `${text}%`;
-}
-
-function HeaderCell({ children }: { children: React.ReactNode }) {
-  return <th className="min-w-[96px] px-3 py-2 text-right font-medium">{children}</th>;
-}
-
-function NumberCell({ children, strong }: { children: React.ReactNode; strong?: boolean }) {
-  return <td className={cn("px-3 py-2 text-right tabular-nums", strong && "font-semibold")}>{children}</td>;
-}
-
-function LineRow({
-  line,
-  label,
-  sublabel,
-  note,
-  change = null,
-  variant = "employee",
-  onAdjust,
-}: {
-  line: PayrollLine;
-  label: string;
-  sublabel?: string;
-  note?: string;
-  /** Percent change of net pay against the previous period; null = not comparable. */
-  change?: number | null;
-  variant?: "employee" | "group" | "total";
-  onAdjust?: () => void;
-}) {
-  const emphasis = variant !== "employee";
-  const stickyBg = variant === "total" ? "bg-muted" : variant === "group" ? "bg-secondary" : "bg-card";
-  return (
-    <tr className={cn("border-t", variant === "group" && "bg-secondary font-medium", variant === "total" && "bg-muted font-semibold")}>
-      <td className={cn("sticky left-0 z-10 min-w-[188px] px-3 py-2 sm:min-w-[220px]", stickyBg)}>
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="break-words leading-snug">{label}</div>
-            {sublabel ? <div className="break-words text-xs text-muted-foreground">{sublabel}</div> : null}
-          </div>
-          {onAdjust ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0"
-              onClick={onAdjust}
-              aria-label={`Điều chỉnh ${label}`}
-            >
-              <PencilLine className="h-3.5 w-3.5" />
-            </Button>
-          ) : null}
-        </div>
-      </td>
-      <NumberCell>{line.kind === "employee" && line.employmentType !== "part_time" ? formatQuantity(line.standardDays) : ""}</NumberCell>
-      <NumberCell>{formatQuantity(line.actualWorkDays)}</NumberCell>
-      <NumberCell>{formatQuantity(line.holidayPayDays)}</NumberCell>
-      <NumberCell strong={emphasis}>{formatQuantity(line.workDays)}</NumberCell>
-      <NumberCell>{formatQuantity(line.partTimeHours)}</NumberCell>
-      <NumberCell>{formatQuantity(line.overtimeHours)}</NumberCell>
-      <NumberCell>{formatMoney(addRational(line.dayPay, line.partTimePay))}</NumberCell>
-      <NumberCell>{formatMoney(line.overtimePay)}</NumberCell>
-      <NumberCell>{formatMoney(line.allowance)}</NumberCell>
-      <NumberCell>{formatMoney(line.grossPay)}</NumberCell>
-      <NumberCell strong>{formatVnd(line.netPayRounded)}</NumberCell>
-      <td
-        className={cn(
-          "whitespace-nowrap px-3 py-2 text-right text-xs font-medium tabular-nums",
-          change === null || change === 0
-            ? "text-muted-foreground"
-            : change > 0
-              ? "text-emerald-600"
-              : "text-red-600",
-        )}
-      >
-        {formatChange(change)}
-      </td>
-      <td className="px-3 py-2 text-xs text-muted-foreground">{note}</td>
-    </tr>
   );
 }
 

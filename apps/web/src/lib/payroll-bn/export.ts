@@ -5,6 +5,7 @@
 import * as XLSX from "xlsx";
 
 import { addRational, mulRational, rational, roundHalfUpToStep, type Rational } from "./money.ts";
+import type { PayrollComparison } from "./compare.ts";
 import type { PayrollGroup, PayrollLine, PayrollPeriod, PayrollResult } from "./types.ts";
 
 const GROUP_ORDER: PayrollGroup[] = ["Văn phòng", "Bếp bánh", "Kho BN"];
@@ -83,6 +84,55 @@ export function buildPayrollExportRows(
   return rows;
 }
 
+/** "+12,3%", "−4,0%", "0,0%" or "—" when there is nothing to compare with. */
+export function formatChange(change: number | null): string {
+  if (change === null) return "—";
+  const text = Math.abs(change).toFixed(1).replace(".", ",");
+  if (change > 0) return `+${text}%`;
+  if (change < 0) return `−${text}%`;
+  return `${text}%`;
+}
+
+/** Header of the comparison column, e.g. "± % so T09.2026". */
+export function changeColumnHeader(previousPeriodCode: string | null): string {
+  return previousPeriodCode ? `± % so ${previousPeriodCode}` : "± % so kỳ trước";
+}
+
+/**
+ * Insert the "± % so kỳ trước" column just before "Ghi chú" (net pay vs the
+ * previous period). Employee rows are matched by code, group rows by their
+ * "Nhóm …" label and the total by "Tổng cộng". Title rows are left as is.
+ */
+export function withChangeColumn(
+  rows: (string | number)[][],
+  comparison: PayrollComparison,
+  previousPeriodCode: string | null,
+): (string | number)[][] {
+  const noteIndex = PAYROLL_EXPORT_HEADER.indexOf("Ghi chú");
+  const headerIndex = rows.findIndex((row) => row[0] === PAYROLL_EXPORT_HEADER[0]);
+  if (headerIndex < 0) return rows;
+  return rows.map((row, index) => {
+    if (index < headerIndex) return row;
+    let cell: string;
+    if (index === headerIndex) {
+      cell = changeColumnHeader(previousPeriodCode);
+    } else {
+      const code = row[0];
+      const label = String(row[1] ?? "");
+      const change =
+        typeof code === "string" && code !== ""
+          ? comparison.byEmployee.get(code) ?? null
+          : label === "Tổng cộng"
+            ? comparison.total
+            : label.startsWith("Nhóm ")
+              ? comparison.byGroup.get(label.slice(5)) ?? null
+              : null;
+      cell = formatChange(change);
+    }
+    return [...row.slice(0, noteIndex), cell, ...row.slice(noteIndex)];
+  });
+}
+
 export function payrollExportFileName(period: PayrollPeriod): string {
   const suffix = period.status === "locked" ? "da-chot" : "nhap";
   return `bang-luong-bep-bn-${period.code.replace(/[^A-Za-z0-9.-]+/g, "-")}-${suffix}.xlsx`;
@@ -91,7 +141,9 @@ export function payrollExportFileName(period: PayrollPeriod): string {
 /** Builds the workbook bytes; the caller decides how to download them. */
 export function buildPayrollWorkbook(rows: (string | number)[][]): ArrayBuffer {
   const sheet = XLSX.utils.aoa_to_sheet(rows);
-  sheet["!cols"] = PAYROLL_EXPORT_HEADER.map((_, index) => ({ wch: index === 1 ? 26 : index === 15 ? 40 : 14 }));
+  const header = rows.find((row) => row[0] === PAYROLL_EXPORT_HEADER[0]) ?? PAYROLL_EXPORT_HEADER;
+  const noteIndex = header.indexOf("Ghi chú");
+  sheet["!cols"] = header.map((_, index) => ({ wch: index === 1 ? 26 : index === noteIndex ? 40 : 14 }));
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, "Bang luong");
   return XLSX.write(workbook, { type: "array", bookType: "xlsx" }) as ArrayBuffer;

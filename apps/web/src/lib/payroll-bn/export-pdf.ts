@@ -63,6 +63,8 @@ export async function buildPayrollPdf(rows: (string | number)[][]): Promise<Blob
     cursorY += index === 0 ? 6 : 5;
   });
 
+  const noteIndex = header.indexOf("Ghi chú");
+  const changeIndex = header.findIndex((cell) => typeof cell === "string" && cell.startsWith("± %"));
   const summaryFlags: boolean[] = bodyRows.map((row) => isSummaryRow(row));
   const body = bodyRows.map((row) => row.map((cell) => formatPdfCell(cell)));
 
@@ -76,12 +78,19 @@ export async function buildPayrollPdf(rows: (string | number)[][]): Promise<Blob
     columnStyles: {
       0: { cellWidth: 16 },
       1: { cellWidth: 30 },
-      15: { cellWidth: 40 },
+      ...(noteIndex >= 0 ? { [noteIndex]: { cellWidth: 40 } } : {}),
+      ...(changeIndex >= 0 ? { [changeIndex]: { halign: "right" as const, cellWidth: 15 } } : {}),
     },
     margin: { left: 8, right: 8 },
     didParseCell: (data) => {
       if (data.section === "body" && summaryFlags[data.row.index]) {
         data.cell.styles.fontStyle = "bold";
+      }
+      // Increase in green, decrease in red.
+      if (data.section === "body" && data.column.index === changeIndex) {
+        const text = String(data.cell.raw ?? "");
+        if (text.startsWith("+")) data.cell.styles.textColor = [22, 128, 61];
+        else if (text.startsWith("−")) data.cell.styles.textColor = [200, 40, 40];
       }
     },
   });

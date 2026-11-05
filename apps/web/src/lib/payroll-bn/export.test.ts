@@ -106,3 +106,32 @@ test("excluded missing check-out is written to the export and workbook without c
   assert.match(String(exported[15]), expected);
   assert.equal(back.at(-1)![14], 96_681_000);
 });
+
+test("withChangeColumn inserts ± % before Ghi chú for employees, groups and the total", async () => {
+  const { comparePayroll } = await import("./compare.ts");
+  const { withChangeColumn, formatChange } = await import("./export.ts");
+  const current = computePayroll({
+    period: T09_FIXTURE.period,
+    employees: T09_FIXTURE.employees,
+    measures: T09_FIXTURE.measures,
+    adjustments: T09_FIXTURE.adjustments,
+  });
+  const comparison = comparePayroll(current, current);
+  const rows = withChangeColumn(buildPayrollExportRows(T09_FIXTURE.period, current, new Map()), comparison, "T08.2026");
+  const header = rows.find((row) => row[0] === "Mã NV")!;
+  assert.equal(header[15], "± % so T08.2026");
+  assert.equal(header[16], "Ghi chú");
+  const body = rows.slice(rows.indexOf(header) + 1);
+  assert.ok(body.length > 0);
+  // Same period on both sides: 0,0% everywhere, "—" only where the pay is 0.
+  for (const row of body) assert.equal(row[15], row[14] === 0 ? "—" : "0,0%");
+  assert.equal(body.at(-1)![15], "0,0%");
+  // Title rows are untouched and the amounts keep their columns.
+  assert.deepEqual(rows[0], [`Bảng lương ${T09_FIXTURE.period.name} (${T09_FIXTURE.period.code})`]);
+  assert.equal(body.at(-1)![14], 96_681_000);
+
+  const noPrevious = withChangeColumn(buildPayrollExportRows(T09_FIXTURE.period, current, new Map()), comparePayroll(current, null), null);
+  assert.equal(noPrevious.find((row) => row[0] === "Mã NV")![15], "± % so kỳ trước");
+  assert.equal(noPrevious.at(-1)![15], "—");
+  assert.deepEqual([formatChange(12.34), formatChange(-4), formatChange(0), formatChange(null)], ["+12,3%", "−4,0%", "0,0%", "—"]);
+});
