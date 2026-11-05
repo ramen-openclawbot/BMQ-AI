@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { computePayroll } from "@/lib/payroll-bn/engine.ts";
 import { buildPayrollNotes } from "@/lib/payroll-bn/notes.ts";
+import type { IssueReview } from "@/lib/payroll-bn/issue-review.ts";
 import { buildPayrollExportRows, buildPayrollWorkbook, payrollExportFileName } from "@/lib/payroll-bn/export.ts";
 import { addRational, rationalToNumber } from "@/lib/payroll-bn/money.ts";
 import type { AdjustmentField, PayrollEmployeeLine, PayrollGroup, PayrollLine } from "@/lib/payroll-bn/types.ts";
@@ -23,9 +24,11 @@ interface PayrollDraftSectionProps {
   data: BepBnPeriodData;
   source: BepBnDataSource;
   canEdit: boolean;
+  /** Reviewer decisions, so excluded missing check-out days reach the notes. */
+  issueReviews: IssueReview[];
 }
 
-export function PayrollDraftSection({ data, source, canEdit }: PayrollDraftSectionProps) {
+export function PayrollDraftSection({ data, source, canEdit, issueReviews }: PayrollDraftSectionProps) {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [presetEmployee, setPresetEmployee] = useState<string | null>(null);
@@ -50,8 +53,9 @@ export function PayrollDraftSection({ data, source, canEdit }: PayrollDraftSecti
         result.employees,
         data.adjustments,
         ADJUSTMENT_LABELS,
+        issueReviews,
       ),
-    [result.employees, data.adjustments],
+    [result.employees, data.adjustments, issueReviews],
   );
 
   const groups = GROUP_ORDER.map((group) => ({

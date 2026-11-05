@@ -3,11 +3,24 @@ import test from "node:test";
 
 import { computePayroll } from "./engine.ts";
 import { buildPayrollExportRows } from "./export.ts";
+import { buildPayrollNotes } from "./notes.ts";
 import { buildPayslips, toPublishPayload } from "./payslip.ts";
 import { PAYROLL_EXPORT_HEADER } from "./export.ts";
 import { T08_FIXTURE, T08_GROUP_TOTALS } from "./payroll-bn-t08.fixture.ts";
 import { T09_FIXTURE, T09_GROUP_TOTALS } from "./payroll-bn-t09.fixture.ts";
 import type { PayrollBnFixture } from "./fixture-helpers.ts";
+import type { IssueReview } from "./issue-review.ts";
+import type { AdjustmentField } from "./types.ts";
+
+const ADJUSTMENT_LABELS: Record<AdjustmentField, string> = {
+  work_days: "NC thực tế",
+  paid_work_days: "NC tính lương",
+  part_time_hours: "Giờ part-time",
+  overtime_hours: "Giờ tăng ca",
+  exclude_overtime: "Không tính tăng ca",
+  exclude_holiday: "Không tính ngày lễ",
+  net_pay: "Thực nhận",
+};
 
 function notesFor(fixture: PayrollBnFixture): Map<string, string[]> {
   const notes = new Map<string, string[]>();
@@ -118,4 +131,31 @@ test("lines carry the exact portal labels and units", () => {
 test("toPublishPayload round-trips the payslips", () => {
   const payslips = buildFor(T09_FIXTURE);
   assert.deepEqual(toPublishPayload(payslips), payslips);
+});
+
+test("excluded missing check-out reaches the payslip note without changing pay", () => {
+  const result = compute(T09_FIXTURE);
+  const reviews: IssueReview[] = [
+    {
+      employeeCode: "BN03",
+      workDate: "2026-09-03",
+      issueCode: "missing_check_out",
+      decision: "excluded",
+      note: "Đã đối chiếu với quản lý",
+    },
+  ];
+  const notes = buildPayrollNotes(result.employees, T09_FIXTURE.adjustments, ADJUSTMENT_LABELS, reviews);
+  const payslips = buildPayslips(T09_FIXTURE.period, T09_FIXTURE.employees, result, notes);
+  const an = payslips.find((payslip) => payslip.employee_code === "BN03")!;
+
+  assert.match(
+    an.note ?? "",
+    /Ngày công không được tính do không chấm công giờ ra: 03\/09\. Vui lòng liên hệ cấp quản lý để giải trình\. Nếu được duyệt, ngày lương sẽ được chuyển bù vào tháng sau\./,
+  );
+  assert.equal(payslips.reduce((total, payslip) => total + payslip.net_pay, 0), T09_GROUP_TOTALS.totalNet);
+  // Adding a note changes no amount and no payslip line.
+  assert.deepEqual(
+    payslips.map(({ note: _note, ...rest }) => rest),
+    buildPayslips(T09_FIXTURE.period, T09_FIXTURE.employees, result).map(({ note: _note, ...rest }) => rest),
+  );
 });

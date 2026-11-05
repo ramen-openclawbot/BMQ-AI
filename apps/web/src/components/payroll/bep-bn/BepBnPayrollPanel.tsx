@@ -179,7 +179,12 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
               </CardContent>
             </Card>
           ) : (
-            <PayrollDraftSection data={payrollData} source={source} canEdit={canEdit} />
+            <PayrollDraftSection
+              data={payrollData}
+              source={source}
+              canEdit={canEdit}
+              issueReviews={source.issueReviews}
+            />
           )}
         </TabsContent>
 

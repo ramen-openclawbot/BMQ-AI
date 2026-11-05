@@ -4,7 +4,20 @@ import * as XLSX from "xlsx";
 
 import { computePayroll } from "./engine.ts";
 import { buildPayrollExportRows, buildPayrollWorkbook, payrollExportFileName, PAYROLL_EXPORT_HEADER } from "./export.ts";
+import { buildPayrollNotes } from "./notes.ts";
 import { T09_FIXTURE } from "./payroll-bn-t09.fixture.ts";
+import type { IssueReview } from "./issue-review.ts";
+import type { AdjustmentField } from "./types.ts";
+
+const ADJUSTMENT_LABELS: Record<AdjustmentField, string> = {
+  work_days: "NC thực tế",
+  paid_work_days: "NC tính lương",
+  part_time_hours: "Giờ part-time",
+  overtime_hours: "Giờ tăng ca",
+  exclude_overtime: "Không tính tăng ca",
+  exclude_holiday: "Không tính ngày lễ",
+  net_pay: "Thực nhận",
+};
 
 function exportT09() {
   const result = computePayroll({
@@ -58,4 +71,38 @@ test("workbook round-trips through xlsx with the status in the title", () => {
   assert.match(String(back[1][0]), /Nháp, chưa chốt/);
   assert.equal(back.at(-1)![14], 96_681_000);
   assert.equal(payrollExportFileName(T09_FIXTURE.period), "bang-luong-bep-bn-T09.2026-nhap.xlsx");
+});
+
+test("excluded missing check-out is written to the export and workbook without changing amounts", () => {
+  const result = computePayroll({
+    period: T09_FIXTURE.period,
+    employees: T09_FIXTURE.employees,
+    measures: T09_FIXTURE.measures,
+    adjustments: T09_FIXTURE.adjustments,
+  });
+  const reviews: IssueReview[] = [
+    {
+      employeeCode: "BN03",
+      workDate: "2026-09-03",
+      issueCode: "missing_check_out",
+      decision: "excluded",
+      note: "Đã đối chiếu với quản lý",
+    },
+  ];
+  const notes = buildPayrollNotes(result.employees, T09_FIXTURE.adjustments, ADJUSTMENT_LABELS, reviews);
+  const rows = buildPayrollExportRows(T09_FIXTURE.period, result, notes);
+  const employee = rows.find((row) => row[0] === "BN03")!;
+  const expected =
+    /Ngày công không được tính do không chấm công giờ ra: 03\/09\. Vui lòng liên hệ cấp quản lý để giải trình\. Nếu được duyệt, ngày lương sẽ được chuyển bù vào tháng sau\./;
+
+  assert.match(String(employee[15]), expected);
+  // The note is display-only: every earlier column (all amounts) is identical.
+  const withoutNotes = buildPayrollExportRows(T09_FIXTURE.period, result, new Map());
+  assert.deepEqual(rows.map((row) => row.slice(0, 15)), withoutNotes.map((row) => row.slice(0, 15)));
+
+  const sheet = XLSX.read(buildPayrollWorkbook(rows), { type: "array" }).Sheets["Bang luong"];
+  const back = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, { header: 1 });
+  const exported = back.find((row) => row[0] === "BN03")!;
+  assert.match(String(exported[15]), expected);
+  assert.equal(back.at(-1)![14], 96_681_000);
 });

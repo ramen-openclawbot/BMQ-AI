@@ -156,6 +156,7 @@ export const useBepBnData: UseBepBnData = (periodId) => {
       result.employees,
       periodData.adjustments,
       ADJUSTMENT_LABELS,
+      reviews,
     );
     return buildPayslips(periodData.period, periodData.employees, result, notes);
   };
