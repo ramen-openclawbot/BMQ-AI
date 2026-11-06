@@ -21,6 +21,7 @@ import {
   lockPeriod,
   publishPayslips as publishPayslipsRpc,
   setAttendanceApproved,
+  setPeriodStandardDays,
   upsertEmployee,
   upsertEmployeeContact,
   upsertIssueReview,
@@ -296,6 +297,15 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     onSuccess: (_result, variables) => invalidatePeriod(variables.periodId),
   });
 
+  const standardDaysMutation = useMutation({
+    mutationFn: (variables: { periodId: string; standardDaysByGroup: Record<string, number> }) =>
+      setPeriodStandardDays(client, variables.periodId, variables.standardDaysByGroup),
+    onSuccess: (_result, variables) => {
+      invalidatePeriod(variables.periodId);
+      invalidatePeriods();
+    },
+  });
+
   const publishMutation = useMutation({
     mutationFn: (id: string) => publishForPeriod(id),
     onSuccess: (_count, id) => invalidatePublishedCount(id),
@@ -367,6 +377,8 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     addAdjustment: (id, input) => adjustmentMutation.mutateAsync({ periodId: id, input }),
     reviewIssue: (id, input) => reviewMutation.mutateAsync({ periodId: id, input }),
     setAttendanceApproved: (id, approved) => approveMutation.mutateAsync({ periodId: id, approved }),
+    setStandardDays: (id, standardDaysByGroup) =>
+      standardDaysMutation.mutateAsync({ periodId: id, standardDaysByGroup }),
     lockPeriod: (id) => lockMutation.mutateAsync(id),
     createPeriod: (input) => createMutation.mutateAsync(input),
     upsertEmployee: (id, employee) =>

@@ -123,6 +123,8 @@ export interface BepBnDataSource {
   /** Accept or exclude one reviewable anomaly (upsert on the unique key). */
   reviewIssue: (periodId: string, input: BepBnIssueReviewInput) => Promise<void>;
   setAttendanceApproved: (periodId: string, approved: boolean) => Promise<void>;
+  /** Save the standard working days per group of an open period. */
+  setStandardDays: (periodId: string, standardDaysByGroup: Record<string, number>) => Promise<void>;
   lockPeriod: (periodId: string) => Promise<void>;
   /** Returns the new period id. */
   createPeriod: (input: BepBnPeriodInput) => Promise<string>;

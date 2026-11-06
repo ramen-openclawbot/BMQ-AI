@@ -18,6 +18,7 @@ import {
   normalizePayslipPhone,
   publishPayslips,
   setAttendanceApproved,
+  setPeriodStandardDays,
   upsertEmployee,
   upsertEmployeeContact,
   upsertIssueReview,
@@ -674,6 +675,45 @@ test("setAttendanceApproved forwards the period and the flag to the RPC", async 
 
   await setAttendanceApproved(client, "period-1", false);
   assert.deepEqual(args, { _period_id: "period-1", _approved: false });
+});
+
+test("setPeriodStandardDays updates only an open period with the chosen days", async () => {
+  let payload: unknown;
+  let filters: [string, unknown][] = [];
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_periods: (op, values, _settings, applied) => {
+        assert.equal(op, "update");
+        payload = values;
+        filters = applied ?? [];
+        return { data: [{ id: "period-1" }], error: null };
+      },
+    },
+  });
+
+  await setPeriodStandardDays(client, "period-1", { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27 });
+  assert.deepEqual(payload, { standard_days_by_group: { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27 } });
+  assert.deepEqual(filters, [
+    ["id", "period-1"],
+    ["status", "draft"],
+  ]);
+});
+
+test("setPeriodStandardDays rejects invalid days before writing", async () => {
+  const calls: { table: string; op: string }[] = [];
+  const client = createFakeClient({ calls });
+  await assert.rejects(() => setPeriodStandardDays(client, "p", { "Bếp bánh": 0 }), /lớn hơn 0/);
+  await assert.rejects(() => setPeriodStandardDays(client, "p", { "Bếp bánh": 32 }), /không quá 31/);
+  await assert.rejects(() => setPeriodStandardDays(client, "p", { "Bếp bánh": Number.NaN }), /lớn hơn 0/);
+  await assert.rejects(() => setPeriodStandardDays(client, "p", {}), /Chưa nhập/);
+  assert.equal(calls.length, 0);
+});
+
+test("setPeriodStandardDays fails when no open period was updated", async () => {
+  const client = createFakeClient({
+    tables: { payroll_bn_periods: () => ({ data: [], error: null }) },
+  });
+  await assert.rejects(() => setPeriodStandardDays(client, "locked", { "Bếp bánh": 27 }), /đã chốt/);
 });
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { CheckCircle2, FileSpreadsheet, Loader2, ShieldCheck, Upload, Users } from "lucide-react";
+import { CalendarDays, CheckCircle2, FileSpreadsheet, Loader2, ShieldCheck, Upload, Users } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -209,6 +209,28 @@ function ImportHistory({ data }: { data: BepBnPeriodData }) {
 
 const BULK_CONCURRENCY = 6;
 
+const GROUP_ORDER = ["Bếp bánh", "Kho BN", "Văn phòng"];
+
+/** Groups shown in the standard-days picker: those of the catalogue, then any already set. */
+function standardDayGroups(data: BepBnPeriodData): string[] {
+  const present = new Set<string>(data.employees.map((employee) => employee.group));
+  for (const group of Object.keys(data.period.standardDaysByGroup ?? {})) present.add(group);
+  return [...present].sort((a, b) => {
+    const ia = GROUP_ORDER.indexOf(a);
+    const ib = GROUP_ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b, "vi");
+  });
+}
+
+function savedStandardDays(data: BepBnPeriodData, group: string): number {
+  return data.period.standardDaysByGroup?.[group] ?? data.period.defaultStandardDays;
+}
+
+function parseDays(text: string): number | null {
+  const value = Number(text.trim().replace(",", "."));
+  return Number.isFinite(value) && value > 0 && value <= 31 ? value : null;
+}
+
 function IssueReviewCard({
   data,
   source,
@@ -228,6 +250,18 @@ function IssueReviewCard({
   const [excluding, setExcluding] = useState<Anomaly | null>(null);
   const [note, setNote] = useState("");
   const [noteTouched, setNoteTouched] = useState(false);
+  const groups = useMemo(() => standardDayGroups(data), [data]);
+  const savedKey = groups.map((group) => `${group}:${savedStandardDays(data, group)}`).join("|");
+  const [daysDraft, setDaysDraft] = useState<Record<string, string>>({});
+  const [daysKey, setDaysKey] = useState(savedKey);
+  if (daysKey !== savedKey) {
+    // The period was reloaded with new values: drop the local edits.
+    setDaysKey(savedKey);
+    setDaysDraft({});
+  }
+  const daysText = (group: string) => daysDraft[group] ?? String(savedStandardDays(data, group));
+  const daysInvalid = groups.some((group) => parseDays(daysText(group)) === null);
+  const daysChanged = groups.some((group) => parseDays(daysText(group)) !== savedStandardDays(data, group));
 
   const locked = data.period.status === "locked";
   const approved = Boolean(source.attendanceApprovedAt);
@@ -300,6 +334,12 @@ function IssueReviewCard({
     run(
       "approve",
       async () => {
+        if (daysInvalid) throw new Error("Ngày công chuẩn phải lớn hơn 0 và không quá 31.");
+        if (daysChanged) {
+          const chosen: Record<string, number> = { ...(data.period.standardDaysByGroup ?? {}) };
+          for (const group of groups) chosen[group] = parseDays(daysText(group)) as number;
+          await source.setStandardDays(data.id, chosen);
+        }
         await source.setAttendanceApproved(data.id, true);
         onApproved();
       },
@@ -321,6 +361,49 @@ function IssueReviewCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {groups.length > 0 ? (
+          <div className="space-y-2 rounded-md border px-3 py-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <CalendarDays className="h-4 w-4" />
+              Ngày công chuẩn tháng này
+            </div>
+            {approved || locked || !canEdit ? (
+              <p className="text-sm text-muted-foreground">
+                {groups.map((group) => `${group}: ${savedStandardDays(data, group)}`).join(" · ")}
+                {approved && !locked && canEdit ? " — bỏ duyệt để sửa." : ""}
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  {groups.map((group) => {
+                    const invalid = parseDays(daysText(group)) === null;
+                    return (
+                      <div key={group} className="space-y-1">
+                        <Label htmlFor={`bep-bn-std-${group}`} className="text-xs font-normal text-muted-foreground">
+                          {group}
+                        </Label>
+                        <Input
+                          id={`bep-bn-std-${group}`}
+                          inputMode="decimal"
+                          value={daysText(group)}
+                          disabled={busy !== null}
+                          aria-invalid={invalid}
+                          className={cn("h-10 text-base tabular-nums", invalid && "border-destructive")}
+                          onChange={(event) => setDaysDraft((prev) => ({ ...prev, [group]: event.target.value }))}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className={cn("text-xs", daysInvalid ? "text-destructive" : "text-muted-foreground")}>
+                  {daysInvalid
+                    ? "Nhập số ngày lớn hơn 0 và không quá 31."
+                    : "Lương tháng chia cho số ngày này. Kiểm tra trước khi duyệt; số mới được lưu khi bấm duyệt."}
+                </p>
+              </>
+            )}
+          </div>
+        ) : null}
         <div className="flex flex-col gap-3 rounded-md border bg-muted/40 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
           {approved ? (
             <span className="flex items-center gap-2 text-sm">
@@ -342,7 +425,7 @@ function IssueReviewCard({
               </Button>
             ) : null}
             {!approved && canEdit && !locked ? (
-              <Button disabled={summary.pending > 0 || busy !== null} onClick={() => void approve()} className="gap-2">
+              <Button disabled={summary.pending > 0 || daysInvalid || busy !== null} onClick={() => void approve()} className="gap-2">
                 {busy === "approve" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 Duyệt bảng chấm công
               </Button>

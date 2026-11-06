@@ -362,6 +362,39 @@ export async function lockPeriod(client: BepBnClient, periodId: string): Promise
   if (error) fail(error);
 }
 
+/**
+ * Set the standard working days of each group for one open (draft) period.
+ * The payroll is computed from these values, so they are chosen before the
+ * attendance is approved. Each value must be a number in (0, 31].
+ */
+export async function setPeriodStandardDays(
+  client: BepBnClient,
+  periodId: string,
+  standardDaysByGroup: Record<string, number>,
+): Promise<void> {
+  const entries = Object.entries(standardDaysByGroup);
+  if (entries.length === 0) throw new Error("Chưa nhập ngày công chuẩn.");
+  const clean: Record<string, number> = {};
+  for (const [group, value] of entries) {
+    const days = Number(value);
+    if (!Number.isFinite(days) || days <= 0 || days > 31) {
+      throw new Error(`Ngày công chuẩn của nhóm ${group} phải lớn hơn 0 và không quá 31.`);
+    }
+    clean[group] = Math.round(days * 100) / 100;
+  }
+
+  const { data, error } = await client
+    .from("payroll_bn_periods")
+    .update({ standard_days_by_group: clean })
+    .eq("id", periodId)
+    .eq("status", "draft")
+    .select("id");
+  if (error) fail(error);
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new Error("Không lưu được ngày công chuẩn: kỳ lương đã chốt hoặc không tồn tại.");
+  }
+}
+
 export async function createPeriod(
   client: BepBnClient,
   input: PayrollBnPeriodInput,
