@@ -11,6 +11,7 @@
  *   intake-list — poll new portal POs; never confirms or imports
  *   intake-decide — explicit staff confirm/reject, readback, then import
  *   intake-result — read-only partner reconciliation and resumable local import
+ *   intake-apply-change — explicit staff apply of a KFM quantity change
  *   confirm-po — explicit operator continuation for a trip that already reads
  *                 back: confirm its PO (or resume the pending import) through
  *                 the same durable intake claim; never creates a second trip
@@ -91,6 +92,7 @@ const ACTIONS = [
   "intake-list",
   "intake-decide",
   "intake-result",
+  "intake-apply-change",
   "confirm-po",
   "list",
   "detail",
@@ -289,7 +291,7 @@ serve(async (req) => {
     : vnDate(1); // KFM orders tomorrow's delivery today.
 
   const tripAction = ["trip-options", "create-load", "trip-result"].includes(action);
-  const intakeAction = ["intake-list", "intake-decide", "intake-result"].includes(action);
+  const intakeAction = ["intake-list", "intake-decide", "intake-result", "intake-apply-change"].includes(action);
   if ((intakeAction || action === "confirm" || action === "confirm-po") && !(await canCreateTrip(userId))) return json({ success: false, error: "forbidden", message: "Anh/chị chưa có quyền duyệt PO tại Xưởng Q7." }, 403, req);
   const mayCreate = tripAction ? await canCreateTrip(userId) : false;
   if (tripAction && !mayCreate && !(action === "trip-options" && payload.unifiedPrint === true)) return json({ success: false, error: "forbidden", message: "Anh/chị chưa có quyền chỉnh sửa kế hoạch sản xuất để tạo phiếu." }, 403, req);

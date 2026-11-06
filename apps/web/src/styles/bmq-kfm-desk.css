@@ -1,0 +1,30 @@
+/* Cổng KFM print desk (data-kfm-desk="v3", owner 06/11).
+   Same voice as the Q7 header: light display weight with a bold product word,
+   tabular figures, one elevation per surface (soft shadow, no border). */
+.kfm-desk-title {
+  margin: 0;
+  font-size: clamp(28px, 3.2vw, 38px);
+  font-weight: 200;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+  text-wrap: balance;
+}
+.kfm-desk-title b { font-weight: 600; }
+
+.kfm-desk-figure {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.kfm-desk-brief,
+.kfm-desk-panel {
+  box-shadow: 0 1px 2px hsl(var(--foreground) / .05), 0 8px 24px -12px hsl(var(--foreground) / .12);
+}
+
+.kfm-desk [data-kfm-order] { transition: background-color .2s cubic-bezier(.16, 1, .3, 1); }
+.kfm-desk [data-kfm-order]:hover { background-color: hsl(var(--muted) / .35); }
+@media (prefers-reduced-motion: reduce) { .kfm-desk [data-kfm-order] { transition: none; } }

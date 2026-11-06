@@ -7,6 +7,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { KfmTimeSelect, isCompleteKfmTime } from "./KfmTimeSelect";
+import "@/styles/bmq-kfm-desk.css";
 
 /** Today's two-action print workspace. Portal writes only follow an operator click.
  * Hallmark: functional workbench; existing BMQ tokens, typography and primary color.
@@ -656,29 +657,48 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
               </section>
   );
 
+  const dayParts = deliveryDate.split("-").map(Number);
+  const weekday = dayParts.length === 3
+    ? new Date(Date.UTC(dayParts[0], dayParts[1] - 1, dayParts[2])).getUTCDay()
+    : -1;
+  const weekdayLabel = isVi
+    ? ["Chủ nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"][weekday]
+    : ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][weekday];
+  const totalUnits = orders.reduce((sum, order) => sum + (Number(order.totalQty) || 0), 0);
+  const warehouseCount = new Set(orders.map(order => order.locationName || "")).size;
+  const loaded = data?.success && data.configured !== false;
+
   return (
-    <section className="mx-auto w-full min-w-0 max-w-6xl space-y-6 pb-8" data-kfm-today="v1" data-kfm-mobile="v2" data-kfm-unified-print="v1" data-kfm-po-print="v1" data-kfm-manual-refresh="v1" data-kfm-list-state={listState}>
-      <header className="flex min-w-0 flex-wrap items-start justify-between gap-4 border-b border-border pb-5">
-        <div className="flex min-w-0 items-start gap-3">
+    <section className="kfm-desk mx-auto w-full min-w-0 max-w-6xl space-y-5 pb-8" data-kfm-today="v1" data-kfm-mobile="v2" data-kfm-desk="v3" data-kfm-unified-print="v1" data-kfm-po-print="v1" data-kfm-manual-refresh="v1" data-kfm-list-state={listState}>
+      <header className="flex min-w-0 flex-wrap items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <Button asChild variant="outline" className="h-11 w-11 shrink-0 rounded-xl p-0" aria-label={isVi ? "Quay lại xưởng Q7" : "Back to Q7"}>
             <Link to="/production/planning/q7"><ArrowLeft className="h-5 w-5" /></Link>
           </Button>
           <div className="min-w-0">
-            <h1 className="break-words text-2xl font-bold tracking-tight">{isVi ? "Cổng KFM" : "KFM portal"}</h1>
+            <h1 className="kfm-desk-title break-words">{isVi ? <>Cổng <b>KFM</b></> : <>KFM <b>portal</b></>}</h1>
             <p className="mt-1 text-sm text-muted-foreground" data-kfm-today-date={deliveryDate}>
-              {isVi ? "Hôm nay" : "Today"} · {deliveryDate.split("-").reverse().join("/")}
+              {isVi ? "Đơn giao hôm nay" : "Deliveries today"} · {weekdayLabel ? `${weekdayLabel}, ` : ""}{deliveryDate.split("-").reverse().join("/")}
             </p>
           </div>
         </div>
-        <Button variant="outline" className="h-11 gap-2 rounded-xl" data-kfm-action="refresh-list" onClick={() => void refreshOrders()} disabled={query.isFetching || printing !== null || busy !== null}>
+        <Button variant="outline" className="h-11 gap-2 rounded-xl px-4" data-kfm-action="refresh-list" onClick={() => void refreshOrders()} disabled={query.isFetching || printing !== null || busy !== null}>
           {query.isFetching ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <RefreshCw className="h-4 w-4" />}
           {isVi ? "Làm mới" : "Refresh"}
         </Button>
       </header>
 
-      <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
-        {isVi ? "In PO để xem đơn hàng. In phiếu giao hàng: nếu chưa có phiếu, hệ thống tự xác nhận PO và tạo phiếu trước khi in." : "Print PO to view the order. Printing a delivery note confirms the PO and creates the note only if it does not exist."}
-      </p>
+      <div className="kfm-desk-brief flex min-w-0 flex-col gap-3 rounded-2xl bg-card px-4 py-3.5 sm:flex-row sm:items-center sm:gap-6 sm:px-5" data-kfm-summary="v1">
+        {loaded && orders.length > 0 && <dl className="flex shrink-0 flex-wrap items-baseline gap-x-6 gap-y-1">
+          <div className="flex items-baseline gap-1.5"><dt className="sr-only">{isVi ? "Số đơn" : "Orders"}</dt><dd className="kfm-desk-figure">{orders.length}</dd><span aria-hidden="true" className="text-sm text-muted-foreground">{isVi ? "đơn" : "orders"}</span></div>
+          <div className="flex items-baseline gap-1.5"><dt className="sr-only">{isVi ? "Tổng số lượng" : "Total quantity"}</dt><dd className="kfm-desk-figure">{qty(totalUnits)}</dd><span aria-hidden="true" className="text-sm text-muted-foreground">{isVi ? "sản phẩm" : "units"}</span></div>
+          <div className="flex items-baseline gap-1.5"><dt className="sr-only">{isVi ? "Kho nhận" : "Warehouses"}</dt><dd className="kfm-desk-figure">{warehouseCount}</dd><span aria-hidden="true" className="text-sm text-muted-foreground">{isVi ? "kho nhận" : "warehouses"}</span></div>
+        </dl>}
+        <p className="min-w-0 text-sm leading-relaxed text-muted-foreground sm:ml-auto sm:max-w-md sm:text-right">
+          {isVi ? <><b className="font-semibold text-foreground">In PO</b> để xem đơn hàng. <b className="font-semibold text-foreground">In phiếu giao hàng</b>: nếu chưa có phiếu, hệ thống tự xác nhận PO và tạo phiếu trước khi in.</> : "Print PO to view the order. Printing a delivery note confirms the PO and creates the note only if it does not exist."}
+        </p>
+      </div>
+
       {dayNotice && listState === "idle" && <p role="status" className="rounded-xl bg-muted p-3 text-sm">{isVi ? "Đã sang ngày mới. Danh sách chưa tự tải lại — bấm Làm mới để tải đơn hôm nay." : "A new day has started. The list is not loaded automatically — press Refresh to load today's orders."}</p>}
       {query.isError && <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
         <p>{(query.error as Error)?.message}</p>
@@ -690,34 +710,43 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
         <RefreshCw className="mx-auto mb-4 h-7 w-7 text-muted-foreground" />
         <h2 className="font-semibold">{isVi ? "Chưa tải danh sách đơn" : "Orders not loaded yet"}</h2>
         <p className="mt-2 text-sm text-muted-foreground">{isVi ? "Bấm Làm mới để tải danh sách đơn hôm nay." : "Press Refresh to load today's orders."}</p>
+        <Button className="mt-5 h-11 gap-2 rounded-xl px-5" onClick={() => void refreshOrders()} disabled={query.isFetching || printing !== null || busy !== null}>
+          <RefreshCw className="h-4 w-4" />{isVi ? "Tải đơn hôm nay" : "Load today's orders"}
+        </Button>
       </div>}
-      {data?.success && data.configured !== false && <ul className="space-y-4" data-kfm-orders-cards="v2" aria-label={isVi ? "Đơn giao hôm nay" : "Today's delivery orders"}>
-        {orders.map(order => (
-          <li key={order.portalId} className="min-w-0 rounded-2xl border border-border bg-card p-4 sm:p-5" data-kfm-order={order.portalId}>
-            <div className="flex min-w-0 flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-              <div className="min-w-0 space-y-2">
-                <h2 className="break-all text-lg font-semibold tracking-tight">{order.code}</h2>
-                <p className="break-words text-sm text-muted-foreground">{order.locationName || "—"}</p>
-                <p className="text-xs text-muted-foreground">{order.itemCount ?? "—"} {isVi ? "dòng sản phẩm" : "product lines"} · {isVi ? "SL" : "Qty"} {qty(order.totalQty)}</p>
+      {loaded && <div className="kfm-desk-panel min-w-0 overflow-hidden rounded-2xl bg-card">
+        {orders.length > 0 && <div aria-hidden="true" className="hidden lg:grid-cols-[minmax(10rem,1fr)_minmax(0,2fr)_7.5rem_21rem] lg:gap-x-6 border-b border-border px-5 py-2.5 text-xs font-medium text-muted-foreground lg:grid">
+          <span>{isVi ? "Mã PO" : "PO"}</span><span>{isVi ? "Kho nhận" : "Warehouse"}</span><span className="text-right">{isVi ? "Số lượng" : "Quantity"}</span><span className="text-right">{isVi ? "Thao tác" : "Actions"}</span>
+        </div>}
+        <ul className="divide-y divide-border" data-kfm-orders-cards="v2" aria-label={isVi ? "Đơn giao hôm nay" : "Today's delivery orders"}>
+          {orders.map(order => (
+            <li key={order.portalId} className="min-w-0 px-4 py-4 sm:px-5" data-kfm-order={order.portalId}>
+              <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(10rem,1fr)_minmax(0,2fr)_7.5rem_21rem] lg:gap-x-6 lg:items-center">
+                <div className="flex min-w-0 items-baseline justify-between gap-3 lg:block">
+                  <h2 className="break-all text-base font-semibold tabular-nums tracking-tight">{order.code}</h2>
+                  <p className="shrink-0 text-sm tabular-nums lg:hidden"><b className="font-semibold">{qty(order.totalQty)}</b> <span className="text-muted-foreground">· {order.itemCount ?? "—"} {isVi ? "dòng" : "lines"}</span></p>
+                </div>
+                <p className="min-w-0 break-words text-sm text-muted-foreground lg:text-foreground">{order.locationName || "—"}</p>
+                <p className="hidden text-right tabular-nums lg:block"><b className="text-base font-semibold">{qty(order.totalQty)}</b><span className="block text-xs text-muted-foreground">{order.itemCount ?? "—"} {isVi ? "dòng sản phẩm" : "product lines"}</span></p>
+                <div className="min-w-0 lg:justify-self-end">{renderOrderActions(order)}</div>
               </div>
-              <div className="shrink-0">{renderOrderActions(order)}</div>
-            </div>
-            {feedback[order.portalId] && !(creating?.order.portalId === order.portalId && creating.error) && (
-              <p className={`mt-4 flex items-center gap-2 text-sm ${feedback[order.portalId].error ? "text-destructive" : "text-muted-foreground"}`}
-                role={feedback[order.portalId].error ? "alert" : "status"} data-kfm-printing={printing?.endsWith(`-${order.portalId}`) ? "v1" : undefined}>
-                {printing?.endsWith(`-${order.portalId}`) && <Loader2 className="h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none" />}
-                {feedback[order.portalId].message}
-              </p>
-            )}
-            {creating?.order.portalId === order.portalId && renderCreate()}
-          </li>
-        ))}
-        {!orders.length && !query.isFetching && !query.isError && <li className="rounded-2xl border border-dashed border-border px-5 py-14 text-center" data-kfm-empty="v1">
-          <Printer className="mx-auto mb-4 h-7 w-7 text-muted-foreground" />
-          <h2 className="font-semibold">{isVi ? "Hôm nay chưa có đơn giao" : "No delivery orders today"}</h2>
-          <p className="mt-2 text-sm text-muted-foreground">{isVi ? "Khi có PO trên cổng, bấm Làm mới để tải danh sách." : "Refresh when new POs are available on the portal."}</p>
-        </li>}
-      </ul>}
+              {feedback[order.portalId] && !(creating?.order.portalId === order.portalId && creating.error) && (
+                <p className={`mt-4 flex items-center gap-2 text-sm ${feedback[order.portalId].error ? "text-destructive" : "text-muted-foreground"}`}
+                  role={feedback[order.portalId].error ? "alert" : "status"} data-kfm-printing={printing?.endsWith(`-${order.portalId}`) ? "v1" : undefined}>
+                  {printing?.endsWith(`-${order.portalId}`) && <Loader2 className="h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none" />}
+                  {feedback[order.portalId].message}
+                </p>
+              )}
+              {creating?.order.portalId === order.portalId && renderCreate()}
+            </li>
+          ))}
+          {!orders.length && !query.isFetching && !query.isError && <li className="px-5 py-14 text-center" data-kfm-empty="v1">
+            <Printer className="mx-auto mb-4 h-7 w-7 text-muted-foreground" />
+            <h2 className="font-semibold">{isVi ? "Hôm nay chưa có đơn giao" : "No delivery orders today"}</h2>
+            <p className="mt-2 text-sm text-muted-foreground">{isVi ? "Khi có PO trên cổng, bấm Làm mới để tải danh sách." : "Refresh when new POs are available on the portal."}</p>
+          </li>}
+        </ul>
+      </div>}
       {creating && !orders.some(order => order.portalId === creating.order.portalId) && renderCreate()}
     </section>
   );

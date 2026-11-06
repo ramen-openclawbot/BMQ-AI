@@ -6,29 +6,31 @@ function load(file,env={}) { const exports={};vm.runInNewContext(ts.transpileMod
 const portal=load('supabase/functions/_shared/kfm-portal.ts',{fetch(){throw Error('Real network prohibited');}});
 const base={po:{id:11,code:'PO-TEST',deliveryDate:portal.vnDate(1),locationId:4,locationName:'Warehouse',vendorId:2797,status:2,subStatus:3},items:[{productCode:'1001',barcode:'SP001',productName:'BMQ Bread',unitName:'CÁI',qty:10,unitPrice:100,taxRate:8}],shippedMap:{}};
 const skus=[{id:'sku1',sku_code:'BREAD',product_name:'Bread',sku_type:'finished_good'}],settings=[{sku_id:'sku1',location_code:'q7',is_enabled:true}];
-function fixture({outcome='success',scope=true,changed=false,importFail=false,old=[],disabled=false,customerMissing=false,tripExists=false,catalog=skus,settingsRows=settings,catalogFailPage=null,settingsFailPage=null,sources=null,listRows=null,today=null,cancelResult=null}={}) {
- let source=structuredClone(base),posts=0,imports=0,reads=0,dbWrites=0;const listCalls=[],cancelCalls=[];const rows=new Map(),payloads=[],skuRowsRead=[];
+function fixture({outcome='success',scope=true,changed=false,importFail=false,old=[],disabled=false,customerMissing=false,tripExists=false,catalog=skus,settingsRows=settings,catalogFailPage=null,settingsFailPage=null,sources=null,listRows=null,today=null,cancelResult=null,inboxRows=null,applyResult=null,applyError=null}={}) {
+ let source=structuredClone(base),posts=0,imports=0,reads=0,detailReads=0,dbWrites=0,inboxQueries=0;const listCalls=[],cancelCalls=[],applyCalls=[];const rows=new Map(),payloads=[],skuRowsRead=[];
  const tripRows=new Map();if(tripExists)tripRows.set(11,{vendor_id:1865,order_id:11,state:'unknown'});
- const shared={...portal,...(today?{vnDate:()=>today}:{}),getTripSource:async(token,{orderId})=>{reads++;return structuredClone(sources?sources.get(orderId):source);},tripOrderInScope:async()=>{reads++;return scope;},listOrders:async(token,options)=>{reads++;listCalls.push(options);const all=listRows||[{portalId:11,code:source.po.code,deliveryDate:source.po.deliveryDate,subStatus:source.po.subStatus}];return {orders:all.slice(options.page*options.size,(options.page+1)*options.size),totalElements:all.length};},confirmOrder:async()=>{posts++;if(outcome!=='missing')source.po.subStatus=5;if(changed)source.items[0].qty=12;if(outcome==='timeout'||outcome==='missing')throw Error('lost');},rejectOrder:async()=>{posts++;if(outcome!=='missing')source.po.subStatus=11;if(outcome==='timeout')throw Error('lost');}};
+ const shared={...portal,...(today?{vnDate:()=>today}:{}),getTripSource:async(token,{orderId})=>{reads++;detailReads++;return structuredClone(sources?sources.get(orderId):source);},tripOrderInScope:async()=>{reads++;return scope;},listOrders:async(token,options)=>{reads++;listCalls.push(options);const all=listRows||[{portalId:11,code:source.po.code,deliveryDate:source.po.deliveryDate,subStatus:source.po.subStatus}];return {orders:all.slice(options.page*options.size,(options.page+1)*options.size),totalElements:all.length};},confirmOrder:async()=>{posts++;if(outcome!=='missing')source.po.subStatus=5;if(changed)source.items[0].qty=12;if(outcome==='timeout'||outcome==='missing')throw Error('lost');},rejectOrder:async()=>{posts++;if(outcome!=='missing')source.po.subStatus=11;if(outcome==='timeout')throw Error('lost');}};
  const intake=load('supabase/functions/_shared/kfm-intake.ts',{require:()=>shared});
  const admin={rpc:async(name,args)=>{
    if(name==='kfm_existing_po_numbers')return {data:old.map(po_number=>({po_number}))};
    if(name==='kfm_intake_customer_id')return customerMissing?{error:{message:'Missing mapping'}}:{data:'customer1'};
    if(name==='kfm_mark_po_cancelled'){cancelCalls.push(args.p_po_number);return {data:cancelResult||{status:'cancelled',cancelled_count:1,cancelled_orders:[{id:'order-planned',status:'cancelled'}],warnings:[{id:'order-started',status:'in_progress'}]}};}
+   if(name==='kfm_apply_po_change'){applyCalls.push(args);if(applyError)return {error:{message:'database unavailable'}};return {data:applyResult||{status:'updated',inbox_id:'inbox-11',po_number:'PO-TEST',cancelled_count:1,cancelled_orders:[{id:'order-11',production_number:'SX-1',status:'cancelled'}],old_items:[],new_items:[],warnings:[]}};}
    assert.equal(name,'kfm_import_confirmed_po');dbWrites++;if(importFail)return {error:{message:'database unavailable'}};
    payloads.push(args.p_payload);
    const row=rows.get(args.p_order_id);if(row.state!=='imported')imports++;row.state='imported';row.inbox_id='inbox1';return {data:'inbox1'};
- },from(table){let op='select',value,filters={},single=false,range=null,orderCol=null,orExpr=null;const q={select(){return q;},eq(k,v){filters[k]=v;return q;},or(expr){orExpr=expr;return q;},order(column){orderCol=column;return q;},range(from,to){range=[from,to];return q;},maybeSingle(){single=true;return q;},insert(v){op='insert';value=v;return q;},update(v){op='update';value=v;return q;},then(resolve,reject){return Promise.resolve().then(()=>{
+ },from(table){let op='select',value,filters={},inFilters={},single=false,range=null,orderCol=null,orExpr=null;const q={select(){return q;},eq(k,v){filters[k]=v;return q;},in(k,v){inFilters[k]=v;return q;},or(expr){orExpr=expr;return q;},order(column){orderCol=column;return q;},range(from,to){range=[from,to];return q;},maybeSingle(){single=true;return q;},insert(v){op='insert';value=v;return q;},update(v){op='update';value=v;return q;},then(resolve,reject){return Promise.resolve().then(()=>{
   // Model the PostgREST 1000-row page cap so an unpaginated read shows up as truncation.
   const matchOr=(row,expr)=>expr.split(',').some(clause=>{const [field,compare,expected]=clause.split('.');if(compare==='eq')return row[field]===expected;if(compare==='is')return expected==='null'?row[field]==null:row[field]===expected;throw Error('Unsupported mock filter '+clause);});
   const page=(list,locationCode,failPage)=>{if(locationCode)list=list.filter(item=>item.location_code===locationCode);if(failPage!==null&&range&&Math.floor(range[0]/1000)===failPage)return {data:null,count:null,error:{message:'simulated page read failure'}};const ordered=orderCol?[...list].sort((a,b)=>a[orderCol]<b[orderCol]?-1:a[orderCol]>b[orderCol]?1:0):list;const from=range?range[0]:0,to=Math.min(range?range[1]:from+999,from+999,ordered.length-1);return {data:ordered.slice(from,to+1),count:ordered.length,error:null};};
+  if(table==='customer_po_inbox'){inboxQueries++;const list=(inboxRows||[]).filter(row=>{if(filters.match_status!==undefined&&row.match_status!==filters.match_status)return false;if(filters['raw_payload->>source']!==undefined&&row.raw_payload?.source!==filters['raw_payload->>source'])return false;if(inFilters.po_number&&!inFilters.po_number.includes(row.po_number))return false;return true;});return {data:single?list[0]||null:list.map(row=>({...row,production_orders:row.production_orders||[]})),count:list.length,error:null};}
   if(table==='product_skus'){const candidates=orExpr?catalog.filter(row=>matchOr(row,orExpr)):catalog;const result=page(candidates,null,catalogFailPage);if(result.data)skuRowsRead.push(...result.data);return result;}if(table==='production_location_sku_settings')return page(disabled?[]:settingsRows,filters.location_code,settingsFailPage);
   if(table==='kfm_trip_attempts')return {data:single?tripRows.get(filters.order_id)||null:[...tripRows.values()]};
   assert.equal(table,'kfm_po_intake_attempts');if(op==='insert'){dbWrites++;if(rows.has(value.order_id))return {error:{code:'23505'}};rows.set(value.order_id,structuredClone(value));return {};}
   if(op==='update'){dbWrites++;Object.assign(rows.get(filters.order_id),value);return {};}
   return {data:single?rows.get(filters.order_id)||null:[...rows.values()]};
  }).then(resolve,reject);}};return q;}};
- return {intake,rows,listCalls,cancelCalls,get reads(){return reads;},get posts(){return posts;},get imports(){return imports;},get dbWrites(){return dbWrites;},get payloads(){return payloads;},get skuRowsRead(){return skuRowsRead;},set importFail(v){importFail=v;},setSource(v){source=v;},async gate(sourceArg){return intake.ensureTripIntake(admin,'fixture',1865,'actor',11,sourceArg||structuredClone(source));},async call(payload){return intake.handleKfmIntake(admin,'fixture',1865,'actor',payload);},async decide(extra={}){return this.call({action:'intake-decide',orderId:11,decision:'confirm',revision:await intake.intakeRevision(base),requestId:'00000000-0000-4000-8000-000000000001',...extra});}};
+ return {intake,rows,listCalls,cancelCalls,get reads(){return reads;},get detailReads(){return detailReads;},get inboxQueries(){return inboxQueries;},get applyCalls(){return applyCalls;},get posts(){return posts;},get imports(){return imports;},get dbWrites(){return dbWrites;},get payloads(){return payloads;},get skuRowsRead(){return skuRowsRead;},set importFail(v){importFail=v;},setSource(v){source=v;},async gate(sourceArg){return intake.ensureTripIntake(admin,'fixture',1865,'actor',11,sourceArg||structuredClone(source));},async call(payload){return intake.handleKfmIntake(admin,'fixture',1865,'actor',payload);},async decide(extra={}){return this.call({action:'intake-decide',orderId:11,decision:'confirm',revision:await intake.intakeRevision(base),requestId:'00000000-0000-4000-8000-000000000001',...extra});}};
 }
 function pagedCatalog({size=1205,targetAt=1100,targetEnabled=true,duplicate=false,catalogFailPage=null}={}) {
  const catalog=[];for(let i=0;i<size;i++)catalog.push({id:'sku-'+String(i).padStart(5,'0'),sku_code:'GEN-'+String(i).padStart(5,'0'),product_name:'BÁNH TEST '+i+' 50G',sku_type:'finished_good'});
@@ -316,6 +318,83 @@ await test('imported attempt cancelled on KFM is marked and closed for recovery'
  assert.equal(r.count,0);assert.deepEqual(f.cancelCalls,['PO-TEST']);assert.equal(f.rows.get(11).state,'rejected');
  assert.equal((await f.call({action:'intake-result',orderId:11})).result.state,'rejected');
  assert.equal(f.imports,0);assert.equal(f.posts,0);
+});
+const changeSource=(qty=12,date='2026-11-04',subStatus=5)=>{const s=structuredClone(base);Object.assign(s.po,{deliveryDate:date,subStatus});s.items[0].qty=qty;return s;};
+const changeOldItem=(qty=10)=>({sku:'SP001',sku_code:'BREAD',sku_id:'sku1',product_code:'1001',product_name:'BMQ Bread',qty,unit:'CÁI',unit_price:100,tax_rate:8,line_total:Math.round(qty*100*1.08),date:'2026-11-04',service_date:'2026-11-04',amount_includes_vat:true,vat_handling:'no_extra_multiplier'});
+const changeInbox=(extra={})=>({id:'inbox-11',match_status:'approved',po_number:'PO-TEST',production_items:[changeOldItem()],total_amount:1080,delivery_date:'2026-11-04',raw_payload:{source:'kfm_portal'},production_orders:[{id:'order-11',production_number:'SX-1',status:'planned'}],...extra});
+await test('scan reports changed KFM quantities without applying or posting',async()=>{
+ const s=changeSource(12);const f=fixture({today:'2026-11-04',old:['PO-TEST'],inboxRows:[changeInbox()]});f.setSource(s);
+ const r=await f.call({action:'intake-list'});
+ assert.equal(r.changed.length,1);const c=r.changed[0];
+ assert.equal(c.orderId,11);assert.equal(c.code,'PO-TEST');assert.equal(c.inboxId,'inbox-11');
+ assert.equal(c.deliveryDate,'2026-11-04');assert.equal(c.revision,await f.intake.intakeRevision(s));
+ assert.deepEqual(JSON.parse(JSON.stringify(c.lines)),[{sku:'SP001',productName:'BMQ Bread',unit:'CÁI',oldQty:10,newQty:12}]);
+ assert.equal(c.oldTotalQty,10);assert.equal(c.newTotalQty,12);
+ assert.deepEqual(JSON.parse(JSON.stringify(c.productionOrders)),[{id:'order-11',productionNumber:'SX-1',status:'planned'}]);
+ assert.equal(c.blocked,false);assert.equal(f.inboxQueries,1);
+ assert.deepEqual(f.applyCalls,[]);assert.equal(f.posts,0);assert.equal(f.imports,0);assert.equal(f.dbWrites,0);
+});
+await test('scan leaves changed empty when KFM quantities already match',async()=>{
+ const s=changeSource(10);const f=fixture({today:'2026-11-04',old:['PO-TEST'],inboxRows:[changeInbox()]});f.setSource(s);
+ const r=await f.call({action:'intake-list'});
+ assert.deepEqual(Array.from(r.changed),[]);assert.equal(f.inboxQueries,1);assert.equal(f.posts,0);assert.equal(f.dbWrites,0);
+});
+await test('received PO before today is not read for quantity changes',async()=>{
+ const s=changeSource(12,'2026-11-03');const f=fixture({today:'2026-11-04',old:['PO-TEST'],inboxRows:[changeInbox()]});f.setSource(s);
+ const r=await f.call({action:'intake-list'});
+ assert.deepEqual(Array.from(r.changed),[]);assert.equal(f.detailReads,0);assert.equal(f.inboxQueries,0);assert.equal(f.posts,0);
+});
+await test('received PO cancelled on KFM keeps the cancel flow and never enters changed',async()=>{
+ const s=changeSource(12,'2026-11-04',11);const f=fixture({today:'2026-11-04',old:['PO-TEST'],inboxRows:[changeInbox()]});f.setSource(s);
+ const r=await f.call({action:'intake-list'});
+ assert.deepEqual(Array.from(r.changed),[]);assert.deepEqual(f.cancelCalls,['PO-TEST']);assert.equal(r.removed.length,1);
+ assert.equal(f.inboxQueries,0);assert.deepEqual(f.applyCalls,[]);assert.equal(f.posts,0);
+});
+await test('apply change sends the freshly mapped payload to the RPC only',async()=>{
+ const s=changeSource(12);const applyResult={status:'updated',inbox_id:'inbox-11',po_number:'PO-TEST',cancelled_count:1,cancelled_orders:[{id:'order-11',production_number:'SX-1',status:'cancelled'}],warnings:[],old_items:[changeOldItem()],new_items:[]};
+ const f=fixture({today:'2026-11-04',inboxRows:[changeInbox()],applyResult});f.setSource(s);
+ const r=await f.call({action:'intake-apply-change',orderId:11,revision:await f.intake.intakeRevision(s)});
+ assert.equal(r.result.state,'updated');assert.equal(r.result.status,'updated');assert.equal(r.result.cancelledCount,1);
+ assert.equal(f.applyCalls.length,1);assert.equal(f.applyCalls[0].p_po_number,'PO-TEST');
+ assert.equal(f.applyCalls[0].p_payload.production_items[0].qty,12);
+ assert.equal(f.applyCalls[0].p_payload.production_items[0].sku,'SP001');
+ assert.equal(f.applyCalls[0].p_payload.subtotal_amount,1200);
+ assert.equal(f.applyCalls[0].p_payload.vat_amount,96);
+ assert.equal(f.applyCalls[0].p_payload.total_amount,1296);
+ assert.equal(f.posts,0);assert.equal(f.imports,0);assert.equal(f.dbWrites,0);
+});
+await test('stale revision returns changed without calling the RPC',async()=>{
+ const s=changeSource(12);const f=fixture({today:'2026-11-04',inboxRows:[changeInbox()]});f.setSource(s);
+ const r=await f.call({action:'intake-apply-change',orderId:11,revision:'a'.repeat(64)});
+ assert.equal(r.result.state,'changed');assert.equal(r.result.message,'PO trên KFM vừa đổi lại. Kiểm tra PO lại rồi xem số mới.');
+ assert.deepEqual(f.applyCalls,[]);assert.equal(f.posts,0);
+});
+await test('apply change outside the vendor scope is blocked before reading detail',async()=>{
+ const f=fixture({scope:false});
+ await assert.rejects(()=>f.call({action:'intake-apply-change',orderId:11,revision:'a'.repeat(64)}));
+ assert.equal(f.detailReads,0);assert.deepEqual(f.applyCalls,[]);assert.equal(f.posts,0);
+});
+await test('blocked RPC result is returned unchanged for manual handling',async()=>{
+ const warning={id:'order-11',production_number:'SX-1',status:'in_progress',message:'Lệnh sản xuất đã bắt đầu; cần xử lý tay.'};
+ const f=fixture({today:'2026-11-04',applyResult:{status:'blocked',inbox_id:'inbox-11',po_number:'PO-TEST',cancelled_count:0,cancelled_orders:[],warnings:[warning]}});
+ const s=changeSource(12);f.setSource(s);
+ const r=await f.call({action:'intake-apply-change',orderId:11,revision:await f.intake.intakeRevision(s)});
+ assert.equal(r.result.state,'blocked');assert.equal(r.result.status,'blocked');assert.equal(r.result.inbox_id,'inbox-11');
+ assert.deepEqual(JSON.parse(JSON.stringify(r.result.warnings)),[{id:'order-11',production_number:'SX-1',status:'in_progress',message:'Lệnh sản xuất đã bắt đầu; cần xử lý tay.'}]);
+ assert.equal(f.applyCalls.length,1);assert.equal(f.posts,0);
+});
+await test('RPC failure throws and does not claim a production change',async()=>{
+ const f=fixture({applyError:true});const s=changeSource(12);f.setSource(s);
+ await assert.rejects(async()=>f.call({action:'intake-apply-change',orderId:11,revision:await f.intake.intakeRevision(s)}),/Chưa cập nhật được PO\. Chưa thay đổi dữ liệu sản xuất\./);
+ assert.equal(f.applyCalls.length,1);assert.equal(f.posts,0);assert.equal(f.imports,0);
+});
+await test('one PO mapping error only warns and does not break the scan',async()=>{
+ const s=changeSource(12);Object.assign(s.items[0],{productName:'KHÔNG KHỚP',barcode:'SP999',productCode:'9999'});
+ const f=fixture({today:'2026-11-04',old:['PO-TEST'],inboxRows:[changeInbox()]});f.setSource(s);
+ const r=await f.call({action:'intake-list'});
+ assert.deepEqual(Array.from(r.changed),[]);assert.equal(r.warnings.length,1);
+ assert.equal(r.warnings[0].orderId,11);assert.equal(r.warnings[0].code,'PO-TEST');
+ assert.match(r.warnings[0].message,/chưa khớp duy nhất/);assert.equal(f.applyCalls.length,0);assert.equal(f.posts,0);assert.equal(f.dbWrites,0);
 });
 console.log(`PASS ${passed} portal-intake behavioral tests`);
 })().catch(error=>{console.error(error);process.exit(1);});

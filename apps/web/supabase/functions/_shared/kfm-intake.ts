@@ -36,6 +36,61 @@ async function markPoCancelled(admin: Admin, poNumber: string) {
   if (result?.error) throw new KfmPortalError('intake', 0, 'Chưa ghi nhận được PO KFM đã hủy. Chưa thay đổi dữ liệu sản xuất.');
   return cancelSummary(result?.data);
 }
+function applyChangeSummary(value: Row) {
+  const status = String(value?.status || '');
+  return {
+    ...value,
+    state: status === 'updated' ? 'updated' : status === 'blocked' ? 'blocked' : 'noop',
+    inboxId: value?.inbox_id,
+    poNumber: value?.po_number,
+    cancelledCount: Number(value?.cancelled_count) || 0,
+    cancelledOrders: Array.isArray(value?.cancelled_orders) ? value.cancelled_orders : [],
+    warnings: Array.isArray(value?.warnings) ? value.warnings : [],
+    oldItems: Array.isArray(value?.old_items) ? value.old_items : [],
+    newItems: Array.isArray(value?.new_items) ? value.new_items : [],
+  };
+}
+function itemQuantities(items: Row[]) {
+  const quantities = new Map<string, { name: string; unit: string; qty: number }>();
+  for (const item of items) {
+    const sku = String(item?.sku || item?.sku_code || '').trim();
+    const qty = Number(item?.qty);
+    if (!sku || !Number.isFinite(qty)) continue;
+    const current = quantities.get(sku);
+    quantities.set(sku, {
+      name: current?.name || String(item?.product_name || ''),
+      unit: current?.unit || String(item?.unit || ''),
+      qty: (current?.qty || 0) + qty,
+    });
+  }
+  return quantities;
+}
+function sameItemQuantities(oldItems: Row[], newItems: Row[]) {
+  const oldQuantities = itemQuantities(oldItems), newQuantities = itemQuantities(newItems);
+  if (oldQuantities.size !== newQuantities.size) return false;
+  for (const [sku, row] of oldQuantities) {
+    const next = newQuantities.get(sku);
+    if (!next || Math.abs(next.qty - row.qty) > 1e-9) return false;
+  }
+  return true;
+}
+function changeLines(oldItems: Row[], newItems: Row[]) {
+  const oldQuantities = itemQuantities(oldItems), newQuantities = itemQuantities(newItems);
+  return [...new Set([...oldQuantities.keys(), ...newQuantities.keys()])].sort().map(sku => {
+    const before = oldQuantities.get(sku), after = newQuantities.get(sku);
+    return { sku, productName: after?.name || before?.name || '', unit: after?.unit || before?.unit || '',
+      oldQty: before?.qty || 0, newQty: after?.qty || 0 };
+  });
+}
+function linkedProductionOrders(value: Row) {
+  const rows = Array.isArray(value) ? value : value ? [value] : [];
+  return rows.map(row => ({ id: String(row.id || ''), productionNumber: String(row.production_number || ''), status: String(row.status || '') })).filter(row => row.id);
+}
+function summarizeItems(items: Row[]) {
+  let total = 0;
+  for (const row of itemQuantities(items).values()) total += row.qty;
+  return total;
+}
 export function intakeItems(source: KfmTripSource) {
   return source.items.map(row => ({
     productCode: String(row.productCode || ''), barcode: String(row.barcode || ''),
@@ -206,8 +261,10 @@ export async function handleKfmIntake(admin: Admin, token: string, vendorId: num
     const legacy: Row[] = checked(await admin.rpc('kfm_existing_po_numbers'), 'Không đối chiếu được PO đã nhập.');
     const imported = new Set(legacy.map(row => canonicalPo(row.po_number)));
     const removed: Row[] = [];
+    const changed: Row[] = [];
     const warnings: Row[] = [];
     const marked = new Set<string>();
+    const changeCandidates = new Map<string, Row>();
     const candidates = new Map<number, Row>();
     // The portal filters by the planned delivery date, so look back seven days
     // and apply the effective (supplier-confirmed) date below.
@@ -235,6 +292,15 @@ export async function handleKfmIntake(admin: Admin, token: string, vendorId: num
               if (saved?.error) throw new KfmPortalError('intake', 0, 'Đã hủy PO KFM nhưng chưa lưu được trạng thái nhật ký duyệt.');
             }
           }
+          // A received PO is never offered for import again. If KFM edited its
+          // quantities, compare read-only and let staff apply the change.
+          if (code && !marked.has(code)) {
+            const date = effectiveKfmDeliveryDate(row);
+            const inWindow = isoDay(date) && (range
+              ? date >= range.deliveryDateFrom && date <= range.deliveryDateTo
+              : date >= today);
+            if (inWindow && !changeCandidates.has(code)) changeCandidates.set(code, { orderId: Number(row.portalId) });
+          }
           continue;
         }
         if (Number(row.status) === 6 || ![3, 5, 6, 9].includes(Number(row.subStatus))) continue;
@@ -242,6 +308,46 @@ export async function handleKfmIntake(admin: Admin, token: string, vendorId: num
       }
       if (result.orders.length < 100 || (page + 1) * 100 >= result.totalElements) break;
       if (page === 29) throw new KfmPortalError('intake', 0, 'Danh sách PO quá lớn, chưa tải đầy đủ.');
+    }
+    // One admin read for every received PO in the window, then a GET-only
+    // comparison per PO. Nothing here writes to BMQ or to the portal.
+    if (changeCandidates.size) {
+      const codes = [...changeCandidates.keys()];
+      const inboxRows: Row[] = checked(await admin.from('customer_po_inbox')
+        .select('id,po_number,production_items,total_amount,delivery_date,raw_payload,production_orders(id,production_number,status)')
+        .eq('match_status', 'approved')
+        .eq('raw_payload->>source', 'kfm_portal')
+        .in('po_number', codes), 'Không đọc được PO KFM đã nhập để đối chiếu số lượng.');
+      const inboxByCode = new Map<string, Row>();
+      for (const row of inboxRows) inboxByCode.set(canonicalPo(row.po_number), row);
+      for (const [code, listed] of changeCandidates) {
+        const inbox = inboxByCode.get(code);
+        if (!inbox) continue;
+        try {
+          const source = await getTripSource(token, { vendorId, orderId: listed.orderId });
+          if (Number(source.po.id) !== listed.orderId) throw new KfmPortalError('intake', 0, 'Chi tiết PO không khớp mã đã tải.');
+          const payload = await mappedPayload(admin, source, vendorId, actorId);
+          const oldItems = Array.isArray(inbox.production_items) ? inbox.production_items : [];
+          const newItems = Array.isArray(payload.production_items) ? payload.production_items : [];
+          if (sameItemQuantities(oldItems, newItems)) continue;
+          const productionOrders = linkedProductionOrders(inbox.production_orders);
+          changed.push({
+            orderId: listed.orderId,
+            code,
+            inboxId: String(inbox.id || ''),
+            deliveryDate: String(payload.delivery_date || ''),
+            revision: await intakeRevision(source),
+            lines: changeLines(oldItems, newItems),
+            oldTotalQty: summarizeItems(oldItems),
+            newTotalQty: summarizeItems(newItems),
+            productionOrders,
+            blocked: productionOrders.some(order => !['planned', 'cancelled'].includes(order.status)),
+          });
+        } catch (error) {
+          warnings.push({ orderId: listed.orderId, code,
+            message: error instanceof KfmPortalError ? error.message : 'Không đối chiếu được số lượng PO trên KFM.' });
+        }
+      }
     }
     // Uncertain operations survive delivery-day rollover; reconciliation remains GET-only.
     for (const attempt of attempts) if (!['imported', 'rejected'].includes(attempt.state) && !candidates.has(attempt.order_id)) candidates.set(attempt.order_id, {});
@@ -269,12 +375,28 @@ export async function handleKfmIntake(admin: Admin, token: string, vendorId: num
       if (!attempt && ![3, 5, 6, 9].includes(Number(source.po.subStatus))) continue;
       orders.push(await orderView(source, attempt));
     }
-    return { success: true, vendorId, count: orders.length, orders, removed, warnings };
+    return { success: true, vendorId, count: orders.length, orders, removed, changed, warnings };
   }
   const orderId = Number(payload.orderId);
   if (!Number.isSafeInteger(orderId) || orderId <= 0) throw new KfmPortalError('intake', 0, 'Thiếu mã PO hợp lệ.');
   // Scope must be verified before reading detail or reconciling a mutation.
   if (!(await tripOrderInScope(token, vendorId, orderId))) throw new KfmPortalError('intake', 403, 'PO không thuộc danh sách nhà cung cấp được phép truy cập.');
+  // Quantity changes are applied to an already-imported inbox, not through the
+  // confirm/reject journal. Re-read the portal first so a stale review cannot
+  // overwrite a newer KFM quantity or a cancelled PO.
+  if (payload.action === 'intake-apply-change') {
+    const source = await getTripSource(token, { vendorId, orderId });
+    if (Number(source.po.subStatus) === 11 || Number(source.po.status) === 6) {
+      return { success: true, result: { state: 'blocked', message: 'PO đã hủy trên KFM' } };
+    }
+    if (await intakeRevision(source) !== String(payload.revision || '')) {
+      return { success: true, result: { state: 'changed', message: 'PO trên KFM vừa đổi lại. Kiểm tra PO lại rồi xem số mới.' } };
+    }
+    const mapped = await mappedPayload(admin, source, vendorId, actorId);
+    const applied = await admin.rpc('kfm_apply_po_change', { p_po_number: canonicalPo(source.po.code), p_payload: mapped });
+    if (applied?.error) throw new KfmPortalError('intake', 0, 'Chưa cập nhật được PO. Chưa thay đổi dữ liệu sản xuất.');
+    return { success: true, result: applyChangeSummary(applied?.data) };
+  }
   const existing = await getAttempt(admin, vendorId, orderId);
   if (existing) return { success: true, result: await recovery(admin, token, existing) };
   if (payload.action === 'intake-result') {
