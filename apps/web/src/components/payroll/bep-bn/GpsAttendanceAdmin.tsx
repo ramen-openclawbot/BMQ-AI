@@ -67,6 +67,14 @@ export function GpsAttendanceAdmin({ employees }: GpsAttendanceAdminProps) {
   }, [employees]);
   const nameOf = (code: string) => names.get(code) ?? code;
 
+  const consents = useMemo(() => {
+    const map = new Map<string, { accepted: boolean; withdrawn: boolean }>();
+    (list?.consents ?? []).forEach((row) =>
+      map.set(row.employee_code, { accepted: !row.withdrawn_at, withdrawn: Boolean(row.withdrawn_at) }),
+    );
+    return map;
+  }, [list?.consents]);
+
   const gates = useMemo(() => {
     const map = new Map<string, boolean>();
     (list?.gates ?? []).forEach((gate) => map.set(gate.employee_code, gate.enabled));
@@ -97,7 +105,11 @@ export function GpsAttendanceAdmin({ employees }: GpsAttendanceAdminProps) {
     if (!event.selfie_path) return;
     const { data, error } = await supabase.storage.from(SELFIE_BUCKET).createSignedUrl(event.selfie_path, 300);
     if (error || !data?.signedUrl) {
-      toast({ title: "Không mở được ảnh", description: error?.message, variant: "destructive" });
+      toast({
+        title: "Không mở được ảnh",
+        description: "Ảnh có thể đã được xoá theo chính sách lưu trữ 90 ngày.",
+        variant: "destructive",
+      });
       return;
     }
     setSelfie({ url: data.signedUrl, event });
@@ -227,7 +239,12 @@ export function GpsAttendanceAdmin({ employees }: GpsAttendanceAdminProps) {
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{employee.name}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {employee.code} · {device ? `Máy: ${device.user_agent_family ?? "đã gắn"}` : "Chưa gắn máy"}
+                      {employee.code} · {device ? `Máy: ${device.user_agent_family ?? "đã gắn"}` : "Chưa gắn máy"} ·{" "}
+                      {consents.get(employee.code)?.accepted
+                        ? "Đã đồng ý thoả thuận"
+                        : consents.get(employee.code)?.withdrawn
+                          ? "Đã rút lại đồng ý"
+                          : "Chưa đồng ý thoả thuận"}
                     </p>
                   </div>
                   {device ? (

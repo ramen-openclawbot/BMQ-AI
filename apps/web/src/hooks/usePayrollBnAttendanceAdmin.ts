@@ -83,12 +83,20 @@ export interface PayrollAttendanceAdminSite {
   configured: boolean;
 }
 
+export interface PayrollAttendanceAdminConsent {
+  employee_code: string;
+  consent_version: string;
+  accepted_at: string;
+  withdrawn_at: string | null;
+}
+
 export interface PayrollAttendanceAdminList {
   from: string;
   to: string;
   events: PayrollAttendanceAdminEvent[];
   days: PayrollAttendanceAdminDay[];
   gates: PayrollAttendanceAdminGate[];
+  consents: PayrollAttendanceAdminConsent[];
   site: PayrollAttendanceAdminSite | null;
 }
 
@@ -155,7 +163,7 @@ export function usePayrollBnAttendanceAdmin(options: PayrollAttendanceAdminOptio
         p_from: from,
         p_to: to,
       });
-      return (data || { from, to, events: [], days: [], gates: [], site: null }) as PayrollAttendanceAdminList;
+      return (data || { from, to, events: [], days: [], gates: [], consents: [], site: null }) as PayrollAttendanceAdminList;
     },
   });
 
@@ -229,6 +237,7 @@ export function usePayrollBnAttendanceAdmin(options: PayrollAttendanceAdminOptio
     from,
     to,
     attendanceQuery,
+    consents: attendanceQuery.data?.consents ?? [],
     devicesQuery,
     setGate: setGateMutation,
     approveDevice: approveDeviceMutation,

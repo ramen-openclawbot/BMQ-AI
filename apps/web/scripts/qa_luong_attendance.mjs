@@ -29,7 +29,7 @@ const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", y
 const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 const INCOMPLETE = "Ngày công không được tính, vui lòng liên hệ quản lý duyệt";
 
-function todayPayload(events) {
+function todayPayload(events, consented) {
   const hasIn = events.some((e) => e.event_kind === "in" && e.decision === "accepted");
   const hasOut = events.some((e) => e.event_kind === "out" && e.decision === "accepted");
   return {
@@ -39,6 +39,7 @@ function todayPayload(events) {
     site_configured: true,
     site_name: "Bếp Q7",
     site_radius_m: 50,
+    consent: { required_version: "2026-11-09", accepted: consented, accepted_at: consented ? new Date().toISOString() : null, withdrawn_at: null },
     today: { work_date: today, status: hasIn && hasOut ? "complete" : hasIn ? "missing_out" : "missing_in", events },
     incomplete_days: [{ work_date: yesterday, status: "missing_out", message: INCOMPLETE }],
   };
@@ -76,7 +77,7 @@ const record = (name, detail = {}) => {
   console.log("PASS", name);
 };
 
-async function open(viewport, { geolocation = true, checkinDecision = "accepted", reason = null } = {}) {
+async function open(viewport, { geolocation = true, checkinDecision = "accepted", reason = null, consented = true } = {}) {
   const context = await browser.newContext({
     viewport,
     locale: "vi-VN",
@@ -85,7 +86,7 @@ async function open(viewport, { geolocation = true, checkinDecision = "accepted"
     geolocation: geolocation ? { latitude: 10.7501, longitude: 106.6501, accuracy: 9 } : undefined,
   });
   await context.addInitScript(() => localStorage.setItem("bmq_payslip_session", "psp_qa"));
-  const state = { events: [], checkins: [] };
+  const state = { events: [], checkins: [], consented, consentCalls: [] };
   await context.route("**/*", async (route) => {
     const request = route.request();
     const url = request.url();
@@ -97,7 +98,12 @@ async function open(viewport, { geolocation = true, checkinDecision = "accepted"
       } else if (fn === "payslip-attendance-today") {
         assert.equal(request.headers()["x-payslip-session"], "psp_qa");
         assert.match(request.headers()["x-payslip-device"] ?? "", /^[0-9a-f-]{36}$/);
-        body = todayPayload(state.events);
+        body = todayPayload(state.events, state.consented);
+      } else if (fn === "payslip-attendance-consent") {
+        const payload = JSON.parse(request.postData() || "{}");
+        state.consentCalls.push(payload);
+        state.consented = payload.action === "accept";
+        body = { success: true, consent: todayPayload([], state.consented).consent };
       } else if (fn === "payslip-attendance-checkin") {
         const buffer = request.postDataBuffer() ?? Buffer.alloc(0);
         const text = buffer.toString("latin1");
@@ -168,6 +174,42 @@ try {
     await page.screenshot({ path: `${EVIDENCE}/after-in-${w}.png`, fullPage: true });
     assert.deepEqual(errors, [], `page errors ${w}`);
     record(`check-in flow ${w}`, { bytes: state.checkins[0].bytes });
+    await context.close();
+  }
+
+  // Consent gate: the agreement appears before any camera/location request.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1440, height: 900 }]) {
+    const w = viewport.width;
+    const { context, page, errors, state } = await open(viewport, { consented: false });
+    await page.getByRole("button", { name: "Chấm vào" }).click();
+    const sheet = page.getByRole("dialog", { name: /Thoả thuận sử dụng hình ảnh/ });
+    await sheet.waitFor();
+    assert.equal(await page.locator("video").count(), 0, "no camera before consent");
+    const accept = sheet.getByRole("button", { name: /Tôi đồng ý/ });
+    assert.equal(await accept.isEnabled(), false, "accept disabled until the box is ticked");
+    assert.ok((await overflow(page)) <= 0, `no overflow consent ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/consent-${w}.png` });
+    await sheet.getByRole("checkbox").click();
+    await accept.click();
+    await page.getByRole("dialog", { name: "Chấm vào" }).waitFor({ timeout: 15_000 });
+    assert.deepEqual(state.consentCalls, [{ action: "accept", version: "2026-11-09", session_token: "psp_qa" }]);
+    assert.deepEqual(errors, []);
+    record(`consent before camera ${w}`);
+    await context.close();
+  }
+
+  // View and withdraw.
+  {
+    const { context, page, errors, state } = await open({ width: 390, height: 844 });
+    await page.getByRole("button", { name: /Thoả thuận hình ảnh và vị trí \(đã đồng ý\)/ }).click();
+    const sheet = page.getByRole("dialog", { name: /Thoả thuận sử dụng hình ảnh/ });
+    await sheet.getByRole("button", { name: "Rút lại đồng ý" }).click();
+    await page.screenshot({ path: `${EVIDENCE}/consent-withdraw-390.png` });
+    await sheet.getByRole("button", { name: "Rút lại", exact: true }).click();
+    await page.getByRole("button", { name: "Xem thoả thuận hình ảnh và vị trí" }).waitFor({ timeout: 10_000 });
+    assert.equal(state.consentCalls.at(-1)?.action, "withdraw");
+    assert.deepEqual(errors, []);
+    record("withdraw consent");
     await context.close();
   }
 

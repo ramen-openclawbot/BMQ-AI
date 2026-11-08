@@ -13,8 +13,10 @@ import {
   PAYSLIP_SESSION_TOKEN_PREFIX,
 } from "../_shared/payslip-portal.ts";
 import {
+  attendanceConsentState,
   attendanceMessage,
   dayStatus,
+  PAYROLL_ATTENDANCE_CONSENT_VERSION,
   vietnamWorkDate,
   type AttendanceDayEvent,
   type AttendanceDayStatus,
@@ -170,6 +172,41 @@ serve(async (req) => {
       );
     }
 
+    // Consent state is read with the service role; browsers cannot read the
+    // consent table directly.
+    const consentConfigResult = await supabase
+      .from("payroll_bn_attendance_consent_config")
+      .select("current_version")
+      .eq("id", true)
+      .maybeSingle();
+    if (consentConfigResult.error) throw consentConfigResult.error;
+    const requiredConsentVersion = typeof consentConfigResult.data?.current_version === "string" &&
+        consentConfigResult.data.current_version.trim() !== ""
+      ? consentConfigResult.data.current_version
+      : PAYROLL_ATTENDANCE_CONSENT_VERSION;
+
+    const consentResult = await supabase
+      .from("payroll_bn_attendance_consents")
+      .select("consent_version, accepted_at, withdrawn_at")
+      .eq("employee_code", session.employee_code)
+      .order("accepted_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (consentResult.error) throw consentResult.error;
+    const consentRow = consentResult.data
+      ? {
+        consentVersion: String(consentResult.data.consent_version ?? ""),
+        acceptedAt: typeof consentResult.data.accepted_at === "string"
+          ? consentResult.data.accepted_at
+          : null,
+        withdrawnAt: typeof consentResult.data.withdrawn_at === "string"
+          ? consentResult.data.withdrawn_at
+          : null,
+      }
+      : null;
+    const consent = attendanceConsentState(requiredConsentVersion, consentRow);
+
     const eventsResult = await supabase
       .from("payroll_bn_attendance_events")
       .select("id, event_kind, work_date, decision, reject_reason, distance_m, suspected_proxy, server_received_at")
@@ -229,6 +266,12 @@ serve(async (req) => {
       site_configured: siteConfigured,
       site_name: siteName,
       site_radius_m: siteRadiusM,
+      consent: {
+        required_version: consent.requiredVersion,
+        accepted: consent.accepted,
+        accepted_at: consent.acceptedAt,
+        withdrawn_at: consent.withdrawnAt,
+      },
       today: {
         work_date: today,
         status: todayStatus,

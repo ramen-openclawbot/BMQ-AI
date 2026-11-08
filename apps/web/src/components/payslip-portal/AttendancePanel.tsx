@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Camera, CheckCircle2, Loader2, LogIn, LogOut, MapPin, RefreshCw, X, XCircle } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, FileText, Loader2, LogIn, LogOut, MapPin, RefreshCw, ShieldCheck, X, XCircle } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { CONSENT_CHECKBOX, CONSENT_CONTROLLER, CONSENT_SECTIONS, CONSENT_TITLE } from "@/components/payslip-portal/attendanceConsentText";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -66,6 +68,8 @@ export function AttendancePanel({ source, onSessionExpired }: AttendancePanelPro
   const [loadError, setLoadError] = useState<string | null>(null);
   const [captureKind, setCaptureKind] = useState<AttendanceEventKind | null>(null);
   const [result, setResult] = useState<PayrollAttendanceCheckinResult | null>(null);
+  // "gate": consent required before this check-in; "view": read/withdraw any time.
+  const [consentMode, setConsentMode] = useState<{ mode: "gate" | "view"; kind: AttendanceEventKind | null } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -159,7 +163,9 @@ export function AttendancePanel({ source, onSessionExpired }: AttendancePanelPro
             disabled={!today.siteConfigured}
             onClick={() => {
               setResult(null);
-              setCaptureKind(nextKind);
+              // Camera and location are requested only after a valid consent.
+              if (today.today.consent.accepted) setCaptureKind(nextKind);
+              else setConsentMode({ mode: "gate", kind: nextKind });
             }}
           >
             <Camera className="mr-2 h-5 w-5" />
@@ -172,6 +178,15 @@ export function AttendancePanel({ source, onSessionExpired }: AttendancePanelPro
         )}
 
         {result ? <ResultBanner result={result} /> : null}
+
+        <button
+          type="button"
+          onClick={() => setConsentMode({ mode: "view", kind: null })}
+          className="mt-4 flex min-h-11 w-full items-center justify-center gap-1.5 text-sm font-medium text-[#80566a] underline-offset-4 hover:underline"
+        >
+          <FileText className="h-4 w-4" />
+          {today.today.consent.accepted ? "Thoả thuận hình ảnh và vị trí (đã đồng ý)" : "Xem thoả thuận hình ảnh và vị trí"}
+        </button>
       </div>
 
       {pastIncomplete.length > 0 ? (
@@ -193,6 +208,28 @@ export function AttendancePanel({ source, onSessionExpired }: AttendancePanelPro
         </div>
       ) : null}
 
+      {consentMode ? (
+        <ConsentSheet
+          mode={consentMode.mode}
+          accepted={today.today.consent.accepted}
+          acceptedAt={today.today.consent.acceptedAt}
+          onClose={() => setConsentMode(null)}
+          onAccept={async () => {
+            await source.acceptConsent(today.today.consent.requiredVersion);
+            const kind = consentMode.kind;
+            setConsentMode(null);
+            await load();
+            if (kind) setCaptureKind(kind);
+          }}
+          onWithdraw={async () => {
+            await source.withdrawConsent();
+            setConsentMode(null);
+            await load();
+          }}
+          onSessionExpired={onSessionExpired}
+        />
+      ) : null}
+
       {captureKind ? (
         <CaptureSheet
           kind={captureKind}
@@ -207,6 +244,146 @@ export function AttendancePanel({ source, onSessionExpired }: AttendancePanelPro
         />
       ) : null}
     </section>
+  );
+}
+
+function ConsentSheet({
+  mode,
+  accepted,
+  acceptedAt,
+  onClose,
+  onAccept,
+  onWithdraw,
+  onSessionExpired,
+}: {
+  mode: "gate" | "view";
+  accepted: boolean;
+  acceptedAt: string | null;
+  onClose: () => void;
+  onAccept: () => Promise<void>;
+  onWithdraw: () => Promise<void>;
+  onSessionExpired: (message: string) => void;
+}) {
+  const [checked, setChecked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [confirmWithdraw, setConfirmWithdraw] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+    } catch (err) {
+      if (err instanceof PayslipSessionExpiredError) {
+        onSessionExpired(err.message);
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Không lưu được. Vui lòng thử lại.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="consent-title">
+      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-[28px] bg-[#fefbf9] shadow-xl sm:rounded-[28px]">
+        <div className="flex items-start gap-3 border-b border-[#eee8e5] px-5 pb-4 pt-5">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fdeaf1] text-[#dc4f78]">
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 id="consent-title" className="text-[18px] font-bold leading-snug">{CONSENT_TITLE}</h2>
+            <p className="mt-0.5 text-xs text-[#85808a]">Bên sử dụng dữ liệu: {CONSENT_CONTROLLER} · Phiên bản 09/11/2026</p>
+          </div>
+          <button type="button" onClick={onClose} className="-mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[#80566a]" aria-label="Đóng">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4 text-[14px] leading-6 text-[#3b3536]">
+          {mode === "gate" ? (
+            <p className="rounded-2xl bg-[#fdeaf1] px-4 py-3 text-[#80566a]">
+              Trước khi mở máy ảnh và lấy vị trí, bạn vui lòng đọc và xác nhận thoả thuận dưới đây.
+            </p>
+          ) : null}
+          {CONSENT_SECTIONS.map((section) => (
+            <section key={section.title}>
+              <h3 className="font-bold text-[#211d1e]">{section.title}</h3>
+              <ul className="mt-1.5 list-disc space-y-1 pl-5">
+                {section.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+
+        <div className="border-t border-[#eee8e5] px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4">
+          {error ? (
+            <p role="alert" className="mb-3 rounded-2xl bg-red-50 px-4 py-2 text-sm text-red-700">{error}</p>
+          ) : null}
+          {accepted ? (
+            confirmWithdraw ? (
+              <div className="space-y-3">
+                <p className="text-sm text-[#3b3536]">
+                  Sau khi rút lại, bạn không chấm công bằng điện thoại được nữa. Quản lý sẽ hướng dẫn cách chấm công khác; lương của bạn không bị ảnh hưởng.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" variant="outline" className="h-12 rounded-2xl" onClick={() => setConfirmWithdraw(false)} disabled={busy}>
+                    Giữ đồng ý
+                  </Button>
+                  <Button type="button" variant="destructive" className="h-12 rounded-2xl" onClick={() => void run(onWithdraw)} disabled={busy}>
+                    {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Rút lại
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="flex items-center gap-2 text-sm text-emerald-800">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  Bạn đã đồng ý{acceptedAt ? ` lúc ${formatTime(acceptedAt)} ngày ${formatWorkDate(new Date(acceptedAt).toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }))}` : ""}.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" variant="outline" className="h-12 rounded-2xl" onClick={onClose}>
+                    Đóng
+                  </Button>
+                  <Button type="button" variant="ghost" className="h-12 rounded-2xl text-red-700 hover:bg-red-50 hover:text-red-700" onClick={() => setConfirmWithdraw(true)}>
+                    Rút lại đồng ý
+                  </Button>
+                </div>
+              </div>
+            )
+          ) : (
+            <div className="space-y-3">
+              <label className="flex cursor-pointer items-start gap-3 text-sm leading-6 text-[#211d1e]">
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={(value) => setChecked(value === true)}
+                  className="mt-1 h-5 w-5 rounded-md border-[#dc4f78] data-[state=checked]:bg-[#dc4f78]"
+                  aria-label="Xác nhận đồng ý thoả thuận"
+                />
+                <span>{CONSENT_CHECKBOX}</span>
+              </label>
+              <Button
+                type="button"
+                className="h-14 w-full rounded-2xl border-0 text-[18px] font-bold text-white shadow-none hover:brightness-95"
+                style={BRAND_GRADIENT}
+                disabled={!checked || busy}
+                onClick={() => void run(onAccept)}
+              >
+                {busy ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : null}
+                Tôi đồng ý{mode === "gate" ? " và tiếp tục" : ""}
+              </Button>
+              <Button type="button" variant="ghost" className="h-11 w-full rounded-2xl text-[#4d4850]" onClick={onClose} disabled={busy}>
+                Để sau
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

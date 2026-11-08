@@ -75,6 +75,13 @@ export interface PayrollAttendanceDaySummary {
   message: string;
 }
 
+export interface PayrollAttendanceConsentState {
+  requiredVersion: string;
+  accepted: boolean;
+  acceptedAt: string | null;
+  withdrawnAt: string | null;
+}
+
 export interface PayrollAttendanceTodayPayload {
   employee: { code: string; name?: string | null };
   gateEnabled: boolean;
@@ -86,6 +93,7 @@ export interface PayrollAttendanceTodayPayload {
     status: AttendanceDayStatus;
     message: string;
     events: PayrollAttendanceEvent[];
+    consent: PayrollAttendanceConsentState;
   };
   incompleteDays: PayrollAttendanceDaySummary[];
 }
@@ -113,4 +121,6 @@ export interface PayrollAttendanceCheckinResult {
 export interface PayrollAttendanceSource {
   getToday(): Promise<PayrollAttendanceTodayPayload>;
   checkIn(input: PayrollAttendanceCheckinInput): Promise<PayrollAttendanceCheckinResult>;
+  acceptConsent(version: string): Promise<PayrollAttendanceConsentState>;
+  withdrawConsent(): Promise<PayrollAttendanceConsentState>;
 }

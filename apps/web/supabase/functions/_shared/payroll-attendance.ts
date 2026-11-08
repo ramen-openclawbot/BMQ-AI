@@ -9,6 +9,7 @@ export type AttendanceEventKind = "in" | "out";
 export type AttendanceDecision = "accepted" | "rejected";
 
 export type AttendanceRejectReason =
+  | "consent_required"
   | "gate_disabled"
   | "site_not_configured"
   | "no_location"
@@ -19,6 +20,15 @@ export type AttendanceRejectReason =
   | "already_recorded"
   | "checkout_before_checkin"
   | "session_invalid";
+
+/** Agreement version seeded by 20261109120000_payroll_bn_attendance_consent.sql. */
+export const PAYROLL_ATTENDANCE_CONSENT_VERSION = "2026-11-09";
+
+/** Default and bounds of the selfie retention policy (also in the migration). */
+export const PAYROLL_ATTENDANCE_SELFIE_RETENTION_DEFAULT_DAYS = 90;
+export const PAYROLL_ATTENDANCE_SELFIE_RETENTION_MIN_DAYS = 30;
+export const PAYROLL_ATTENDANCE_SELFIE_RETENTION_MAX_DAYS = 365;
+export const PAYROLL_ATTENDANCE_SELFIE_RETENTION_MAX_PER_RUN = 1000;
 
 /** A device fix beyond this accuracy is not trustworthy for attendance. */
 export const PAYROLL_ATTENDANCE_MAX_ACCURACY_M = 100;
@@ -42,6 +52,8 @@ export interface AttendanceDayEvent {
 
 export interface EvaluateCheckinInput {
   eventKind: AttendanceEventKind;
+  /** Active, non-withdrawn consent for the current agreement version. */
+  consentAccepted?: boolean;
   gateEnabled: boolean;
   siteConfigured: boolean;
   siteLatitude?: number | null;
@@ -65,6 +77,87 @@ export interface EvaluateCheckinResult {
   reasonCode: AttendanceRejectReason | null;
   distanceM: number | null;
   suspectedProxy: boolean;
+}
+
+export interface AttendanceConsentRow {
+  consentVersion: string;
+  acceptedAt: string | null;
+  withdrawnAt: string | null;
+}
+
+export interface AttendanceConsentState {
+  requiredVersion: string;
+  accepted: boolean;
+  acceptedAt: string | null;
+  withdrawnAt: string | null;
+}
+
+/**
+ * Consent state for the currently required agreement version. A row from an
+ * older version (or a withdrawn row) is never accepted, and a version bump
+ * therefore forces every employee to accept again.
+ */
+export function attendanceConsentState(
+  requiredVersion: string,
+  row: AttendanceConsentRow | null | undefined,
+): AttendanceConsentState {
+  const matches = Boolean(
+    requiredVersion && row && row.consentVersion === requiredVersion,
+  );
+  return {
+    requiredVersion,
+    accepted: Boolean(matches && row && row.withdrawnAt === null),
+    acceptedAt: matches ? (row?.acceptedAt ?? null) : null,
+    withdrawnAt: matches ? (row?.withdrawnAt ?? null) : null,
+  };
+}
+
+/** ISO cutoff: objects created strictly before this instant are expired. */
+export function selfieRetentionCutoff(
+  now: Date | string | number,
+  retentionDays: number,
+): string {
+  const date = now instanceof Date ? now : new Date(now);
+  const days = Number.isFinite(retentionDays)
+    ? Math.trunc(retentionDays)
+    : PAYROLL_ATTENDANCE_SELFIE_RETENTION_DEFAULT_DAYS;
+  const bounded = Math.min(
+    PAYROLL_ATTENDANCE_SELFIE_RETENTION_MAX_DAYS,
+    Math.max(PAYROLL_ATTENDANCE_SELFIE_RETENTION_MIN_DAYS, days),
+  );
+  return new Date(date.getTime() - bounded * 86_400_000).toISOString();
+}
+
+export interface SelfieStorageObject {
+  /** Full storage path inside the private selfie bucket. */
+  path: string;
+  /** Storage object created_at; missing/invalid values are never expired. */
+  createdAt?: string | null;
+}
+
+/**
+ * Pure retention selection: valid created_at strictly before the cutoff,
+ * oldest-safe input order preserved, capped at `max` (hard max 1000/run).
+ */
+export function selectExpiredSelfiePaths(
+  objects: readonly SelfieStorageObject[],
+  cutoffIso: string,
+  max: number = PAYROLL_ATTENDANCE_SELFIE_RETENTION_MAX_PER_RUN,
+): string[] {
+  const cutoff = Date.parse(cutoffIso);
+  if (!Number.isFinite(cutoff)) return [];
+  const limit = Math.min(
+    PAYROLL_ATTENDANCE_SELFIE_RETENTION_MAX_PER_RUN,
+    Math.max(0, Math.trunc(Number.isFinite(max) ? max : 0)),
+  );
+  const expired: string[] = [];
+  for (const object of objects) {
+    if (expired.length >= limit) break;
+    const created = Date.parse(object.createdAt ?? "");
+    if (!Number.isFinite(created)) continue;
+    if (created < cutoff) expired.push(object.path);
+  }
+  return expired;
 }
 
 export type SelfieUploadRejectReason = "selfie_required" | "selfie_type_invalid" | "selfie_too_large";
@@ -143,6 +236,11 @@ export function evaluateCheckin(input: EvaluateCheckinInput): EvaluateCheckinRes
   });
 
   if (!input.gateEnabled) return reject("gate_disabled");
+
+  // Consent gates any location/camera use. Defaults to true only so older
+  // callers/tests keep their pre-consent behaviour; the server RPC always
+  // reads the real consent row and fails closed.
+  if (input.consentAccepted === false) return reject("consent_required");
 
   if (
     !input.siteConfigured ||
@@ -228,6 +326,8 @@ export function attendanceMessage(reasonCode: string | null | undefined): string
     case "":
     case "accepted":
       return "Đã chấm công.";
+    case "consent_required":
+      return "Bạn cần đọc và đồng ý thoả thuận sử dụng hình ảnh và vị trí trước khi chấm công.";
     case "gate_disabled":
       return "Chấm công GPS chưa được bật cho nhân viên này. Vui lòng liên hệ quản lý.";
     case "site_not_configured":

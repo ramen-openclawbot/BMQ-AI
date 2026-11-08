@@ -2,14 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  attendanceConsentState,
   attendanceMessage,
   dayStatus,
   dayStatusMessage,
   evaluateCheckin,
   haversineMeters,
   INCOMPLETE_DAY_MESSAGE,
+  PAYROLL_ATTENDANCE_CONSENT_VERSION,
   PAYROLL_ATTENDANCE_MAX_ACCURACY_M,
   PAYROLL_ATTENDANCE_SELFIE_MAX_BYTES,
+  PAYROLL_ATTENDANCE_SELFIE_RETENTION_MAX_PER_RUN,
+  selectExpiredSelfiePaths,
+  selfieRetentionCutoff,
   validateSelfieUpload,
   vietnamWorkDate,
   type EvaluateCheckinInput,
@@ -184,6 +189,7 @@ test("the incomplete-day message is exact and hidden once complete/approved", ()
 
 test("attendanceMessage covers every reason code with Vietnamese guidance", () => {
   for (const reason of [
+    "consent_required",
     "gate_disabled",
     "site_not_configured",
     "no_location",
@@ -200,6 +206,105 @@ test("attendanceMessage covers every reason code with Vietnamese guidance", () =
     assert.notEqual(message, "Không thực hiện được chấm công. Vui lòng thử lại.");
   }
   assert.equal(attendanceMessage(null), "Đã chấm công.");
+});
+
+test("consent is required before location checks and defaults to accepted", () => {
+  assert.equal(PAYROLL_ATTENDANCE_CONSENT_VERSION, "2026-11-09");
+  assert.equal(evaluateCheckin(baseInput()).decision, "accepted");
+  assert.equal(
+    evaluateCheckin(baseInput({ consentAccepted: false })).reasonCode,
+    "consent_required",
+  );
+  // The consent gate runs before site/GPS/device checks.
+  assert.equal(
+    evaluateCheckin(
+      baseInput({ consentAccepted: false, siteConfigured: false, latitude: null }),
+    ).reasonCode,
+    "consent_required",
+  );
+  // A disabled rollout gate is still reported first.
+  assert.equal(
+    evaluateCheckin(baseInput({ consentAccepted: false, gateEnabled: false })).reasonCode,
+    "gate_disabled",
+  );
+  assert.equal(
+    attendanceMessage("consent_required"),
+    "Bạn cần đọc và đồng ý thoả thuận sử dụng hình ảnh và vị trí trước khi chấm công.",
+  );
+});
+
+test("consent state only accepts the current version and never a withdrawn row", () => {
+  assert.deepEqual(attendanceConsentState("2026-11-09", null), {
+    requiredVersion: "2026-11-09",
+    accepted: false,
+    acceptedAt: null,
+    withdrawnAt: null,
+  });
+  assert.deepEqual(
+    attendanceConsentState("2026-11-09", {
+      consentVersion: "2026-11-09",
+      acceptedAt: "2026-11-09T01:00:00.000Z",
+      withdrawnAt: null,
+    }),
+    {
+      requiredVersion: "2026-11-09",
+      accepted: true,
+      acceptedAt: "2026-11-09T01:00:00.000Z",
+      withdrawnAt: null,
+    },
+  );
+  assert.deepEqual(
+    attendanceConsentState("2026-11-10", {
+      consentVersion: "2026-11-09",
+      acceptedAt: "2026-11-09T01:00:00.000Z",
+      withdrawnAt: null,
+    }),
+    {
+      requiredVersion: "2026-11-10",
+      accepted: false,
+      acceptedAt: null,
+      withdrawnAt: null,
+    },
+  );
+  assert.deepEqual(
+    attendanceConsentState("2026-11-09", {
+      consentVersion: "2026-11-09",
+      acceptedAt: "2026-11-09T01:00:00.000Z",
+      withdrawnAt: "2026-11-09T02:00:00.000Z",
+    }),
+    {
+      requiredVersion: "2026-11-09",
+      accepted: false,
+      acceptedAt: "2026-11-09T01:00:00.000Z",
+      withdrawnAt: "2026-11-09T02:00:00.000Z",
+    },
+  );
+});
+
+test("selfie retention cutoff keeps objects newer than 90 days and caps each run", () => {
+  const now = new Date("2026-11-09T20:30:00.000Z");
+  const cutoff = selfieRetentionCutoff(now, 90);
+  assert.equal(cutoff, "2026-08-11T20:30:00.000Z");
+
+  const expired = selectExpiredSelfiePaths(
+    [
+      { path: "old.jpg", createdAt: "2026-08-11T20:29:59.999Z" },
+      { path: "boundary.jpg", createdAt: cutoff },
+      { path: "new.jpg", createdAt: "2026-11-01T00:00:00.000Z" },
+      { path: "unknown.jpg", createdAt: null },
+      { path: "invalid.jpg", createdAt: "not-a-date" },
+    ],
+    cutoff,
+  );
+  assert.deepEqual(expired, ["old.jpg"]);
+
+  const many = Array.from({ length: 1005 }, (_, index) => ({
+    path: `old-${index}.jpg`,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  }));
+  assert.equal(selectExpiredSelfiePaths(many, cutoff).length, PAYROLL_ATTENDANCE_SELFIE_RETENTION_MAX_PER_RUN);
+  assert.equal(selectExpiredSelfiePaths(many, cutoff, 3).length, 3);
+  assert.equal(selectExpiredSelfiePaths(many, "not-a-date").length, 0);
 });
 
 test("validateSelfieUpload accepts JPEG/WebP up to 600 KB only", () => {

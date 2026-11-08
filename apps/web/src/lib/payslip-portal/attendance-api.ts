@@ -10,6 +10,7 @@ import type {
   AttendanceEventKind,
   PayrollAttendanceCheckinInput,
   PayrollAttendanceCheckinResult,
+  PayrollAttendanceConsentState,
   PayrollAttendanceDaySummary,
   PayrollAttendanceEvent,
   PayrollAttendanceSource,
@@ -19,7 +20,10 @@ import { PayslipSessionExpiredError } from "./types.ts";
 import type { PayslipStorage } from "./api.ts";
 import { PAYSLIP_SESSION_STORAGE_KEY } from "./api.ts";
 import { getOrCreateDeviceId } from "./device-id.ts";
-import { attendanceMessage } from "../../../supabase/functions/_shared/payroll-attendance.ts";
+import {
+  attendanceMessage,
+  PAYROLL_ATTENDANCE_CONSENT_VERSION,
+} from "../../../supabase/functions/_shared/payroll-attendance.ts";
 
 export interface PayrollAttendanceApiOptions {
   /** Edge Functions base, e.g. https://<ref>.supabase.co/functions/v1 */
@@ -135,6 +139,21 @@ function asDay(value: unknown): PayrollAttendanceDaySummary | null {
   return { workDate: String(row.work_date ?? ""), status, message };
 }
 
+function asConsent(
+  value: unknown,
+  fallbackVersion: string = PAYROLL_ATTENDANCE_CONSENT_VERSION,
+): PayrollAttendanceConsentState {
+  const row = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return {
+    requiredVersion: typeof row.required_version === "string" && row.required_version.trim() !== ""
+      ? row.required_version
+      : fallbackVersion,
+    accepted: row.accepted === true,
+    acceptedAt: typeof row.accepted_at === "string" ? row.accepted_at : null,
+    withdrawnAt: typeof row.withdrawn_at === "string" ? row.withdrawn_at : null,
+  };
+}
+
 export function normalizeTodayPayload(data: Record<string, unknown> | null): PayrollAttendanceTodayPayload {
   const employee = (data?.employee ?? {}) as Record<string, unknown>;
   const today = (data?.today ?? {}) as Record<string, unknown>;
@@ -166,6 +185,7 @@ export function normalizeTodayPayload(data: Record<string, unknown> | null): Pay
           ? ""
           : "Ngày công không được tính, vui lòng liên hệ quản lý duyệt",
       events,
+      consent: asConsent(data?.consent ?? today.consent),
     },
     incompleteDays,
   };
@@ -290,6 +310,46 @@ export function createPayrollAttendanceApi(options: PayrollAttendanceApiOptions 
         distanceM: asNumber(result.data?.distance_m),
         eventId: typeof result.data?.event_id === "string" ? result.data.event_id : null,
       } satisfies PayrollAttendanceCheckinResult;
+    },
+
+    async acceptConsent(version: string) {
+      const { token, deviceId } = requireSession();
+      const response = await post(`${baseUrl}/payslip-attendance-consent`, {
+        method: "POST",
+        headers: {
+          ...baseHeaders(),
+          "Content-Type": "application/json",
+          "x-payslip-session": token,
+          "x-payslip-device": deviceId,
+        },
+        body: JSON.stringify({ action: "accept", version, session_token: token }),
+      });
+      const result = await parse(response);
+      if (result.status === 401) handleUnauthorized(result);
+      if (!result.ok) {
+        throw new Error(attendanceErrorMessage(serverReasonCode(result.data), serverMessage(result.data)));
+      }
+      return asConsent(result.data?.consent, version);
+    },
+
+    async withdrawConsent() {
+      const { token, deviceId } = requireSession();
+      const response = await post(`${baseUrl}/payslip-attendance-consent`, {
+        method: "POST",
+        headers: {
+          ...baseHeaders(),
+          "Content-Type": "application/json",
+          "x-payslip-session": token,
+          "x-payslip-device": deviceId,
+        },
+        body: JSON.stringify({ action: "withdraw", session_token: token }),
+      });
+      const result = await parse(response);
+      if (result.status === 401) handleUnauthorized(result);
+      if (!result.ok) {
+        throw new Error(attendanceErrorMessage(serverReasonCode(result.data), serverMessage(result.data)));
+      }
+      return asConsent(result.data?.consent);
     },
   };
 }
