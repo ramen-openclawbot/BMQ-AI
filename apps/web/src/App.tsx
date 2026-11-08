@@ -7,7 +7,9 @@ import AppInner from "./AppInner";
 
 const DEALER_ORDERING_HOST = "dathang.banhmique.vn";
 const KIOSK_REPORT_HOST = "baocao.banhmique.vn";
-const PAYSLIP_HOST = "payroll.banhmique.vn";
+// Canonical employee portal host; the old host is kept as a 301/fallback.
+const PAYSLIP_HOST = "luong.banhmique.vn";
+const LEGACY_PAYSLIP_HOST = "payroll.banhmique.vn";
 
 // Employee payslip portal; loaded only on its own host.
 const PayslipPortalHost = lazy(() => import("@/pages/PayslipPortalHost"));
@@ -32,7 +34,7 @@ function applyHostDocumentTitle(): void {
     return;
   }
 
-  if (window.location.hostname === PAYSLIP_HOST) {
+  if (window.location.hostname === PAYSLIP_HOST || window.location.hostname === LEGACY_PAYSLIP_HOST) {
     document.title = "BMQ Phiếu Lương";
     return;
   }
@@ -62,8 +64,10 @@ function applyHostDocumentLanguage(): void {
  *
  * REPORT HOST: baocao.banhmique.vn renders the kiosk report portal without
  * mounting the internal router or internal authentication providers.
- * PAYSLIP HOST: payroll.banhmique.vn renders the employee payslip portal the
- * same way (phone + OTP via Edge Functions, no internal auth).
+ * PAYSLIP HOST: luong.banhmique.vn renders the employee payslip portal the
+ * same way (phone + OTP via Edge Functions, no internal auth). The legacy
+ * payroll.banhmique.vn host still renders it as a fallback when a 301 is not
+ * possible (for example a local proxy).
  */
 
 // Check if we're on the recovery route BEFORE any React hooks/effects
@@ -96,6 +100,11 @@ function isKioskReportHost(): boolean {
   return window.location.hostname === KIOSK_REPORT_HOST;
 }
 
+function isPayslipHost(): boolean {
+  const host = window.location.hostname;
+  return host === PAYSLIP_HOST || host === LEGACY_PAYSLIP_HOST;
+}
+
 function App() {
   applyHostDocumentTitle();
   applyHostDocumentLanguage();
@@ -109,7 +118,7 @@ function App() {
     return <KioskReportPortal />;
   }
 
-  if (window.location.hostname === PAYSLIP_HOST) {
+  if (isPayslipHost()) {
     return (
       <Suspense fallback={<PageLoader />}>
         <PayslipPortalHost />

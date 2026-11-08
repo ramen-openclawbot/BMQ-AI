@@ -13,6 +13,7 @@ import {
 } from "../_shared/report.ts";
 import {
   getPayslipSessionExpiresAt,
+  hashPayslipDeviceId,
   normalizePayslipPhone,
   PAYSLIP_OTP_MAX_ATTEMPTS,
   validatePayslipOtpChallenge,
@@ -30,7 +31,7 @@ serve(async (req) => {
   }
 
   try {
-    const body = await readJsonBody<{ phone?: unknown; otp?: unknown }>(req);
+    const body = await readJsonBody<{ phone?: unknown; otp?: unknown; device_id?: unknown }>(req);
     const phoneNormalized = normalizePayslipPhone(body.phone);
     const otp = String(body.otp || "").trim();
 
@@ -40,6 +41,16 @@ serve(async (req) => {
 
     if (!/^\d{6}$/.test(otp)) {
       return errorResponse(req, "Mã OTP phải gồm 6 chữ số.", 400, "invalid_otp_format");
+    }
+
+    // Device binding is optional for payslip viewing; an existing session
+    // without device_hash keeps working. When a device id is provided it must
+    // be a well-formed UUID.
+    const rawDeviceId = body.device_id ?? req.headers.get("x-payslip-device");
+    const hasDeviceId = rawDeviceId !== undefined && rawDeviceId !== null && String(rawDeviceId).trim() !== "";
+    const deviceHash = hasDeviceId ? await hashPayslipDeviceId(rawDeviceId) : null;
+    if (hasDeviceId && !deviceHash) {
+      return errorResponse(req, "Thiết bị không hợp lệ. Vui lòng tải lại trang.", 400, "invalid_device_id");
     }
 
     const supabase = createServiceClient();
@@ -138,6 +149,7 @@ serve(async (req) => {
         employee_code: challenge.employee_code,
         expires_at: expiresAt,
         last_seen_at: now,
+        device_hash: deviceHash,
       });
     if (sessionInsert.error) throw sessionInsert.error;
 

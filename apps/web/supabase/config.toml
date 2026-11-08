@@ -184,6 +184,14 @@ verify_jwt = false
 [functions.payslip-auth-logout]
 verify_jwt = false
 
+[functions.payslip-attendance-today]
+# psp_ session + device-hash auth is enforced inside the function.
+verify_jwt = false
+
+[functions.payslip-attendance-checkin]
+# psp_ session + device-hash auth is enforced inside the function.
+verify_jwt = false
+
 [functions.kiosk-report-admin]
 verify_jwt = false
 

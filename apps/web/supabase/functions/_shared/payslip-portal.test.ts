@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   getPayslipSessionExpiresAt,
+  hashPayslipDeviceId,
   isPayslipSessionActive,
+  normalizePayslipDeviceId,
   normalizePayslipPhone,
   PAYSLIP_OTP_MAX_ATTEMPTS,
   PAYSLIP_SESSION_TTL_HOURS,
@@ -11,6 +13,29 @@ import {
   validatePayslipOtpChallenge,
   type DbPayslipRow,
 } from "./payslip-portal.ts";
+
+test("normalizePayslipDeviceId accepts a UUID and lowercases it", () => {
+  assert.equal(
+    normalizePayslipDeviceId("A1B2C3D4-E5F6-4789-8ABC-DEF012345678"),
+    "a1b2c3d4-e5f6-4789-8abc-def012345678",
+  );
+  assert.equal(normalizePayslipDeviceId("not-a-uuid"), null);
+  assert.equal(normalizePayslipDeviceId(""), null);
+  assert.equal(normalizePayslipDeviceId(null), null);
+});
+
+test("hashPayslipDeviceId is a stable SHA-256 of the normalised id", async () => {
+  const lower = "a1b2c3d4-e5f6-4789-8abc-def012345678";
+  const upper = "A1B2C3D4-E5F6-4789-8ABC-DEF012345678";
+  const hash = await hashPayslipDeviceId(lower);
+  assert.match(hash ?? "", /^[0-9a-f]{64}$/);
+  assert.equal(await hashPayslipDeviceId(upper), hash);
+  assert.equal(await hashPayslipDeviceId("not-a-uuid"), null);
+  assert.notEqual(
+    await hashPayslipDeviceId("11111111-1111-4111-8111-111111111111"),
+    hash,
+  );
+});
 
 test("normalizePayslipPhone accepts mobiles and rejects everything else", () => {
   assert.equal(normalizePayslipPhone("0901234567"), "84901234567");

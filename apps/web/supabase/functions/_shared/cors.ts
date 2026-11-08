@@ -24,11 +24,15 @@ const REPORT_PORTAL_FUNCTIONS = new Set([
 ]);
 
 const PAYSLIP_PORTAL_ORIGIN = "https://payroll.banhmique.vn";
+const PAYSLIP_PORTAL_NEW_ORIGIN = "https://luong.banhmique.vn";
+const PAYSLIP_PORTAL_ORIGINS = [PAYSLIP_PORTAL_NEW_ORIGIN, PAYSLIP_PORTAL_ORIGIN];
 const PAYSLIP_PORTAL_FUNCTIONS = new Set([
   "payslip-auth-start",
   "payslip-auth-verify",
   "payslip-list",
   "payslip-auth-logout",
+  "payslip-attendance-today",
+  "payslip-attendance-checkin",
 ]);
 
 function pathSegments(req: Request): string[] {
@@ -50,7 +54,7 @@ export function getCorsHeaders(req: Request): Record<string, string> {
   if (isReportPortalFunction(req)) {
     allowedOrigins = [...ALLOWED_ORIGINS, REPORT_PORTAL_ORIGIN];
   } else if (isPayslipPortalFunction(req)) {
-    allowedOrigins = [...ALLOWED_ORIGINS, PAYSLIP_PORTAL_ORIGIN];
+    allowedOrigins = [...ALLOWED_ORIGINS, ...PAYSLIP_PORTAL_ORIGINS];
   }
   const allowedOrigin = allowedOrigins.includes(origin)
     ? origin
@@ -59,7 +63,7 @@ export function getCorsHeaders(req: Request): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": allowedOrigin,
     "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type, x-cron-secret, x-debug-secret, x-dealer-session, x-report-session, x-region, x-file-name, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+      "authorization, x-client-info, apikey, content-type, x-cron-secret, x-debug-secret, x-dealer-session, x-report-session, x-payslip-session, x-payslip-device, x-region, x-file-name, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
     "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
     "Access-Control-Max-Age": "86400",
   };

@@ -27,7 +27,9 @@ import {
   type PayslipEmployee,
   type PayslipLine,
   type PayslipPortalSource,
+  type PayrollAttendanceSource,
 } from "@/lib/payslip-portal/types";
+import { AttendancePanel } from "@/components/payslip-portal/AttendancePanel";
 import { LedgerMark } from "@/components/ui/loading";
 
 const BRAND_GRADIENT = { background: "linear-gradient(90deg, #dc4f78 0%, #dc527a 100%)" };
@@ -74,9 +76,11 @@ export interface PayslipPortalProps {
   source: PayslipPortalSource;
   /** Shows the demo banner and OTP hint. */
   demo?: boolean;
+  /** GPS check-in/out; omitted in the demo. Hidden unless enabled for the employee. */
+  attendance?: PayrollAttendanceSource;
 }
 
-export default function PayslipPortal({ source, demo = false }: PayslipPortalProps) {
+export default function PayslipPortal({ source, demo = false, attendance }: PayslipPortalProps) {
   const [step, setStep] = useState<Step>("loading");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
@@ -201,7 +205,7 @@ export default function PayslipPortal({ source, demo = false }: PayslipPortalPro
           </div>
           <div className="mb-8 mt-8 text-center">
             <h1 className="text-[40px] font-bold leading-[1.08] tracking-[-0.025em]">Phiếu lương</h1>
-            <p className="mt-3 text-[18px] leading-7 text-[#666263]">Dành cho nhân viên BMQ</p>
+            <p className="mt-3 text-[18px] leading-7 text-[#666263]">Phiếu lương và chấm công cho nhân viên BMQ</p>
           </div>
 
           <div className="rounded-[28px] bg-white px-6 py-7 shadow-[0_12px_28px_rgba(70,50,55,0.10)] ring-1 ring-[#eee8e5]">
@@ -347,6 +351,9 @@ export default function PayslipPortal({ source, demo = false }: PayslipPortalPro
           <PayslipDetail payslip={selected} hidden={hidden} onBack={() => setStep("list")} />
         ) : (
           <>
+          {attendance ? (
+            <AttendancePanel source={attendance} onSessionExpired={(message) => resetToLogin(message)} />
+          ) : null}
           <PayslipList
             payslips={payslips}
             hidden={hidden}

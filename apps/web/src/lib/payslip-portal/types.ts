@@ -1,5 +1,6 @@
 /**
- * Shapes shown by the employee payslip portal (payroll.banhmique.vn).
+ * Shapes shown by the employee payslip portal (luong.banhmique.vn, with the
+ * legacy payroll.banhmique.vn host kept as a redirect/fallback).
  * The portal only renders published payslips of locked periods; it never
  * computes salary itself.
  */
@@ -47,4 +48,69 @@ export class PayslipSessionExpiredError extends Error {
     super("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
     this.name = "PayslipSessionExpiredError";
   }
+}
+
+// ---------------------------------------------------------------------------
+// GPS attendance (Bếp Q7) — non-visual client contract
+// ---------------------------------------------------------------------------
+
+export type AttendanceEventKind = "in" | "out";
+export type AttendanceDecision = "accepted" | "rejected";
+export type AttendanceDayStatus = "complete" | "missing_in" | "missing_out" | "approved_override";
+
+export interface PayrollAttendanceEvent {
+  eventKind: AttendanceEventKind;
+  decision: AttendanceDecision;
+  reasonCode: string | null;
+  message: string;
+  workDate: string;
+  serverReceivedAt: string;
+  distanceM: number | null;
+  suspectedProxy: boolean;
+}
+
+export interface PayrollAttendanceDaySummary {
+  workDate: string;
+  status: AttendanceDayStatus;
+  message: string;
+}
+
+export interface PayrollAttendanceTodayPayload {
+  employee: { code: string; name?: string | null };
+  gateEnabled: boolean;
+  siteConfigured: boolean;
+  siteName: string | null;
+  siteRadiusM: number | null;
+  today: {
+    workDate: string;
+    status: AttendanceDayStatus;
+    message: string;
+    events: PayrollAttendanceEvent[];
+  };
+  incompleteDays: PayrollAttendanceDaySummary[];
+}
+
+export interface PayrollAttendanceCheckinInput {
+  kind: AttendanceEventKind;
+  latitude: number | null;
+  longitude: number | null;
+  accuracyM: number | null;
+  capturedAt: string;
+  selfie: Blob;
+  selfieFileName?: string;
+}
+
+export interface PayrollAttendanceCheckinResult {
+  decision: AttendanceDecision;
+  reasonCode: string | null;
+  message: string;
+  suspectedProxy: boolean;
+  workDate: string | null;
+  distanceM: number | null;
+  eventId: string | null;
+}
+
+export interface PayrollAttendanceSource {
+  getToday(): Promise<PayrollAttendanceTodayPayload>;
+  checkIn(input: PayrollAttendanceCheckinInput): Promise<PayrollAttendanceCheckinResult>;
 }

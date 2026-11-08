@@ -3,10 +3,18 @@
     { "path": "/api/vietjet-order-parser-cron", "schedule": "0 15 * * *" },
     { "path": "/api/po-sync-cron", "schedule": "59 16 * * *" }
   ],
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "payroll.banhmique.vn" }],
+      "destination": "https://luong.banhmique.vn/:path*",
+      "statusCode": 301
+    }
+  ],
   "rewrites": [
     {
       "source": "/((?!assets/|og-share-payroll-v1\\.jpg|favicon\\.ico|robots\\.txt).*)",
-      "has": [{ "type": "host", "value": "payroll.banhmique.vn" }],
+      "has": [{ "type": "host", "value": "luong.banhmique.vn" }],
       "destination": "/payroll.html"
     },
     { "source": "/(.*)", "destination": "/app.html" }

@@ -70,6 +70,29 @@ export const PAYSLIP_OTP_MAX_ATTEMPTS = 5;
 export const PAYSLIP_SESSION_TTL_HOURS = 12;
 export const PAYSLIP_SESSION_TOKEN_PREFIX = "psp_";
 
+const PAYSLIP_DEVICE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Normalise a client-generated device UUID, or null when it is malformed. */
+export function normalizePayslipDeviceId(input: unknown): string | null {
+  const raw = String(input ?? "").trim();
+  if (!PAYSLIP_DEVICE_ID_PATTERN.test(raw)) return null;
+  return raw.toLowerCase();
+}
+
+/**
+ * Stable SHA-256 of the normalised device id. Attendance sessions store this
+ * hash; the raw id never reaches the database.
+ */
+export async function hashPayslipDeviceId(input: unknown): Promise<string | null> {
+  const deviceId = normalizePayslipDeviceId(input);
+  if (!deviceId) return null;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(deviceId));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 /**
  * Normalise a Vietnamese mobile number to 84xxxxxxxxx, or null when it is not a
  * valid mobile. Same semantics as normalizeDealerPhone.

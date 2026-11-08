@@ -20,7 +20,7 @@ interface CatalogSectionProps {
   data: BepBnPeriodData;
   source: BepBnDataSource;
   canEdit: boolean;
-  /** Payroll editors and the owner: register the phone each employee uses at payroll.banhmique.vn. */
+  /** Payroll editors and the owner: register the phone each employee uses at luong.banhmique.vn. */
   canManagePhones?: boolean;
 }
 
@@ -43,7 +43,7 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
           <CardTitle className="text-base">Danh mục nhân viên kỳ {data.period.code}</CardTitle>
           <CardDescription>
             Mã chấm công, nhóm, loại, lương và đơn giá lưu riêng cho từng kỳ; sửa kỳ này không ảnh hưởng kỳ khác.
-            {canManagePhones ? " Số điện thoại dùng chung mọi kỳ để nhân viên xem phiếu lương tại payroll.banhmique.vn." : null}
+            {canManagePhones ? " Số điện thoại dùng chung mọi kỳ để nhân viên xem phiếu lương tại luong.banhmique.vn." : null}
           </CardDescription>
         </div>
         {canChange ? (
@@ -444,7 +444,7 @@ function PhoneDialog({
         <DialogHeader>
           <DialogTitle>Số điện thoại xem phiếu lương</DialogTitle>
           <DialogDescription>
-            {employee ? `${employee.name} · ${employee.code}. ` : ""}Nhân viên dùng số này để nhận mã OTP qua Zalo tại payroll.banhmique.vn.
+            {employee ? `${employee.name} · ${employee.code}. ` : ""}Nhân viên dùng số này để nhận mã OTP qua Zalo tại luong.banhmique.vn.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">

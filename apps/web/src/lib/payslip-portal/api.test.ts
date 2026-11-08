@@ -75,14 +75,17 @@ test("startOtp falls back to the generic message when the server omits it", asyn
   assert.match(result.message, /Nếu số điện thoại/);
 });
 
-test("verifyOtp stores the session token under bmq_payslip_session", async () => {
+test("verifyOtp stores the session token under bmq_payslip_session and sends the device id", async () => {
   const storage = createMemoryStorage();
   const { fetchImpl, calls } = createFakeFetch([{ body: { success: true, session_token: "psp_abc" } }]);
   const source = createPayslipApiSource({ baseUrl: BASE, fetch: fetchImpl, storage });
 
   await source.verifyOtp("0901234567", "123456");
   assert.equal(storage.getItem(PAYSLIP_SESSION_STORAGE_KEY), "psp_abc");
-  assert.deepEqual(calls[0].body, { phone: "0901234567", otp: "123456" });
+  assert.equal(calls[0].body?.phone, "0901234567");
+  assert.equal(calls[0].body?.otp, "123456");
+  assert.match(String(calls[0].body?.device_id), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(storage.getItem("bmq_payslip_device_id"), calls[0].body?.device_id);
 });
 
 test("verifyOtp surfaces the server error", async () => {

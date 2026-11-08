@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { GpsAttendanceAdmin } from "@/components/payroll/bep-bn/GpsAttendanceAdmin";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,7 +30,7 @@ interface BepBnPayrollPanelProps {
   canLock: boolean;
 }
 
-type PanelTab = "attendance" | "payroll" | "employees";
+type PanelTab = "attendance" | "payroll" | "employees" | "gps";
 
 export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPanelProps) {
   const { toast } = useToast();
@@ -81,7 +82,7 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
     setPublishing(true);
     try {
       const count = await source.publishPayslips(periodId);
-      toast({ title: "Đã phát hành phiếu lương", description: `${count} nhân viên xem được tại payroll.banhmique.vn.` });
+      toast({ title: "Đã phát hành phiếu lương", description: `${count} nhân viên xem được tại luong.banhmique.vn.` });
     } catch (error) {
       toast({
         title: "Không phát hành được phiếu lương",
@@ -150,6 +151,7 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
           <TabsTrigger value="attendance">Chấm công</TabsTrigger>
           <TabsTrigger value="payroll">Bảng lương</TabsTrigger>
           <TabsTrigger value="employees">Nhân viên</TabsTrigger>
+          {canEdit ? <TabsTrigger value="gps">Chấm công GPS</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="attendance" className="space-y-4">
@@ -195,6 +197,12 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
             <EmptyCard text="Danh mục nhân viên được tạo tự động khi upload bảng chấm công." />
           )}
         </TabsContent>
+
+        {canEdit ? (
+          <TabsContent value="gps" className="space-y-4">
+            <GpsAttendanceAdmin employees={source.data?.employees ?? []} />
+          </TabsContent>
+        ) : null}
       </Tabs>
 
       <AlertDialog open={confirmLock} onOpenChange={setConfirmLock}>

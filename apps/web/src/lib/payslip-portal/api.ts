@@ -13,6 +13,7 @@ import type {
   PayslipPortalSource,
 } from "./types.ts";
 import { PayslipSessionExpiredError } from "./types.ts";
+import { getOrCreateDeviceId } from "./device-id.ts";
 
 export const PAYSLIP_SESSION_STORAGE_KEY = "bmq_payslip_session";
 
@@ -148,7 +149,11 @@ export function createPayslipApiSource(options: PayslipApiOptions = {}): Payslip
     },
 
     async verifyOtp(phone: string, otp: string) {
-      const result = await post("payslip-auth-verify", { phone, otp });
+      const result = await post("payslip-auth-verify", {
+        phone,
+        otp,
+        device_id: getOrCreateDeviceId(storage),
+      });
       if (!result.ok) throw new Error(errorMessage(result.data));
 
       const token = result.data && typeof result.data.session_token === "string"
