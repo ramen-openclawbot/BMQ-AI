@@ -268,7 +268,20 @@ export async function loadPeriodData(
   const periodRow = periodResult.data as PayrollBnPeriodRow;
   const period = mapPeriodRow(periodRow);
 
-  const [employeesResult, rowsResult, importsResult, adjustmentsResult] = await Promise.all([
+  // Confirmed mission rewards feed employee.missionBonus for open periods only.
+  // A locked period keeps its stored snapshot/published payslip behaviour and
+  // must not be recomputed with a later mission review.
+  const missionBonusPromise: PromiseLike<DbResult<unknown>> = period.status === "locked"
+    ? Promise.resolve({ data: [] as unknown, error: null })
+    : client.rpc("list_payroll_mission_bonus_for_period", { p_period_id: periodId });
+
+  const [
+    employeesResult,
+    rowsResult,
+    importsResult,
+    adjustmentsResult,
+    missionBonusResult,
+  ] = await Promise.all([
     client
       .from("payroll_bn_period_employees")
       .select("*")
@@ -290,19 +303,33 @@ export async function loadPeriodData(
       .eq("period_id", periodId)
       // Oldest first: the engine lets the latest adjustment of a field win.
       .order("created_at", { ascending: true }),
+    missionBonusPromise,
   ]);
 
   if (employeesResult.error) fail(employeesResult.error);
   if (rowsResult.error) fail(rowsResult.error);
   if (importsResult.error) fail(importsResult.error);
   if (adjustmentsResult.error) fail(adjustmentsResult.error);
+  if (missionBonusResult.error) fail(missionBonusResult.error);
+
+  const missionBonusByCode = new Map<string, number>();
+  for (const bonus of asRows<Record<string, unknown>>(missionBonusResult.data)) {
+    const code = typeof bonus.employee_code === "string" ? bonus.employee_code : "";
+    if (code === "") continue;
+    const amount = Number(bonus.amount_vnd);
+    if (Number.isFinite(amount) && amount >= 0) missionBonusByCode.set(code, amount);
+  }
+
+  const employees = asRows<PayrollBnEmployeeRow>(employeesResult.data).map((row) => {
+    const employee = mapEmployeeRow(row, period.dateFrom);
+    const bonus = missionBonusByCode.get(employee.code);
+    return bonus === undefined ? employee : { ...employee, missionBonus: bonus };
+  });
 
   return {
     id: periodRow.id,
     period,
-    employees: asRows<PayrollBnEmployeeRow>(employeesResult.data).map((row) =>
-      mapEmployeeRow(row, period.dateFrom),
-    ),
+    employees,
     measures: {},
     rows: asRows<PayrollBnAttendanceRow>(rowsResult.data).map(mapAttendanceRow),
     adjustments: asRows<PayrollBnAdjustmentRow>(adjustmentsResult.data).map(mapAdjustmentRow),

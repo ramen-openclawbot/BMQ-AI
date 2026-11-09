@@ -55,6 +55,8 @@ interface Problem {
 export interface AttendancePanelProps {
   source: PayrollAttendanceSource;
   onSessionExpired: (message: string) => void;
+  /** Called after the server accepted a check-in or check-out. */
+  onCheckedIn?: (kind: AttendanceEventKind) => void;
 }
 
 /**
@@ -62,7 +64,7 @@ export interface AttendancePanelProps {
  * everything; this screen only gathers location + a live selfie and shows the
  * answer. Hidden entirely when attendance is not enabled for the employee.
  */
-export function AttendancePanel({ source, onSessionExpired }: AttendancePanelProps) {
+export function AttendancePanel({ source, onSessionExpired, onCheckedIn }: AttendancePanelProps) {
   const [today, setToday] = useState<PayrollAttendanceTodayPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -237,6 +239,7 @@ export function AttendancePanel({ source, onSessionExpired }: AttendancePanelPro
           onClose={() => setCaptureKind(null)}
           onSessionExpired={onSessionExpired}
           onDone={(outcome) => {
+            if (outcome.decision === "accepted") onCheckedIn?.(captureKind);
             setCaptureKind(null);
             setResult(outcome);
             void load();

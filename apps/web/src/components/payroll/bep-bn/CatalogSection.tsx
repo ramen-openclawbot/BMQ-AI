@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import type { EmploymentType, PayrollEmployee, PayrollGroup } from "@/lib/payroll-bn/types.ts";
 import type { BepBnDataSource, BepBnEmployeeContact, BepBnPeriodData } from "./types";
 import { formatAdjustmentValue } from "./format";
+import { MissionGiftBar, MissionGiftButton, useMissionGifts } from "./MissionGift";
 
 const GROUPS: PayrollGroup[] = ["Văn phòng", "Bếp bánh", "Kho BN"];
 
@@ -30,6 +31,8 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
   const [phoneFor, setPhoneFor] = useState<PayrollEmployee | null>(null);
   const contactByCode = new Map(source.contacts.map((contact) => [contact.employeeCode, contact]));
   const canChange = canEdit && data.period.status !== "locked";
+  // Gifts follow the active mission campaign, not the period lock.
+  const gifts = useMissionGifts(canManagePhones);
 
   const openEditor = (employee: PayrollEmployee | null) => {
     setEditing(employee);
@@ -57,6 +60,8 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
         {data.employees.length === 0 ? (
           <p className="text-sm text-muted-foreground">Kỳ này chưa có nhân viên. Thêm nhân viên trước khi lập bảng lương.</p>
         ) : (
+          <>
+          {canManagePhones ? <MissionGiftBar gifts={gifts} employees={data.employees} /> : null}
           <div className="max-h-[520px] overflow-auto rounded-md border">
             <table className="w-max min-w-full border-collapse text-sm">
               <thead className="text-xs [&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-card [&_th]:shadow-[inset_0_-1px_0_hsl(var(--border))] [&_th:first-child]:z-30">
@@ -83,6 +88,7 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
                           <div className="truncate">{employee.name}</div>
                           <div className="truncate text-xs text-muted-foreground">{employee.code}</div>
                         </div>
+                        {canManagePhones ? <MissionGiftButton gifts={gifts} employee={employee} /> : null}
                         {canChange ? (
                           <Button
                             variant="ghost"
@@ -115,6 +121,7 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
               </tbody>
             </table>
           </div>
+          </>
         )}
       </CardContent>
       {canChange ? (

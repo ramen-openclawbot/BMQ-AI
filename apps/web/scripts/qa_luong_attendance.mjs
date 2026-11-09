@@ -77,7 +77,31 @@ const record = (name, detail = {}) => {
   console.log("PASS", name);
 };
 
-async function open(viewport, { geolocation = true, checkinDecision = "accepted", reason = null, consented = true } = {}) {
+const MISSION = {
+  id: "offer-1",
+  campaign: {
+    title: "Chấm công chăm chỉ",
+    summary: "Áp dụng Bếp bánh, từ 10/11 đến 30/11",
+    starts_on: "2026-11-10",
+    ends_on: "2026-11-30",
+    items: [
+      { key: "regular", label: "Chấm công đều trên app", detail: "Đủ giờ vào và ra mọi ngày đi làm", kind: "attendance_regular", amount_vnd: 100000 },
+      { key: "punctual", label: "Đúng giờ 100%", detail: "Không đi trễ buổi nào", kind: "punctual", amount_vnd: 100000 },
+      { key: "ticket", label: "Vé bốc thăm quý IV", detail: "Hoàn thành ít nhất 1 nhiệm vụ", kind: "draw_ticket", amount_vnd: 0 },
+    ],
+    rules: ["Vi phạm hoặc bị kỷ luật trong thời gian nhiệm vụ: không áp dụng toàn bộ thưởng.", "Nghỉ việc trước ngày bốc thăm: không tham gia bốc thăm."],
+    draw: { quarter: "2026-Q4", prize_vnd: 5000000 },
+  },
+};
+function missionPayload(status) {
+  if (!status) return { success: true, offer: null };
+  return { success: true, offer: { ...MISSION, status, progress: status === "accepted" ? [
+    { key: "regular", kind: "attendance_regular", met: true, detail: { days_with_in: 1, days_complete: 1, days_missing_out: 0, on_time_days: 1, min_days: 1, grace_minutes: 0, cutoff: "07:00" } },
+    { key: "punctual", kind: "punctual", met: true, detail: { days_with_in: 1, days_complete: 1, days_missing_out: 0, on_time_days: 1, min_days: 1, grace_minutes: 0, cutoff: "07:00" } },
+  ] : [], review: null, ticket: null } };
+}
+
+async function open(viewport, { geolocation = true, checkinDecision = "accepted", reason = null, consented = true, mission = null } = {}) {
   const context = await browser.newContext({
     viewport,
     locale: "vi-VN",
@@ -86,7 +110,7 @@ async function open(viewport, { geolocation = true, checkinDecision = "accepted"
     geolocation: geolocation ? { latitude: 10.7501, longitude: 106.6501, accuracy: 9 } : undefined,
   });
   await context.addInitScript(() => localStorage.setItem("bmq_payslip_session", "psp_qa"));
-  const state = { events: [], checkins: [], consented, consentCalls: [] };
+  const state = { events: [], checkins: [], consented, consentCalls: [], mission, missionCalls: [] };
   await context.route("**/*", async (route) => {
     const request = route.request();
     const url = request.url();
@@ -99,6 +123,11 @@ async function open(viewport, { geolocation = true, checkinDecision = "accepted"
         assert.equal(request.headers()["x-payslip-session"], "psp_qa");
         assert.match(request.headers()["x-payslip-device"] ?? "", /^[0-9a-f-]{36}$/);
         body = todayPayload(state.events, state.consented);
+      } else if (fn === "payslip-mission") {
+        const payload = JSON.parse(request.postData() || "{}");
+        state.missionCalls.push(payload);
+        if (payload.action === "respond") state.mission = payload.decision === "accept" ? "accepted" : "declined";
+        body = missionPayload(state.mission);
       } else if (fn === "payslip-attendance-consent") {
         const payload = JSON.parse(request.postData() || "{}");
         state.consentCalls.push(payload);
@@ -210,6 +239,43 @@ try {
     assert.equal(state.consentCalls.at(-1)?.action, "withdraw");
     assert.deepEqual(errors, []);
     record("withdraw consent");
+    await context.close();
+  }
+
+  // Mission: the gift opens right after an accepted check-in; accept shows the monthly card.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1440, height: 900 }]) {
+    const w = viewport.width;
+    const { context, page, errors, state } = await open(viewport, { mission: "pending" });
+    await page.locator("[data-mission-pending]").waitFor();
+    await page.getByRole("button", { name: "Chấm vào" }).click();
+    await page.waitForFunction(() => document.querySelector("video")?.videoWidth > 0, null, { timeout: 15_000 });
+    await page.getByRole("button", { name: "Chụp và chấm công" }).click();
+    const gift = page.getByRole("dialog", { name: "Bạn có một món quà bất ngờ!" });
+    await gift.waitFor({ timeout: 15_000 });
+    assert.ok((await gift.innerText()).includes("5.000.000đ"), "draw prize shown from data");
+    assert.ok((await overflow(page)) <= 0, `no overflow gift ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/mission-gift-${w}.png` });
+    await gift.getByRole("button", { name: "Nhận nhiệm vụ" }).click();
+    await page.locator("[data-mission-card]").waitFor({ timeout: 10_000 });
+    assert.deepEqual(state.missionCalls.find((c) => c.action === "respond"), { action: "respond", offer_id: "offer-1", decision: "accept", session_token: "psp_qa" });
+    await page.locator("[data-mission-card]").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${EVIDENCE}/mission-card-${w}.png`, fullPage: true });
+    assert.ok((await overflow(page)) <= 0, `no overflow mission card ${w}`);
+    assert.deepEqual(errors, []);
+    record(`mission gift → accept ${w}`);
+    await context.close();
+  }
+  {
+    const { context, page, errors, state } = await open({ width: 390, height: 844 }, { mission: "pending" });
+    await page.locator("[data-mission-pending]").click();
+    const gift = page.getByRole("dialog", { name: "Bạn có một món quà bất ngờ!" });
+    await gift.getByRole("button", { name: "Từ chối" }).click();
+    await gift.getByRole("button", { name: "Từ chối" }).last().click();
+    await page.locator("[data-mission-pending]").waitFor({ state: "detached", timeout: 10_000 });
+    assert.equal(state.mission, "declined");
+    assert.equal(await page.locator("[data-mission-card]").count(), 0, "declined mission is hidden");
+    assert.deepEqual(errors, []);
+    record("mission decline with confirm");
     await context.close();
   }
 

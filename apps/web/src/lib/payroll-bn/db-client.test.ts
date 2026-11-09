@@ -301,6 +301,99 @@ test("loadPeriodData returns null when the period does not exist", async () => {
   assert.equal(await loadPeriodData(client, "missing"), null);
 });
 
+test("loadPeriodData applies confirmed mission bonuses by employee code", async () => {
+  const calls: { table: string; op: string }[] = [];
+  const client = createFakeClient({
+    calls,
+    tables: {
+      payroll_bn_periods: () => ({ data: PERIOD_ROW, error: null }),
+      payroll_bn_period_employees: () => ({
+        data: [
+          {
+            id: "employee-1",
+            period_id: "period-1",
+            employee_code: "E01",
+            employee_name: "Nguyễn Văn A",
+            group_name: "Bếp bánh",
+            employment_type: "official",
+            monthly_salary: "10000000",
+            hourly_rate: null,
+            overtime_rate: 30000,
+            allowance: 500000,
+            standard_days_override: null,
+            start_date: "2025-01-01",
+            end_date: null,
+          },
+        ],
+        error: null,
+      }),
+    },
+    rpc: {
+      list_payroll_mission_bonus_for_period: (args) => {
+        assert.equal(args?.p_period_id, "period-1");
+        return {
+          data: [
+            { employee_code: "E01", amount_vnd: "250000" },
+            { employee_code: "NOT-IN-PERIOD", amount_vnd: 999 },
+          ],
+          error: null,
+        };
+      },
+    },
+  });
+
+  const data = await loadPeriodData(client, "period-1");
+  assert.ok(data);
+  assert.equal(data.employees.length, 1);
+  assert.equal(data.employees[0].missionBonus, 250000);
+  assert.ok(
+    calls.some((call) => call.table === "rpc:list_payroll_mission_bonus_for_period"),
+  );
+});
+
+test("loadPeriodData never adds a mission bonus to a locked period", async () => {
+  const calls: { table: string; op: string }[] = [];
+  const client = createFakeClient({
+    calls,
+    tables: {
+      payroll_bn_periods: () => ({ data: { ...PERIOD_ROW, status: "locked" }, error: null }),
+      payroll_bn_period_employees: () => ({
+        data: [
+          {
+            id: "employee-1",
+            period_id: "period-1",
+            employee_code: "E01",
+            employee_name: "Nguyễn Văn A",
+            group_name: "Bếp bánh",
+            employment_type: "official",
+            monthly_salary: "10000000",
+            hourly_rate: null,
+            overtime_rate: 30000,
+            allowance: 500000,
+            standard_days_override: null,
+            start_date: "2025-01-01",
+            end_date: null,
+          },
+        ],
+        error: null,
+      }),
+    },
+    rpc: {
+      list_payroll_mission_bonus_for_period: () => {
+        throw new Error("a locked period must keep its stored snapshot");
+      },
+    },
+  });
+
+  const data = await loadPeriodData(client, "period-1");
+  assert.ok(data);
+  assert.equal(data.period.status, "locked");
+  assert.equal(data.employees[0].missionBonus, undefined);
+  assert.ok(
+    !calls.some((call) => call.table === "rpc:list_payroll_mission_bonus_for_period"),
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------

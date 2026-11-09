@@ -28,8 +28,10 @@ import {
   type PayslipLine,
   type PayslipPortalSource,
   type PayrollAttendanceSource,
+  type PayrollMissionSource,
 } from "@/lib/payslip-portal/types";
 import { AttendancePanel } from "@/components/payslip-portal/AttendancePanel";
+import { MissionPanel } from "@/components/payslip-portal/MissionPanel";
 import { LedgerMark } from "@/components/ui/loading";
 
 const BRAND_GRADIENT = { background: "linear-gradient(90deg, #dc4f78 0%, #dc527a 100%)" };
@@ -78,9 +80,12 @@ export interface PayslipPortalProps {
   demo?: boolean;
   /** GPS check-in/out; omitted in the demo. Hidden unless enabled for the employee. */
   attendance?: PayrollAttendanceSource;
+  /** Monthly mission; omitted in the demo. Hidden unless the employee has an offer. */
+  missions?: PayrollMissionSource;
 }
 
-export default function PayslipPortal({ source, demo = false, attendance }: PayslipPortalProps) {
+export default function PayslipPortal({ source, demo = false, attendance, missions }: PayslipPortalProps) {
+  const [checkInSignal, setCheckInSignal] = useState(0);
   const [step, setStep] = useState<Step>("loading");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
@@ -352,7 +357,16 @@ export default function PayslipPortal({ source, demo = false, attendance }: Pays
         ) : (
           <>
           {attendance ? (
-            <AttendancePanel source={attendance} onSessionExpired={(message) => resetToLogin(message)} />
+            <AttendancePanel
+              source={attendance}
+              onSessionExpired={(message) => resetToLogin(message)}
+              onCheckedIn={(kind) => {
+                if (kind === "in") setCheckInSignal((n) => n + 1);
+              }}
+            />
+          ) : null}
+          {missions ? (
+            <MissionPanel source={missions} checkInSignal={checkInSignal} onSessionExpired={(message) => resetToLogin(message)} />
           ) : null}
           <PayslipList
             payslips={payslips}

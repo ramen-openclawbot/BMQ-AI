@@ -124,3 +124,87 @@ export interface PayrollAttendanceSource {
   acceptConsent(version: string): Promise<PayrollAttendanceConsentState>;
   withdrawConsent(): Promise<PayrollAttendanceConsentState>;
 }
+
+// ---------------------------------------------------------------------------
+// Monthly missions + surprise gifts (Bếp Q7) — non-visual client contract
+// ---------------------------------------------------------------------------
+
+export type PayrollMissionStatus = "pending" | "accepted" | "declined";
+export type PayrollMissionDecision = "accept" | "decline";
+export type PayrollMissionItemKind =
+  | "attendance_regular"
+  | "punctual"
+  | "draw_ticket"
+  | "manual";
+
+export interface PayrollMissionItem {
+  key: string;
+  label: string;
+  detail: string | null;
+  kind: PayrollMissionItemKind;
+  amountVnd: number;
+}
+
+export interface PayrollMissionCampaign {
+  title: string;
+  summary: string | null;
+  startsOn: string;
+  endsOn: string;
+  items: PayrollMissionItem[];
+  rules: string[];
+  draw: Record<string, unknown> | null;
+}
+
+export interface PayrollMissionProgressDetail {
+  daysWithIn: number;
+  daysComplete: number;
+  daysMissingOut: number;
+  onTimeDays: number;
+  minDays: number;
+  graceMinutes: number;
+  cutoff: string;
+  windowFrom: string;
+  windowTo: string;
+}
+
+export interface PayrollMissionProgressItem {
+  key: string;
+  kind: PayrollMissionItemKind;
+  met: boolean;
+  detail: PayrollMissionProgressDetail;
+}
+
+export interface PayrollMissionEarnedItem {
+  key: string;
+  amountVnd: number;
+}
+
+export interface PayrollMissionReview {
+  earned: PayrollMissionEarnedItem[];
+  disqualified: boolean;
+}
+
+export interface PayrollMissionTicket {
+  quarter: string;
+  issuedAt: string;
+  voidReason: string | null;
+}
+
+export interface PayrollMissionOffer {
+  id: string;
+  status: PayrollMissionStatus;
+  campaign: PayrollMissionCampaign;
+  progress: PayrollMissionProgressItem[];
+  review: PayrollMissionReview | null;
+  ticket: PayrollMissionTicket | null;
+}
+
+export interface PayrollMissionSource {
+  /** The employee's current offer, or null when no active campaign is open. */
+  getMission(): Promise<PayrollMissionOffer | null>;
+  /** Accept/decline the employee's own pending offer (server is idempotent). */
+  respondMission(
+    offerId: string,
+    decision: PayrollMissionDecision,
+  ): Promise<PayrollMissionOffer | null>;
+}
