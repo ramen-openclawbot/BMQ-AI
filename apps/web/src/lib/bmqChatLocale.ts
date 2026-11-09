@@ -1,5 +1,6 @@
+import { merchantEnglish } from "./merchantChatLocale";
 export type ChatLanguage = "en" | "vi";
-const english: Record<string, string> = {
+const baseEnglish: Record<string, string> = {
   "Mở VNAgent": "Open VNAgent",
   "Đóng VNAgent": "Close VNAgent",
   "VNAgent — Trợ lý AI của BMQ": "VNAgent — BMQ AI assistant",
@@ -62,6 +63,7 @@ const english: Record<string, string> = {
   "Chưa gửi được câu hỏi tới BMQ. Vui lòng thử lại.": "Could not send your question to BMQ. Please retry.",
   "Chưa thể trả kết quả đáng tin cậy cho yêu cầu này. Anh thử hỏi rõ chỉ số và kỳ dữ liệu nhé.": "A reliable result is not available. Please specify the metric and period."
 };
+const english: Record<string, string> = { ...baseEnglish, ...merchantEnglish };
 const vietnamese = Object.fromEntries(Object.entries(english).map(([vi, en]) => [en, vi]));
 // UI/status copy only; never translate stored conversation messages.
 export function chatText(text: string, language: ChatLanguage) {

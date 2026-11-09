@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, ArrowUp, Check, ChevronDown, ExternalLink, Eye, ImagePlus, Loader2, RotateCcw, X } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { chatText } from "@/lib/bmqChatLocale";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { CostBusinessCard } from "@/components/agent/CostBusinessCard";
@@ -184,6 +186,8 @@ function DigestBlock({ payload }: { payload: Record<string, unknown> }) {
 // Sushi (bmq-analytics) answers the agent fetched: cost line card, UNC images and
 // sources are re-validated with the same schemas the old Sushi chat used.
 function SushiBlock({ payload, ownerId }: { payload: Record<string, unknown>; ownerId: string }) {
+  const { language } = useLanguage();
+  const t = (value: string) => chatText(value, language);
   const answer = typeof payload.answer === "string" ? payload.answer : "";
   const cost = costLineBlockSchema.safeParse(payload.costBlock);
   const images = Array.isArray(payload.images) ? payload.images.flatMap((image) => {
@@ -200,19 +204,19 @@ function SushiBlock({ payload, ownerId }: { payload: Record<string, unknown>; ow
       {answer ? <div className="whitespace-pre-wrap break-words text-[14px] leading-6">{answer}</div> : null}
       {cost.success ? (
         <div className="mt-2.5">
-          <CostBusinessCard block={cost.data} language="vi" followUpEnabled={false} followUpDisabledReason="Anh hỏi tiếp ngay trong ô chat." onFollowUp={() => undefined} />
+          <CostBusinessCard block={cost.data} language={language} followUpEnabled={false} followUpDisabledReason={t("Anh hỏi tiếp ngay trong ô chat.")} onFollowUp={() => undefined} />
         </div>
       ) : null}
-      {images.length ? <UncImageGallery images={images} language="vi" ownerId={ownerId} /> : null}
+      {images.length ? <UncImageGallery images={images} language={language} ownerId={ownerId} /> : null}
       {details ? (
         <details className="ac-details ac-divide mt-2.5">
-          <summary>Xem chi tiết<ChevronDown aria-hidden="true" /></summary>
+          <summary>{t("Xem chi tiết")}<ChevronDown aria-hidden="true" /></summary>
           <div className="ac-meta max-h-64 overflow-auto whitespace-pre-wrap break-words pb-1">{details}</div>
         </details>
       ) : null}
       {citations.length ? (
         <div className="ac-meta ac-divide mt-2 pt-2">
-          Nguồn: {citations.slice(0, 3).map((citation) => String(citation.title || citation.source || "")).filter(Boolean).join(" · ")}
+          {t("Nguồn: ")}{citations.slice(0, 3).map((citation) => String(citation.title || citation.source || "")).filter(Boolean).join(" · ")}
         </div>
       ) : null}
     </div>
@@ -234,6 +238,8 @@ function ChangeCard({
   onApprove: () => void;
   onDiscard: () => void;
 }) {
+  const { language } = useLanguage();
+  const t = (value: string) => chatText(value, language);
   const open = change.status === "staged" || change.status === "approved";
   const items = change.items || [];
   const pill = change.status === "applied" ? "is-pos" : change.status === "failed" ? "is-neg" : change.status === "discarded" ? "" : "is-pink";
@@ -241,7 +247,7 @@ function ChangeCard({
     <div className="ac-card" data-merchant-change={change.change_id} data-merchant-change-status={change.status}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="ac-card-title break-words leading-5">{headline || change.summary || "Bản nháp thay đổi"}</div>
+          <div className="ac-card-title break-words leading-5">{headline || change.summary || t("Bản nháp thay đổi")}</div>
           <div className="ac-meta mt-0.5">{merchantChangeKindLabel(change.kind)}</div>
         </div>
         <span className={cn("ac-pill", pill)}>{merchantChangeStatusLabel(change.status)}</span>
@@ -271,10 +277,10 @@ function ChangeCard({
       {open ? (
         <div className="ac-actions">
           <button type="button" className="ac-btn ac-btn-primary" disabled={busy} onClick={onApprove} data-merchant-change-action="approve">
-            {busy ? <Loader2 className="animate-spin" /> : <Check />} Duyệt
+            {busy ? <Loader2 className="animate-spin" /> : <Check />} {t("Duyệt")}
           </button>
           <button type="button" className="ac-btn ac-btn-ghost" disabled={busy} onClick={onDiscard} data-merchant-change-action="discard">
-            Bỏ
+            {t("Bỏ")}
           </button>
         </div>
       ) : null}
@@ -283,6 +289,8 @@ function ChangeCard({
 }
 
 export function MerchantAgentChatWidget() {
+  const { language } = useLanguage();
+  const t = (value: string) => chatText(value, language);
   const location = useLocation();
   const navigate = useNavigate();
   const { authzLoaded, isOwner, session, user, profile } = useAuth();
@@ -372,16 +380,16 @@ export function MerchantAgentChatWidget() {
     if (!file) return;
     setImageError(null);
     if (!file.type.startsWith("image/")) {
-      setImageError("Anh chọn một ảnh bankslip (JPG, PNG hoặc WebP).");
+      setImageError(t("Anh chọn một ảnh bankslip (JPG, PNG hoặc WebP)."));
       return;
     }
     if (file.size > CHAT_IMAGE_MAX_SOURCE_BYTES) {
-      setImageError(`${file.name || "Ảnh"} lớn hơn 10 MB. Anh chụp màn hình rồi gửi lại nhé.`);
+      setImageError(language === "en" ? `${file.name || "Image"} is larger than 10 MB. Take a screenshot and send it again.` : `${file.name || "Ảnh"} lớn hơn 10 MB. Anh chụp màn hình rồi gửi lại nhé.`);
       return;
     }
     const id = newId();
     const prepared = prepareChatImage(file).then((image) => {
-      if (image.bytes > MERCHANT_ATTACHMENT_MAX_BYTES) throw new Error("Ảnh vẫn lớn hơn 6 MB sau khi thu nhỏ. Anh chụp màn hình bankslip rồi gửi lại nhé.");
+      if (image.bytes > MERCHANT_ATTACHMENT_MAX_BYTES) throw new Error(t("Ảnh vẫn lớn hơn 6 MB sau khi thu nhỏ. Anh chụp màn hình bankslip rồi gửi lại nhé."));
       return image;
     });
     const item: PendingImage = { id, name: file.name || "bankslip.jpg", sourceBytes: file.size, previewUrl: URL.createObjectURL(file), prepared, ready: null };
@@ -396,31 +404,31 @@ export function MerchantAgentChatWidget() {
       (error: unknown) => {
         if (pendingRef.current?.id !== id) return;
         replacePending(null);
-        setImageError(error instanceof Error ? error.message : "Không đọc được ảnh này.");
+        setImageError(error instanceof Error ? t(error.message) : t("Không đọc được ảnh này."));
       },
     );
-  }, [replacePending]);
+  }, [replacePending, language]);
 
   const send = useCallback(async (raw?: string) => {
     // Starters and suggestions send text only; the composer also sends the waiting image.
     const image = raw === undefined ? pendingImage : null;
-    const message = (raw ?? draft).trim() || (image ? SLIP_DEFAULT_MESSAGE : "");
+    const message = (raw ?? draft).trim() || (image ? t(SLIP_DEFAULT_MESSAGE) : "");
     if (!message || responding) return;
     setImageError(null);
     let prepared: PreparedChatImage | null = null;
     if (image) {
       setResponding(true);
-      if (!image.ready) setSendStage({ label: "Đang tối ưu ảnh…", fraction: null });
+      if (!image.ready) setSendStage({ label: t("Đang tối ưu ảnh…"), fraction: null });
       try {
         prepared = image.ready ?? await image.prepared;
       } catch (error) {
         setSendStage(null);
         setResponding(false);
         replacePending(null);
-        setImageError(error instanceof Error ? error.message : "Không đọc được ảnh này.");
+        setImageError(error instanceof Error ? t(error.message) : t("Không đọc được ảnh này."));
         return;
       }
-      setSendStage({ label: "Đang tải lên", fraction: 0 });
+      setSendStage({ label: t("Đang tải lên"), fraction: 0 });
       replacePending(null);
     }
     setDraft("");
@@ -439,7 +447,7 @@ export function MerchantAgentChatWidget() {
         page: merchantPageContext(location.pathname),
         ...(prepared ? {
           attachments: [{ kind: "image" as const, mime_type: prepared.mimeType, data_base64: prepared.base64 }],
-          onUploadProgress: (fraction: number) => setSendStage(fraction >= 1 ? { label: "BMQ Agent đang đọc bankslip…", fraction: null } : { label: "Đang tải lên", fraction }),
+          onUploadProgress: (fraction: number) => setSendStage(fraction >= 1 ? { label: t("BMQ Agent đang đọc bankslip…"), fraction: null } : { label: t("Đang tải lên"), fraction }),
         } : {}),
       });
       setSessionId(result.session_id || sessionId);
@@ -462,13 +470,13 @@ export function MerchantAgentChatWidget() {
         return next;
       });
     } catch (error) {
-      const text = error instanceof Error ? error.message : "Không gọi được BMQ Agent.";
+      const text = t(error instanceof Error ? error.message : "Không gọi được BMQ Agent.");
       setMessages((current) => [...current, { id: newId(), role: "error", text }]);
     } finally {
       setSendStage(null);
       setResponding(false);
     }
-  }, [draft, pendingImage, responding, session?.access_token, sessionId, location.pathname, replacePending]);
+  }, [draft, pendingImage, responding, session?.access_token, sessionId, location.pathname, replacePending, language]);
 
   const decide = useCallback(async (changeId: string, decision: "approve" | "discard", categoryCode?: string) => {
     setBusyChange(changeId);
@@ -477,12 +485,12 @@ export function MerchantAgentChatWidget() {
       const updated = decision === "approve" ? await approveMerchantChange(token, changeId, { categoryCode }) : await discardMerchantChange(token, changeId);
       setChanges((current) => ({ ...current, [changeId]: { ...current[changeId], ...updated } }));
     } catch (error) {
-      const text = error instanceof Error ? error.message : "Không xử lý được bản nháp.";
+      const text = t(error instanceof Error ? error.message : "Không xử lý được bản nháp.");
       setChanges((current) => ({ ...current, [changeId]: { ...current[changeId], status: decision === "approve" ? "failed" : current[changeId]?.status || "staged", error: text } }));
     } finally {
       setBusyChange(null);
     }
-  }, [session?.access_token]);
+  }, [session?.access_token, language]);
 
   const reset = () => {
     setMessages([]);
@@ -514,7 +522,7 @@ export function MerchantAgentChatWidget() {
         // clear in bmq-shell.css ("chat launcher"), not by shrinking or hiding it here.
         className="d3-agent-launcher ac-launcher fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] right-6 z-50"
         onClick={backToChat}
-        aria-label="Mở BMQ Agent"
+        aria-label={t("Mở BMQ Agent")}
       >
         {!open ? <span aria-hidden="true" className="ac-launcher-halo animate-vnagent-halo motion-reduce:animate-none" /> : null}
         <img src={BMQ_LOGO} srcSet={BMQ_LOGO_SET} alt="" width={50} height={50} />
@@ -528,7 +536,7 @@ export function MerchantAgentChatWidget() {
           type="button"
           className="ac-backpill pointer-events-auto fixed left-0 top-[42%] z-[60]"
           onClick={backToChat}
-          aria-label={`Quay lại chat BMQ Agent (đang xem ${openedDoc.code})`}
+          aria-label={language === "en" ? `Back to BMQ Agent chat (viewing ${openedDoc.code})` : `Quay lại chat BMQ Agent (đang xem ${openedDoc.code})`}
           data-merchant-back-to-chat
         >
           <span className="ac-backpill-arrow"><ArrowLeft /></span>
@@ -555,11 +563,11 @@ export function MerchantAgentChatWidget() {
               <SheetTitle className="ac-title">BMQ Agent</SheetTitle>
               <div className="ac-status">
                 <span className={cn("ac-dot", responding && "is-busy")} />
-                <span>{responding ? "Đang trả lời" : "Sẵn sàng"} · Trợ lý AI của BMQ</span>
+                <span>{t(responding ? "Đang trả lời" : "Sẵn sàng")} · {t("Trợ lý AI của BMQ")}</span>
               </div>
             </div>
-            <button type="button" className="ac-key" onClick={reset} aria-label="Tạo cuộc trò chuyện mới" data-merchant-agent-reset><RotateCcw /></button>
-            <button type="button" className="ac-key" onClick={() => setOpen(false)} aria-label="Đóng BMQ Agent"><X /></button>
+            <button type="button" className="ac-key" onClick={reset} aria-label={t("Tạo cuộc trò chuyện mới")} data-merchant-agent-reset><RotateCcw /></button>
+            <button type="button" className="ac-key" onClick={() => setOpen(false)} aria-label={t("Đóng BMQ Agent")}><X /></button>
           </header>
 
           <div className="ac-scroll">
@@ -568,16 +576,20 @@ export function MerchantAgentChatWidget() {
                 <div className="ac-intro">
                   <img src={BMQ_LOGO} srcSet={BMQ_LOGO_SET} alt="" width={40} height={40} />
                   <div className="ac-bubble ac-bubble-agent">
-                    Xin chào{name ? `, ${name}` : ""}. BMQ Agent xem được doanh thu, đơn đại lý, công nợ, chi phí, SKU và giá riêng, và đọc ảnh bankslip để lên duyệt chi. Mọi thay đổi BMQ Agent soạn chỉ là bản nháp — anh bấm <b className="font-semibold">Duyệt</b> mới áp.
+                    {language === "en" ? (
+                      <>Hello{name ? `, ${name}` : ""}. BMQ Agent can see revenue, distributor orders, payables, costs, SKUs and special prices, and reads bank slip photos to prepare payment approvals. Any change BMQ Agent drafts is only a draft — it applies once you tap <b className="font-semibold">Approve</b>.</>
+                    ) : (
+                      <>Xin chào{name ? `, ${name}` : ""}. BMQ Agent xem được doanh thu, đơn đại lý, công nợ, chi phí, SKU và giá riêng, và đọc ảnh bankslip để lên duyệt chi. Mọi thay đổi BMQ Agent soạn chỉ là bản nháp — anh bấm <b className="font-semibold">Duyệt</b> mới áp.</>
+                    )}
                   </div>
                 </div>
                 <div className="ac-panel" data-merchant-starters={pageStarters ? pageGuide?.prefix : "general"}>
                   <div className="ac-panel-label">
-                    {pageStarters && pageGuide ? <>Gợi ý · <b>{pageGuide.label}</b></> : "Gợi ý nhanh"}
+                    {pageStarters && pageGuide ? <>{t("Gợi ý")} · <b>{t(pageGuide.label)}</b></> : t("Gợi ý nhanh")}
                   </div>
                   <div className="ac-chips">
                     {starters.map((starter) => (
-                      <button key={starter} type="button" className="ac-chip" onClick={() => void send(starter)} disabled={responding} data-merchant-starter>{starter}</button>
+                      <button key={starter} type="button" className="ac-chip" onClick={() => void send(t(starter))} disabled={responding} data-merchant-starter>{t(starter)}</button>
                     ))}
                   </div>
                 </div>
@@ -593,7 +605,7 @@ export function MerchantAgentChatWidget() {
                         type="button"
                         className="ac-sent-image"
                         onClick={() => setViewer({ src: message.attachmentPreview!, name: message.attachmentName || "Bankslip" })}
-                        aria-label={`Xem ảnh ${message.attachmentName || "bankslip"}`}
+                        aria-label={`${language === "en" ? "View image" : "Xem ảnh"} ${message.attachmentName || "bankslip"}`}
                         data-merchant-message-attachment="image"
                       >
                         <img src={message.attachmentPreview} alt={message.attachmentName || "Bankslip"} />
@@ -668,12 +680,12 @@ export function MerchantAgentChatWidget() {
                           type="button"
                           className="ac-doc"
                           onClick={() => openDoc(doc)}
-                          aria-label={`Mở phiếu ${doc.code}`}
+                          aria-label={`${t("Mở phiếu")} ${doc.code}`}
                           data-merchant-doc-link={doc.kind}
                         >
-                          <span className="ac-doc-kind">{DOC_KIND_LABEL[doc.kind]}</span>
+                          <span className="ac-doc-kind">{t(DOC_KIND_LABEL[doc.kind])}</span>
                           <span className="ac-doc-title">{doc.title || doc.code}</span>
-                          <span className="ac-doc-open">Mở phiếu<ExternalLink aria-hidden="true" /></span>
+                          <span className="ac-doc-open">{t("Mở phiếu")}<ExternalLink aria-hidden="true" /></span>
                         </button>
                       ))}
                     </div>
@@ -692,7 +704,7 @@ export function MerchantAgentChatWidget() {
             {responding ? (
               <div className="ac-thinking" data-merchant-responding>
                 <span className="ac-thinking-dots" aria-hidden="true"><i /><i /><i /></span>
-                BMQ Agent đang xử lý…
+                {t("BMQ Agent đang xử lý…")}
               </div>
             ) : null}
             <div ref={endRef} />
@@ -713,19 +725,19 @@ export function MerchantAgentChatWidget() {
             {pendingImage && !sendStage ? (
               <div className="ac-pending" data-merchant-pending-image>
                 <div className="ac-pending-head">
-                  <span><b>1 ảnh</b> · <span className="ac-num">{formatMegabytes(pendingBytes)}</span></span>
-                  <span>{pendingImage.ready ? "Sẵn sàng gửi" : "Đang tối ưu…"}</span>
+                  <span><b>{language === "en" ? "1 image" : "1 ảnh"}</b> · <span className="ac-num">{formatMegabytes(pendingBytes)}</span></span>
+                  <span>{t(pendingImage.ready ? "Sẵn sàng gửi" : "Đang tối ưu…")}</span>
                 </div>
                 <div className="ac-pending-body">
                   <div className="ac-tile">
                     <img src={pendingImage.previewUrl} alt={pendingImage.name} data-merchant-pending-thumb />
                     {!pendingImage.ready ? <span className="ac-tile-busy" aria-hidden="true"><Loader2 className="animate-spin" /></span> : null}
-                    <button type="button" className="ac-tile-view" onClick={() => setViewer({ src: pendingImage.previewUrl, name: pendingImage.name })} aria-label={`Xem ảnh ${pendingImage.name}`} data-merchant-view-image>
+                    <button type="button" className="ac-tile-view" onClick={() => setViewer({ src: pendingImage.previewUrl, name: pendingImage.name })} aria-label={`${language === "en" ? "View image" : "Xem ảnh"} ${pendingImage.name}`} data-merchant-view-image>
                       <Eye aria-hidden="true" />Xem
                     </button>
-                    <button type="button" className="ac-tile-x" onClick={() => replacePending(null)} aria-label="Bỏ ảnh bankslip" data-merchant-remove-image><X /></button>
+                    <button type="button" className="ac-tile-x" onClick={() => replacePending(null)} aria-label={t("Bỏ ảnh bankslip")} data-merchant-remove-image><X /></button>
                   </div>
-                  <p className="ac-pending-note m-0">BMQ Agent đọc bankslip và soạn thẻ duyệt chi. Chưa ghi gì cho tới khi anh bấm Duyệt.</p>
+                  <p className="ac-pending-note m-0">{t("BMQ Agent đọc bankslip và soạn thẻ duyệt chi. Chưa ghi gì cho tới khi anh bấm Duyệt.")}</p>
                 </div>
               </div>
             ) : null}
@@ -741,7 +753,7 @@ export function MerchantAgentChatWidget() {
               data-merchant-image-input
             />
             <div className="ac-input-row">
-              <button type="button" className="ac-round ac-attach" onClick={() => fileInputRef.current?.click()} disabled={responding} aria-label="Gửi ảnh bankslip" title="Gửi ảnh bankslip để duyệt chi" data-merchant-attach-image>
+              <button type="button" className="ac-round ac-attach" onClick={() => fileInputRef.current?.click()} disabled={responding} aria-label={t("Gửi ảnh bankslip")} title={t("Gửi ảnh bankslip để duyệt chi")} data-merchant-attach-image>
                 <ImagePlus />
               </button>
               <div className="ac-input">
@@ -750,8 +762,8 @@ export function MerchantAgentChatWidget() {
                   rows={1}
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
-                  aria-label="Tin nhắn cho BMQ Agent"
-                  placeholder={pendingImage ? "Thêm ghi chú…" : "Nhắn cho BMQ Agent…"}
+                  aria-label={t("Tin nhắn cho BMQ Agent")}
+                  placeholder={t(pendingImage ? "Thêm ghi chú…" : "Nhắn cho BMQ Agent…")}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                       event.preventDefault();
@@ -761,17 +773,17 @@ export function MerchantAgentChatWidget() {
                   disabled={responding}
                 />
               </div>
-              <button type="button" className="ac-round ac-send" onClick={() => void send()} disabled={!canSend} aria-label="Gửi tin nhắn" data-merchant-send>
+              <button type="button" className="ac-round ac-send" onClick={() => void send()} disabled={!canSend} aria-label={t("Gửi tin nhắn")} data-merchant-send>
                 {responding ? <Loader2 className="animate-spin" /> : <ArrowUp strokeWidth={2.2} />}
               </button>
             </div>
           </div>
 
           {viewer ? (
-            <div className="ac-viewer" role="dialog" aria-modal="true" aria-label={`Ảnh ${viewer.name}`} data-merchant-image-viewer onClick={() => setViewer(null)}>
+            <div className="ac-viewer" role="dialog" aria-modal="true" aria-label={`${language === "en" ? "Image" : "Ảnh"} ${viewer.name}`} data-merchant-image-viewer onClick={() => setViewer(null)}>
               <div className="ac-viewer-bar" onClick={(event) => event.stopPropagation()}>
                 <span>{viewer.name}</span>
-                <button type="button" className="ac-key" onClick={() => setViewer(null)} aria-label="Đóng ảnh" data-merchant-viewer-close><X /></button>
+                <button type="button" className="ac-key" onClick={() => setViewer(null)} aria-label={t("Đóng ảnh")} data-merchant-viewer-close><X /></button>
               </div>
               <div className="ac-viewer-img">
                 <img src={viewer.src} alt={viewer.name} onClick={(event) => event.stopPropagation()} />

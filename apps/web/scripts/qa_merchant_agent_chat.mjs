@@ -255,9 +255,10 @@ function reply(body) {
   return { status: 200, json: { session_id: "s-1", text: "Doanh thu tháng 9 đạt 979,5 triệu, Đại lý chiếm 46%.", tool_calls: ["mcp__merchant__query_metrics"], ui: [{ component: "metrics", payload: { title: "Doanh thu tháng 9", period: "2026-09", metrics: [{ metric: "sales", value: 979545347, change_pct: 4.2, currency: "VND" }, { metric: "orders", value: 385, change_pct: -2.1 }, { metric: "revenue", series: { metric: "revenue", unit: "VND", segment: "channel:ĐẠI LÝ", points: Array.from({ length: 30 }, (_, i) => ({ date: `2026-09-${String(i + 1).padStart(2, "0")}`, value: 12000000 + (i % 7) * 900000 })) }, note: "Kênh lớn nhất" }] } }, { component: "suggestions", payload: { suggestions: ["So với tháng 8", "Chi tiết kênh Bánh ngọt"] } }], pending_changes: [] } };
 }
 
-async function open(viewport) {
+async function open(viewport, lang) {
   const context = await browser.newContext({ viewport, reducedMotion: "reduce", locale: "vi-VN", timezoneId: "Asia/Ho_Chi_Minh" });
   await context.addInitScript(() => localStorage.setItem("qa-shell", JSON.stringify({ role: "owner" })));
+  if (lang) await context.addInitScript((value) => localStorage.setItem("app-language", value), lang);
   const calls = [];
   await context.route("**/*", async (r) => {
     const url = r.request().url();
@@ -573,6 +574,27 @@ try {
     assert.ok((await page.locator("[data-merchant-starters]").textContent()).includes("Gợi ý nhanh"));
     await page.screenshot({ path: `${EVIDENCE}/general-starters-${tag}.png` });
     record(`general starters on a page without its own set ${tag}`);
+    assert.deepEqual(errors, []);
+    await context.close();
+  }
+
+  // English UI: the chat chrome, greeting, starters and the composer follow the app language.
+  {
+    const { context, page, errors, calls } = await open({ width: 390, height: 844 }, "en");
+    await page.goto(BASE + "/finance-control", { waitUntil: "domcontentloaded" });
+    await page.locator("[data-merchant-agent-launcher]").waitFor({ timeout: 30000 });
+    await page.locator("[data-merchant-agent-launcher]").click();
+    await panel(page).waitFor();
+    const text = await panel(page).innerText();
+    for (const vi of ["Sẵn sàng", "Trợ lý AI của BMQ", "Xin chào", "Gợi ý", "Nhắn cho"]) assert.ok(!text.includes(vi), `no Vietnamese chrome: ${vi}`);
+    assert.ok(text.includes("Ready · BMQ AI assistant") && text.includes("Hello") && text.includes("Suggestions"), text);
+    assert.equal(await page.locator("textarea, input[type=text]").first().getAttribute("placeholder"), "Message BMQ Agent…");
+    await page.waitForTimeout(700);
+    await page.screenshot({ path: `${EVIDENCE}/english-chat.png` });
+    await page.locator("[data-merchant-starter]").first().click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-merchant-message='agent']").length >= 1);
+    assert.ok(/[A-Za-z]/.test(calls[calls.length - 1].body.message) && !/[à-ỹ]/i.test(calls[calls.length - 1].body.message), calls[calls.length - 1].body.message);
+    record("english UI shows English chat chrome and sends English starters");
     assert.deepEqual(errors, []);
     await context.close();
   }
