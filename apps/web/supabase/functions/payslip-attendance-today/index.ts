@@ -115,13 +115,62 @@ serve(async (req) => {
       return errorResponse(req, "Phiên đăng nhập không khớp thiết bị. Vui lòng đăng nhập lại.", 401, "device_mismatch");
     }
 
-    // Turning a phone off in the Nhân viên tab cuts access immediately.
-    const contactResult = await supabase
-      .from("payroll_bn_employee_contacts")
-      .select("employee_code")
-      .eq("employee_code", session.employee_code)
-      .eq("active", true)
-      .maybeSingle();
+    const today = vietnamWorkDate(new Date());
+    const fromDate = previousDate(today, LOOKBACK_DAYS - 1);
+    const employeeCode = session.employee_code;
+
+    // Independent reads run together (one round trip instead of seven). Data
+    // is only returned after the contact check below passes.
+    const [
+      contactResult,
+      gateResult,
+      consentConfigResult,
+      consentResult,
+      eventsResult,
+      overridesResult,
+    ] = await Promise.all([
+      // Turning a phone off in the Nhân viên tab cuts access immediately.
+      supabase
+        .from("payroll_bn_employee_contacts")
+        .select("employee_code")
+        .eq("employee_code", employeeCode)
+        .eq("active", true)
+        .maybeSingle(),
+      supabase
+        .from("payroll_bn_attendance_gates")
+        .select("enabled, geofence_location_id")
+        .eq("employee_code", employeeCode)
+        .maybeSingle(),
+      // Consent state is read with the service role; browsers cannot read the
+      // consent table directly.
+      supabase
+        .from("payroll_bn_attendance_consent_config")
+        .select("current_version")
+        .eq("id", true)
+        .maybeSingle(),
+      supabase
+        .from("payroll_bn_attendance_consents")
+        .select("consent_version, accepted_at, withdrawn_at")
+        .eq("employee_code", employeeCode)
+        .order("accepted_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("payroll_bn_attendance_events")
+        .select("id, event_kind, work_date, decision, reject_reason, distance_m, suspected_proxy, server_received_at")
+        .eq("employee_code", employeeCode)
+        .gte("work_date", fromDate)
+        .lte("work_date", today)
+        .order("server_received_at", { ascending: false }),
+      supabase
+        .from("payroll_bn_attendance_day_overrides")
+        .select("work_date")
+        .eq("employee_code", employeeCode)
+        .gte("work_date", fromDate)
+        .lte("work_date", today),
+    ]);
+
     if (contactResult.error) throw contactResult.error;
     if (!contactResult.data) {
       await supabase
@@ -130,70 +179,44 @@ serve(async (req) => {
         .eq("id", session.id);
       return errorResponse(req, "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", 401, "session_invalid");
     }
+    for (const result of [gateResult, consentConfigResult, consentResult, eventsResult, overridesResult]) {
+      if (result.error) throw result.error;
+    }
 
-    await supabase
-      .from("payroll_bn_payslip_sessions")
-      .update({ last_seen_at: now })
-      .eq("id", session.id);
-
-    const today = vietnamWorkDate(new Date());
-    const fromDate = previousDate(today, LOOKBACK_DAYS - 1);
-
-    const gateResult = await supabase
-      .from("payroll_bn_attendance_gates")
-      .select("enabled, geofence_location_id")
-      .eq("employee_code", session.employee_code)
-      .maybeSingle();
-    if (gateResult.error) throw gateResult.error;
     const gate = gateResult.data as { enabled: boolean | null; geofence_location_id: string | null } | null;
     const gateEnabled = gate?.enabled === true;
 
-    let siteName: string | null = null;
-    let siteRadiusM: number | null = null;
-    let siteConfigured = false;
-    if (gate?.geofence_location_id) {
-      const siteResult = await supabase
-        .from("attendance_geofence_locations")
-        .select("name, latitude, longitude, accepted_radius_m, active")
-        .eq("id", gate.geofence_location_id)
-        .maybeSingle();
-      if (siteResult.error) throw siteResult.error;
-      const site = siteResult.data as {
-        name: string | null;
-        latitude: number | string | null;
-        longitude: number | string | null;
-        accepted_radius_m: number | null;
-        active: boolean | null;
-      } | null;
-      siteName = site?.name ?? null;
-      siteRadiusM = site?.accepted_radius_m ?? null;
-      siteConfigured = Boolean(
-        site && site.active === true && site.latitude !== null && site.longitude !== null,
-      );
-    }
+    const [, siteResult] = await Promise.all([
+      supabase
+        .from("payroll_bn_payslip_sessions")
+        .update({ last_seen_at: now })
+        .eq("id", session.id),
+      gate?.geofence_location_id
+        ? supabase
+          .from("attendance_geofence_locations")
+          .select("name, latitude, longitude, accepted_radius_m, active")
+          .eq("id", gate.geofence_location_id)
+          .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+    ]);
+    if (siteResult.error) throw siteResult.error;
+    const site = siteResult.data as {
+      name: string | null;
+      latitude: number | string | null;
+      longitude: number | string | null;
+      accepted_radius_m: number | null;
+      active: boolean | null;
+    } | null;
+    const siteName: string | null = site?.name ?? null;
+    const siteRadiusM: number | null = site?.accepted_radius_m ?? null;
+    const siteConfigured = Boolean(
+      site && site.active === true && site.latitude !== null && site.longitude !== null,
+    );
 
-    // Consent state is read with the service role; browsers cannot read the
-    // consent table directly.
-    const consentConfigResult = await supabase
-      .from("payroll_bn_attendance_consent_config")
-      .select("current_version")
-      .eq("id", true)
-      .maybeSingle();
-    if (consentConfigResult.error) throw consentConfigResult.error;
     const requiredConsentVersion = typeof consentConfigResult.data?.current_version === "string" &&
         consentConfigResult.data.current_version.trim() !== ""
       ? consentConfigResult.data.current_version
       : PAYROLL_ATTENDANCE_CONSENT_VERSION;
-
-    const consentResult = await supabase
-      .from("payroll_bn_attendance_consents")
-      .select("consent_version, accepted_at, withdrawn_at")
-      .eq("employee_code", session.employee_code)
-      .order("accepted_at", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (consentResult.error) throw consentResult.error;
     const consentRow = consentResult.data
       ? {
         consentVersion: String(consentResult.data.consent_version ?? ""),
@@ -207,23 +230,7 @@ serve(async (req) => {
       : null;
     const consent = attendanceConsentState(requiredConsentVersion, consentRow);
 
-    const eventsResult = await supabase
-      .from("payroll_bn_attendance_events")
-      .select("id, event_kind, work_date, decision, reject_reason, distance_m, suspected_proxy, server_received_at")
-      .eq("employee_code", session.employee_code)
-      .gte("work_date", fromDate)
-      .lte("work_date", today)
-      .order("server_received_at", { ascending: false });
-    if (eventsResult.error) throw eventsResult.error;
     const rawEvents = (eventsResult.data || []) as DbAttendanceEvent[];
-
-    const overridesResult = await supabase
-      .from("payroll_bn_attendance_day_overrides")
-      .select("work_date")
-      .eq("employee_code", session.employee_code)
-      .gte("work_date", fromDate)
-      .lte("work_date", today);
-    if (overridesResult.error) throw overridesResult.error;
     const overrideDates = new Set(
       ((overridesResult.data || []) as Array<{ work_date: string }>).map((row) => row.work_date),
     );

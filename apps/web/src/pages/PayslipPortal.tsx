@@ -136,6 +136,8 @@ export default function PayslipPortal({ source, demo = false, attendance, missio
         if (cancelled) return;
         if (current) {
           setEmployee(current);
+          // Show the signed-in screen at once so attendance loads in parallel.
+          setStep("list");
           void loadPayslips();
         } else {
           setStep("phone");

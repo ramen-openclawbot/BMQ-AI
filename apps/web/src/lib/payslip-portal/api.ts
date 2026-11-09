@@ -118,11 +118,17 @@ export function createPayslipApiSource(options: PayslipApiOptions = {}): Payslip
     return { ok: response.ok, status: response.status, data };
   };
 
+  // restoreSession already fetched the list; reuse it once instead of calling
+  // payslip-list twice in a row on every page load.
+  let primed: { token: string; result: FunctionResult; at: number } | null = null;
+
   const requireList = async (): Promise<{ employee: PayslipEmployee; payslips: Payslip[] }> => {
     const token = storage.getItem(sessionKey);
     if (!token) throw new PayslipSessionExpiredError();
 
-    const result = await post("payslip-list", { session_token: token });
+    const reuse = primed && primed.token === token && Date.now() - primed.at < 15_000 ? primed.result : null;
+    primed = null;
+    const result = reuse ?? (await post("payslip-list", { session_token: token }));
     if (result.status === 401) {
       storage.removeItem(sessionKey);
       throw new PayslipSessionExpiredError();
@@ -179,6 +185,7 @@ export function createPayslipApiSource(options: PayslipApiOptions = {}): Payslip
         storage.removeItem(sessionKey);
         return null;
       }
+      primed = { token, result, at: Date.now() };
       return employee;
     },
 
