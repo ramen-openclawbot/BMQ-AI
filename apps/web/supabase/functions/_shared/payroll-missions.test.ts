@@ -174,6 +174,38 @@ test("punctual respects cutoff and grace, including an offer shift_start overrid
   assert.equal(overrideProgress.find((item) => item.key === "punctual")!.met, true);
 });
 
+test("punctual uses the employee shift between the offer override and item cutoff", () => {
+  const offer = { status: "accepted" as const, responded_at: "2026-11-03T01:00:00.000Z" };
+  const events = [
+    event("2026-11-04", "in", "07:45"),
+    event("2026-11-04", "out", "17:00"),
+  ];
+
+  const withoutShift = evaluateMissionProgress(CAMPAIGN, offer, events, "2026-11-30");
+  const withoutShiftPunctual = withoutShift.find((item) => item.key === "punctual")!;
+  assert.equal(withoutShiftPunctual.detail.cutoff, "07:00");
+  assert.equal(withoutShiftPunctual.met, false);
+
+  // The manual employee shift start 08:00 makes 07:45 on time.
+  const withShift = evaluateMissionProgress(CAMPAIGN, offer, events, "2026-11-30", "08:00");
+  const withShiftPunctual = withShift.find((item) => item.key === "punctual")!;
+  assert.equal(withShiftPunctual.detail.cutoff, "08:00");
+  assert.equal(withShiftPunctual.met, true);
+
+  // offer.shift_start still wins over the employee shift start.
+  const withOffer = evaluateMissionProgress(
+    CAMPAIGN,
+    { ...offer, shift_start: "07:30:00" },
+    events,
+    "2026-11-30",
+    "08:00",
+  );
+  const withOfferPunctual = withOffer.find((item) => item.key === "punctual")!;
+  assert.equal(withOfferPunctual.detail.cutoff, "07:30");
+  assert.equal(withOfferPunctual.met, false);
+  assert.equal(missionCutoff(ITEMS[1], offer, "08:00").cutoff, "08:00");
+});
+
 test("progress window starts at the accepted date and ignores earlier events", () => {
   const offer = { status: "accepted" as const, responded_at: "2026-11-10T01:00:00.000Z" };
   const events = [

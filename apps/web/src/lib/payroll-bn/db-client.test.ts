@@ -6,21 +6,25 @@ import {
   createPeriod,
   describeDbError,
   deleteEmployeeContact,
+  deleteEmployeeShift,
   ensurePeriodForRows,
   fetchEmployeeContacts,
   fetchPublishedPayslipCount,
   importAttendance,
+  listEmployeeShifts,
   listIssueReviews,
   listPeriods,
   loadPeriodData,
   loadPreviousCatalog,
   lockPeriod,
   normalizePayslipPhone,
+  normalizeShiftStart,
   publishPayslips,
   setAttendanceApproved,
   setPeriodStandardDays,
   upsertEmployee,
   upsertEmployeeContact,
+  upsertEmployeeShift,
   upsertIssueReview,
 } from "./db-client.ts";
 import type { BepBnClient } from "./db-client.ts";
@@ -1038,6 +1042,97 @@ test("deleteEmployeeContact deletes the contact by employee_code", async () => {
   });
 
   await deleteEmployeeContact(client, "E01");
+  assert.deepEqual(filters, [["employee_code", "E01"]]);
+});
+
+test("listEmployeeShifts maps rows to HH:MM and orders by code", async () => {
+  let ordered = false;
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_employee_shifts: (op) => {
+        assert.equal(op, "select");
+        ordered = true;
+        return {
+          data: [
+            { employee_code: "E01", shift_start: "08:00:00" },
+            { employee_code: "E02", shift_start: "07:30:00" },
+          ],
+          error: null,
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(await listEmployeeShifts(client), [
+    { employeeCode: "E01", shiftStart: "08:00" },
+    { employeeCode: "E02", shiftStart: "07:30" },
+  ]);
+  assert.equal(ordered, true);
+});
+
+test("normalizeShiftStart accepts HH:MM and rejects invalid times", () => {
+  assert.equal(normalizeShiftStart("08:00"), "08:00");
+  assert.equal(normalizeShiftStart(" 00:00 "), "00:00");
+  assert.equal(normalizeShiftStart("23:59"), "23:59");
+
+  for (const invalid of ["7h", "25:00", "24:00", "08:60", "8:00", "07:00:00", ""]) {
+    assert.equal(normalizeShiftStart(invalid), null, `must reject ${JSON.stringify(invalid)}`);
+  }
+});
+
+test("upsertEmployeeShift validates and upserts on employee_code", async () => {
+  let payload: Record<string, unknown> | null = null;
+  let settings: unknown = null;
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_employee_shifts: (op, values, options) => {
+        assert.equal(op, "upsert");
+        payload = values as Record<string, unknown>;
+        settings = options;
+        return { data: null, error: null };
+      },
+    },
+  });
+
+  await upsertEmployeeShift(client, { employeeCode: " E01 ", shiftStart: " 08:00 " });
+
+  assert.deepEqual(payload, { employee_code: "E01", shift_start: "08:00" });
+  assert.deepEqual(settings, { onConflict: "employee_code" });
+});
+
+test("upsertEmployeeShift rejects invalid times before calling the DB", async () => {
+  const calls: { table: string; op: string }[] = [];
+  const client = createFakeClient({
+    calls,
+    tables: {
+      payroll_bn_employee_shifts: () => {
+        throw new Error("the DB must not be called");
+      },
+    },
+  });
+
+  for (const shiftStart of ["7h", "25:00"]) {
+    await assert.rejects(
+      () => upsertEmployeeShift(client, { employeeCode: "E01", shiftStart }),
+      /Giờ vào ca không hợp lệ/,
+    );
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("deleteEmployeeShift deletes the shift by employee_code", async () => {
+  let filters: [string, unknown][] = [];
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_employee_shifts: (op, _payload, _options, received) => {
+        assert.equal(op, "delete");
+        filters = received;
+        return { data: null, error: null };
+      },
+    },
+  });
+
+  await deleteEmployeeShift(client, "E01");
   assert.deepEqual(filters, [["employee_code", "E01"]]);
 });
 

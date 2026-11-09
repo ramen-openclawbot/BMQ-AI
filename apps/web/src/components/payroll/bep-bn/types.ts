@@ -16,9 +16,9 @@ import type {
 } from "@/lib/payroll-bn/types.ts";
 import type { AnomalyCode } from "@/lib/payroll-bn/anomalies.ts";
 import type { IssueDecision, IssueReview } from "@/lib/payroll-bn/issue-review.ts";
-import type { BepBnEmployeeContact } from "@/lib/payroll-bn/db-client.ts";
+import type { BepBnEmployeeContact, BepBnEmployeeShift } from "@/lib/payroll-bn/db-client.ts";
 
-export type { BepBnEmployeeContact };
+export type { BepBnEmployeeContact, BepBnEmployeeShift };
 
 export interface BepBnPeriodSummary {
   id: string;
@@ -130,12 +130,18 @@ export interface BepBnDataSource {
   createPeriod: (input: BepBnPeriodInput) => Promise<string>;
   /** Insert or update one catalogue row of a draft period (unique per period + code). */
   upsertEmployee: (periodId: string, employee: PayrollEmployee) => Promise<void>;
-  /** Phones registered for the employee payslip portal (owner only). */
+  /** Phones registered for the employee payslip portal (owner/payroll editors). */
   contacts: BepBnEmployeeContact[];
   /** Register or update the phone of one employee. */
   upsertContact: (input: { employeeCode: string; phone: string; active: boolean }) => Promise<void>;
   /** Remove the portal phone of one employee. */
   deleteContact: (employeeCode: string) => Promise<void>;
+  /** Manual shift starts shared across periods (owner/payroll editors). */
+  shifts: BepBnEmployeeShift[];
+  /** Save or change the manual shift start of one employee. */
+  upsertShift: (input: { employeeCode: string; shiftStart: string }) => Promise<void>;
+  /** Remove the manual shift start of one employee. */
+  deleteShift: (employeeCode: string) => Promise<void>;
   /** Publish the computed payslips of a locked period; returns the row count. */
   publishPayslips: (periodId: string) => Promise<number>;
   /** Number of published payslips of the selected period. */

@@ -30,6 +30,7 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
   const [open, setOpen] = useState(false);
   const [phoneFor, setPhoneFor] = useState<PayrollEmployee | null>(null);
   const contactByCode = new Map(source.contacts.map((contact) => [contact.employeeCode, contact]));
+  const shiftByCode = new Map((source.shifts ?? []).map((shift) => [shift.employeeCode, shift.shiftStart]));
   const canChange = canEdit && data.period.status !== "locked";
   // Gifts follow the active mission campaign, not the period lock.
   const gifts = useMissionGifts(canManagePhones);
@@ -86,10 +87,13 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="truncate">{employee.name}</div>
-                          <div className="truncate text-xs text-muted-foreground">{employee.code}</div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {employee.code}
+                            {shiftByCode.get(employee.code) ? ` · Ca ${shiftByCode.get(employee.code)}` : ""}
+                          </div>
                         </div>
                         {canManagePhones ? <MissionGiftButton gifts={gifts} employee={employee} /> : null}
-                        {canChange ? (
+                        {canChange || canManagePhones ? (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -124,7 +128,7 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
           </>
         )}
       </CardContent>
-      {canChange ? (
+      {canChange || canManagePhones ? (
         <EmployeeDialog
           open={open}
           onOpenChange={setOpen}
@@ -133,6 +137,8 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
           source={source}
           canManagePhones={canManagePhones}
           contact={editing ? contactByCode.get(editing.code) : undefined}
+          shiftStart={editing ? shiftByCode.get(editing.code) : undefined}
+          payrollLocked={!canChange}
         />
       ) : null}
       {canManagePhones ? (
@@ -218,6 +224,8 @@ function EmployeeDialog({
   source,
   canManagePhones = false,
   contact,
+  shiftStart,
+  payrollLocked = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -226,6 +234,9 @@ function EmployeeDialog({
   source: BepBnDataSource;
   canManagePhones?: boolean;
   contact?: BepBnEmployeeContact;
+  shiftStart?: string;
+  /** Locked period: salary fields are read-only; phone, login and shift stay editable. */
+  payrollLocked?: boolean;
 }) {
   const { toast } = useToast();
   const [form, setForm] = useState<EmployeeForm>(() => toForm(employee));
@@ -234,6 +245,8 @@ function EmployeeDialog({
   // Login phone + on/off are shared across periods (payroll_bn_employee_contacts).
   const [phone, setPhone] = useState(contact ? displayPhone(contact.phone) : "");
   const [loginActive, setLoginActive] = useState(contact?.active ?? true);
+  // Manual shift start shared across periods (payroll_bn_employee_shifts).
+  const [shift, setShift] = useState(shiftStart ?? "");
 
   const [lastOpen, setLastOpen] = useState(open);
   if (open !== lastOpen) {
@@ -243,6 +256,7 @@ function EmployeeDialog({
       setTouched(false);
       setPhone(contact ? displayPhone(contact.phone) : "");
       setLoginActive(contact?.active ?? true);
+      setShift(shiftStart ?? "");
     }
   }
 
@@ -265,6 +279,7 @@ function EmployeeDialog({
     overtimeRate: amounts.overtimeRate === "invalid" ? "Số không hợp lệ." : null,
     allowance: amounts.allowance === "invalid" ? "Số không hợp lệ." : null,
     endDate: form.endDate && form.startDate && form.endDate < form.startDate ? "Ngày nghỉ phải sau ngày bắt đầu." : null,
+    shift: shift.trim() !== "" && !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(shift.trim()) ? "Nhập giờ dạng HH:MM, ví dụ 07:00." : null,
   };
   const valid = Object.values(errors).every((error) => error === null);
 
@@ -274,7 +289,7 @@ function EmployeeDialog({
     const number = (value: number | null | "invalid") => (value === "invalid" ? null : value);
     setSaving(true);
     try {
-      await source.upsertEmployee(data.id, {
+      if (!payrollLocked) await source.upsertEmployee(data.id, {
         code: form.code.trim(),
         name: form.name.trim(),
         group: form.group,
@@ -307,11 +322,16 @@ function EmployeeDialog({
         if (trimmedPhone === "" && contact) await source.deleteContact(code);
         else if (trimmedPhone !== "") await source.upsertContact({ employeeCode: code, phone: trimmedPhone, active: loginActive });
       }
+      const nextShift = shift.trim();
+      if (canManagePhones && nextShift !== (shiftStart ?? "")) {
+        if (nextShift === "") await source.deleteShift(code);
+        else await source.upsertShift({ employeeCode: code, shiftStart: nextShift });
+      }
       toast({ title: employee ? "Đã cập nhật nhân viên" : "Đã thêm nhân viên" });
       onOpenChange(false);
     } catch (error) {
       toast({
-        title: "Đã lưu nhân viên nhưng chưa lưu được số điện thoại",
+        title: "Đã lưu nhân viên nhưng chưa lưu được số điện thoại hoặc giờ vào ca",
         description: error instanceof Error ? error.message : "Vui lòng thử lại.",
         variant: "destructive",
       });
@@ -329,7 +349,13 @@ function EmployeeDialog({
           <DialogTitle>{employee ? `Sửa ${employee.name}` : "Thêm nhân viên vào kỳ"}</DialogTitle>
           <DialogDescription>Chỉ áp dụng cho kỳ {data.period.code}.</DialogDescription>
         </DialogHeader>
+        {payrollLocked ? (
+          <p className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            Kỳ {data.period.code} đã chốt: chỉ sửa được giờ vào ca và số điện thoại đăng nhập.
+          </p>
+        ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
+          <fieldset disabled={payrollLocked} className="contents">
           <div className="space-y-2">
             <Label htmlFor="bep-bn-emp-code">Mã chấm công</Label>
             <Input id="bep-bn-emp-code" value={form.code} disabled={Boolean(employee)} onChange={(event) => set("code", event.target.value)} placeholder="00001" />
@@ -401,6 +427,21 @@ function EmployeeDialog({
             <Input id="bep-bn-emp-end" type="date" className="min-w-0" value={form.endDate} onChange={(event) => set("endDate", event.target.value)} />
             {show(errors.endDate)}
           </div>
+          </fieldset>
+          {canManagePhones ? (
+            <div className="space-y-2">
+              <Label htmlFor="bep-bn-emp-shift">Giờ vào ca</Label>
+              <Input
+                id="bep-bn-emp-shift"
+                type="time"
+                className="min-w-0"
+                value={shift}
+                onChange={(event) => setShift(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">Dùng chung mọi kỳ; để trống thì tính theo mốc của nhiệm vụ.</p>
+              {show(errors.shift)}
+            </div>
+          ) : null}
           {canManagePhones ? (
             <div className="space-y-3 rounded-lg border bg-muted/30 p-3 sm:col-span-2">
               <div>

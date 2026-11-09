@@ -161,6 +161,18 @@ export interface BepBnEmployeeContactInput {
   active: boolean;
 }
 
+/** A manual shift start shared by an employee code across every period. */
+export interface BepBnEmployeeShift {
+  employeeCode: string;
+  /** HH:MM in 24-hour time. */
+  shiftStart: string;
+}
+
+export interface BepBnEmployeeShiftInput {
+  employeeCode: string;
+  shiftStart: string;
+}
+
 // ---------------------------------------------------------------------------
 // Error messages (Vietnamese, operator friendly)
 // ---------------------------------------------------------------------------
@@ -660,6 +672,61 @@ export async function deleteEmployeeContact(client: BepBnClient, employeeCode: s
 
   const { error } = await client
     .from("payroll_bn_employee_contacts")
+    .delete()
+    .eq("employee_code", code);
+  if (error) fail(error);
+}
+
+/** Validate a manual shift start as HH:MM (00:00–23:59). */
+export function normalizeShiftStart(input: unknown): string | null {
+  const text = String(input ?? "").trim();
+  return /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(text) ? text : null;
+}
+
+export async function listEmployeeShifts(client: BepBnClient): Promise<BepBnEmployeeShift[]> {
+  const { data, error } = await client
+    .from("payroll_bn_employee_shifts")
+    .select("employee_code, shift_start")
+    .order("employee_code", { ascending: true });
+  if (error) fail(error);
+
+  return asRows<{ employee_code: string; shift_start: string }>(data).map((row) => ({
+    employeeCode: row.employee_code,
+    shiftStart: String(row.shift_start ?? "").slice(0, 5),
+  }));
+}
+
+export async function upsertEmployeeShift(
+  client: BepBnClient,
+  input: BepBnEmployeeShiftInput,
+): Promise<void> {
+  const employeeCode = String(input.employeeCode ?? "").trim();
+  if (employeeCode === "") {
+    throw new Error("Thiếu mã nhân viên.");
+  }
+
+  const shiftStart = normalizeShiftStart(input.shiftStart);
+  if (!shiftStart) {
+    throw new Error("Giờ vào ca không hợp lệ. Vui lòng nhập HH:MM (00:00–23:59).");
+  }
+
+  const { error } = await client
+    .from("payroll_bn_employee_shifts")
+    .upsert(
+      { employee_code: employeeCode, shift_start: shiftStart },
+      { onConflict: "employee_code" },
+    );
+  if (error) fail(error);
+}
+
+export async function deleteEmployeeShift(client: BepBnClient, employeeCode: string): Promise<void> {
+  const code = String(employeeCode ?? "").trim();
+  if (code === "") {
+    throw new Error("Thiếu mã nhân viên.");
+  }
+
+  const { error } = await client
+    .from("payroll_bn_employee_shifts")
     .delete()
     .eq("employee_code", code);
   if (error) fail(error);

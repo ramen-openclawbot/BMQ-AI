@@ -236,17 +236,20 @@ export interface MissionCutoff {
 }
 
 /**
- * Punctual cutoff: per-employee offer.shift_start wins, otherwise the item
- * params.cutoff (default 07:00). grace_minutes comes from item params (0).
+ * Punctual cutoff: per-employee offer.shift_start wins, then the employee's
+ * manual shift start, then the item params.cutoff (default 07:00).
+ * grace_minutes comes from item params (0).
  */
 export function missionCutoff(
   item: MissionCampaignItem,
   offer: MissionOfferState,
+  employeeShiftStart?: string | null,
 ): MissionCutoff {
   const params = (item.params ?? {}) as Record<string, unknown>;
   const offerCutoff = timeTextToMinutes(offer.shift_start);
+  const employeeCutoff = timeTextToMinutes(employeeShiftStart);
   const itemCutoff = timeTextToMinutes(params.cutoff);
-  const cutoffMinutes = offerCutoff ?? itemCutoff ?? timeTextToMinutes(DEFAULT_CUTOFF)!;
+  const cutoffMinutes = offerCutoff ?? employeeCutoff ?? itemCutoff ?? timeTextToMinutes(DEFAULT_CUTOFF)!;
   return {
     cutoff: minutesToText(cutoffMinutes),
     cutoffMinutes,
@@ -303,6 +306,7 @@ export function evaluateMissionProgress(
   offer: MissionOfferState,
   events: readonly MissionAttendanceEvent[],
   today: string = vietnamDate(),
+  employeeShiftStart: string | null = null,
 ): MissionProgressItem[] {
   const window = missionProgressWindow(campaign, offer, today);
   const days = new Map<string, AttendanceDay>();
@@ -337,7 +341,7 @@ export function evaluateMissionProgress(
   const daysMissingOut = dayList.filter((day) => day.firstInMinutes !== null && !day.hasOut).length;
 
   return campaign.items.map((item) => {
-    const cutoff = missionCutoff(item, offer);
+    const cutoff = missionCutoff(item, offer, employeeShiftStart);
     const onTimeDays = dayList.filter((day) =>
       day.firstInMinutes !== null
       && day.firstInMinutes <= cutoff.cutoffMinutes + cutoff.graceMinutes

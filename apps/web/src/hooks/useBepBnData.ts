@@ -10,10 +10,12 @@ import {
   addAdjustment,
   createPeriod,
   deleteEmployeeContact,
+  deleteEmployeeShift,
   ensurePeriodForRows,
   fetchEmployeeContacts,
   fetchPublishedPayslipCount,
   importAttendance,
+  listEmployeeShifts,
   listIssueReviews,
   listPeriods,
   loadPeriodData,
@@ -24,6 +26,7 @@ import {
   setPeriodStandardDays,
   upsertEmployee,
   upsertEmployeeContact,
+  upsertEmployeeShift,
   upsertIssueReview,
 } from "@/lib/payroll-bn/db-client.ts";
 import type { BepBnClient } from "@/lib/payroll-bn/db-client.ts";
@@ -57,6 +60,7 @@ const previousPayrollQueryKey = (periodId: string) =>
   ["payroll-bn", "previous-payroll", periodId] as const;
 const issueReviewsQueryKey = (periodId: string) => ["payroll-bn", "issue-reviews", periodId] as const;
 const contactsQueryKey = ["payroll-bn", "contacts"] as const;
+const shiftsQueryKey = ["payroll-bn", "employee-shifts"] as const;
 const publishedCountQueryKey = (periodId: string) =>
   ["payroll-bn", "published-count", periodId] as const;
 
@@ -154,6 +158,13 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     retry: 1,
   });
 
+  const shiftsQuery = useQuery({
+    queryKey: shiftsQueryKey,
+    queryFn: () => listEmployeeShifts(client),
+    staleTime: 30_000,
+    retry: 1,
+  });
+
   const publishedCountQuery = useQuery({
     queryKey: publishedCountQueryKey(periodId ?? "none"),
     queryFn: () => fetchPublishedPayslipCount(client, periodId as string),
@@ -181,6 +192,9 @@ export const useBepBnData: UseBepBnData = (periodId) => {
   };
   const invalidateContacts = () => {
     void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "contacts"] });
+  };
+  const invalidateShifts = () => {
+    void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "employee-shifts"] });
   };
   const invalidatePublishedCount = (id: string) => {
     void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "published-count", id] });
@@ -359,6 +373,17 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     onSuccess: () => invalidateContacts(),
   });
 
+  const upsertShiftMutation = useMutation({
+    mutationFn: (input: { employeeCode: string; shiftStart: string }) =>
+      upsertEmployeeShift(client, input),
+    onSuccess: () => invalidateShifts(),
+  });
+
+  const deleteShiftMutation = useMutation({
+    mutationFn: (employeeCode: string) => deleteEmployeeShift(client, employeeCode),
+    onSuccess: () => invalidateShifts(),
+  });
+
   return {
     periods: periodsQuery.data ?? [],
     periodsLoading: periodsQuery.isLoading,
@@ -386,6 +411,9 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     contacts: contactsQuery.data ?? [],
     upsertContact: (input) => upsertContactMutation.mutateAsync(input),
     deleteContact: (employeeCode) => deleteContactMutation.mutateAsync(employeeCode),
+    shifts: shiftsQuery.data ?? [],
+    upsertShift: (input) => upsertShiftMutation.mutateAsync(input),
+    deleteShift: (employeeCode) => deleteShiftMutation.mutateAsync(employeeCode),
     publishPayslips: (id) => publishMutation.mutateAsync(id),
     publishedCount: publishedCountQuery.data ?? 0,
   };
