@@ -118,7 +118,15 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
         )}
       </CardContent>
       {canChange ? (
-        <EmployeeDialog open={open} onOpenChange={setOpen} employee={editing} data={data} source={source} />
+        <EmployeeDialog
+          open={open}
+          onOpenChange={setOpen}
+          employee={editing}
+          data={data}
+          source={source}
+          canManagePhones={canManagePhones}
+          contact={editing ? contactByCode.get(editing.code) : undefined}
+        />
       ) : null}
       {canManagePhones ? (
         <PhoneDialog
@@ -201,17 +209,24 @@ function EmployeeDialog({
   employee,
   data,
   source,
+  canManagePhones = false,
+  contact,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   employee: PayrollEmployee | null;
   data: BepBnPeriodData;
   source: BepBnDataSource;
+  canManagePhones?: boolean;
+  contact?: BepBnEmployeeContact;
 }) {
   const { toast } = useToast();
   const [form, setForm] = useState<EmployeeForm>(() => toForm(employee));
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Login phone + on/off are shared across periods (payroll_bn_employee_contacts).
+  const [phone, setPhone] = useState(contact ? displayPhone(contact.phone) : "");
+  const [loginActive, setLoginActive] = useState(contact?.active ?? true);
 
   const [lastOpen, setLastOpen] = useState(open);
   if (open !== lastOpen) {
@@ -219,6 +234,8 @@ function EmployeeDialog({
     if (open) {
       setForm(toForm(employee));
       setTouched(false);
+      setPhone(contact ? displayPhone(contact.phone) : "");
+      setLoginActive(contact?.active ?? true);
     }
   }
 
@@ -262,11 +279,32 @@ function EmployeeDialog({
         startDate: form.startDate || null,
         endDate: form.endDate || null,
       });
+    } catch (error) {
+      toast({
+        title: "Không lưu được nhân viên",
+        description: error instanceof Error ? error.message : "Vui lòng thử lại.",
+        variant: "destructive",
+      });
+      setSaving(false);
+      return;
+    }
+
+    // Login phone is saved after the employee row; a phone error keeps the dialog open.
+    const code = form.code.trim();
+    const trimmedPhone = phone.trim();
+    const phoneChanged = contact
+      ? trimmedPhone.replace(/\D/g, "") !== displayPhone(contact.phone).replace(/\D/g, "") || loginActive !== contact.active
+      : trimmedPhone !== "";
+    try {
+      if (canManagePhones && phoneChanged) {
+        if (trimmedPhone === "" && contact) await source.deleteContact(code);
+        else if (trimmedPhone !== "") await source.upsertContact({ employeeCode: code, phone: trimmedPhone, active: loginActive });
+      }
       toast({ title: employee ? "Đã cập nhật nhân viên" : "Đã thêm nhân viên" });
       onOpenChange(false);
     } catch (error) {
       toast({
-        title: "Không lưu được nhân viên",
+        title: "Đã lưu nhân viên nhưng chưa lưu được số điện thoại",
         description: error instanceof Error ? error.message : "Vui lòng thử lại.",
         variant: "destructive",
       });
@@ -356,6 +394,42 @@ function EmployeeDialog({
             <Input id="bep-bn-emp-end" type="date" className="min-w-0" value={form.endDate} onChange={(event) => set("endDate", event.target.value)} />
             {show(errors.endDate)}
           </div>
+          {canManagePhones ? (
+            <div className="space-y-3 rounded-lg border bg-muted/30 p-3 sm:col-span-2">
+              <div>
+                <p className="text-sm font-medium">Đăng nhập luong.banhmique.vn</p>
+                <p className="text-xs text-muted-foreground">
+                  Dùng chung mọi kỳ. Nhân viên nhận mã OTP Zalo qua số này để xem phiếu lương và chấm công.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="bep-bn-emp-phone">Số điện thoại</Label>
+                <Input
+                  id="bep-bn-emp-phone"
+                  inputMode="tel"
+                  autoComplete="off"
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  placeholder="09xx xxx xxx"
+                />
+                {contact && phone.trim() === "" ? (
+                  <p className="text-xs text-destructive">Để trống rồi Lưu sẽ xoá số đăng nhập của nhân viên này.</p>
+                ) : null}
+              </div>
+              <div className="flex min-h-11 items-center justify-between gap-3">
+                <Label htmlFor="bep-bn-emp-login" className="font-normal">
+                  Cho phép đăng nhập
+                  <span className="block text-xs text-muted-foreground">Tắt để chặn ngay, kể cả khi đang đăng nhập.</span>
+                </Label>
+                <Switch
+                  id="bep-bn-emp-login"
+                  checked={loginActive}
+                  disabled={phone.trim() === ""}
+                  onCheckedChange={setLoginActive}
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
