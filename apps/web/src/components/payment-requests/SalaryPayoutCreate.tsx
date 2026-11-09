@@ -83,7 +83,12 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
   const [docs, setDocs] = useState<File[]>([]);
   const { uploadSalaryAttachments } = useSalaryPayoutAttachments();
   const sessionRef = useRef(`${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
-  const published = periods.filter((p) => p.published_at);
+  // Newest published period first; it is the only card, older ones sit in a dropdown.
+  const published = periods
+    .filter((p) => p.published_at)
+    .sort((a, b) => String(b.published_at).localeCompare(String(a.published_at)));
+  const [latestPeriod, ...olderPeriods] = published;
+  const pickedOlder = olderPeriods.some((p) => p.period_id === picked) ? picked : "";
 
   const lines = useMemo(
     () =>
@@ -183,16 +188,30 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
           ) : published.length === 0 ? (
             <p className="d3-unc-ev-note">Chưa có kỳ lương nào công bố phiếu lương.</p>
           ) : (
-            <ul className="d3-cpr-periods">
-              {published.map((p) => (
-                <li key={p.period_id}>
-                  <button type="button" className={picked === p.period_id ? "is-on" : undefined} onClick={() => pickPeriod(p.period_id)} aria-pressed={picked === p.period_id} data-bmq-salary-period={p.period_id}>
-                    <b>{p.period_name}</b>
-                    <small>Lấy lương thực nhận từ bảng lương</small>
+            <>
+              <ul className="d3-cpr-periods">
+                <li key={latestPeriod.period_id}>
+                  <button type="button" className={picked === latestPeriod.period_id ? "is-on" : undefined} onClick={() => pickPeriod(latestPeriod.period_id)} aria-pressed={picked === latestPeriod.period_id} data-bmq-salary-period={latestPeriod.period_id}>
+                    <b>{latestPeriod.period_name}</b>
+                    <small>Kỳ mới nhất · lấy lương thực nhận từ bảng lương</small>
                   </button>
                 </li>
-              ))}
-            </ul>
+              </ul>
+              {olderPeriods.length > 0 ? (
+                <select
+                  className="d3-cs-select mt-2"
+                  value={pickedOlder}
+                  onChange={(e) => { if (e.target.value) pickPeriod(e.target.value); }}
+                  aria-label="Chọn kỳ lương cũ hơn"
+                  data-bmq-salary-older-periods
+                >
+                  <option value="">Kỳ cũ hơn ({olderPeriods.length})…</option>
+                  {olderPeriods.map((p) => (
+                    <option key={p.period_id} value={p.period_id}>{p.period_name}</option>
+                  ))}
+                </select>
+              ) : null}
+            </>
           )}
 
           {picked && (
