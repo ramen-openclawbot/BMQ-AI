@@ -80,7 +80,14 @@ function ItemRow({
           </span>
         ) : null}
       </div>
-      <span className="shrink-0 whitespace-nowrap text-[14px] font-extrabold text-[#c2416a]">{itemAmount(item, draw)}</span>
+      {item.kind === "draw_ticket" ? (
+        <span className="shrink-0 text-right leading-tight">
+          <span className="block text-[10.5px] font-semibold text-[#85808a]">Cơ hội trúng</span>
+          <span className="block whitespace-nowrap text-[14px] font-extrabold text-[#b45309]">{itemAmount(item, draw)}</span>
+        </span>
+      ) : (
+        <span className="shrink-0 whitespace-nowrap text-[14px] font-extrabold text-[#c2416a]">{itemAmount(item, draw)}</span>
+      )}
     </div>
   );
 }
@@ -188,8 +195,8 @@ export function MissionPanel({ source, checkInSignal, onSessionExpired }: Missio
                 {regular ? (
                   <ProgressLine
                     label="Ngày chấm đủ vào/ra"
-                    value={`${regular.detail.daysComplete}/${regular.detail.daysWithIn}`}
-                    ratio={regular.detail.daysWithIn > 0 ? regular.detail.daysComplete / regular.detail.daysWithIn : 0}
+                    value={`${regular.detail.daysComplete}/${Math.max(regular.detail.minDays, regular.detail.daysWithIn, 1)}`}
+                    ratio={regular.detail.daysComplete / Math.max(regular.detail.minDays, regular.detail.daysWithIn, 1)}
                   />
                 ) : null}
                 {punctual ? (
