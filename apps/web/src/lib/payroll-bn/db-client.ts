@@ -13,10 +13,12 @@
 import {
   mapAdjustmentRow,
   mapAttendanceRow,
+  mapCurrentPeriod,
   mapEmployeeRow,
   mapGpsAttendanceImportResult,
   mapGpsAttendancePreview,
   mapIssueReviewRow,
+  mapOpenPeriodResult,
   mapPeriodRow,
   mapPeriodScheduleSummary,
   normalizeImportSource,
@@ -47,6 +49,8 @@ import type {
   GpsAttendanceImportResult,
   GpsAttendancePreview,
   PayrollAdjustment,
+  PayrollBnCurrentPeriod,
+  PayrollBnOpenPeriodResult,
   PayrollEmployee,
   PayrollEmployeeMeasures,
   PayrollPeriod,
@@ -202,6 +206,12 @@ export function describeDbError(error: unknown): string {
     case "P0002":
       return "Không tìm thấy kỳ lương.";
     case "22023":
+      if (message.includes("payroll_bn_period_month_in_future")) {
+        return "Không thể mở kỳ lương của tháng trong tương lai.";
+      }
+      if (message.includes("payroll_bn_period_month_in_past")) {
+        return "Không thể mở kỳ lương của tháng trước kỳ gần nhất.";
+      }
       if (message.includes("invalid_sha256")) return "Mã sha256 của file chấm công không hợp lệ.";
       if (message.includes("invalid_rows")) return "Dữ liệu chấm công gửi lên không hợp lệ.";
       if (message.includes("payroll_bn_gps_range_invalid")) {
@@ -224,6 +234,12 @@ export function describeDbError(error: unknown): string {
       break;
   }
 
+  if (message.includes("payroll_bn_period_month_in_future")) {
+    return "Không thể mở kỳ lương của tháng trong tương lai.";
+  }
+  if (message.includes("payroll_bn_period_month_in_past")) {
+    return "Không thể mở kỳ lương của tháng trước kỳ gần nhất.";
+  }
   if (message.includes("payroll_bn_period_locked")) return "Kỳ lương đã chốt, không thể thay đổi.";
   if (message.includes("payroll_bn_lock_owner_only")) return "Chỉ chủ sở hữu mới được chốt kỳ lương.";
   if (message.includes("insufficient_privilege")) return "Bạn không có quyền thực hiện thao tác này.";
@@ -611,6 +627,28 @@ function pad2(value: number): string {
 function lastDayOfMonth(year: number, month: number): string {
   const day = new Date(Date.UTC(year, month, 0)).getUTCDate();
   return `${year}-${pad2(month)}-${pad2(day)}`;
+}
+
+/**
+ * Open (or return) the payroll period of a month. `null`/omitted means the
+ * current month on the server (Asia/Ho_Chi_Minh).
+ */
+export async function openPeriod(
+  client: BepBnClient,
+  month?: string | null,
+): Promise<PayrollBnOpenPeriodResult> {
+  const { data, error } = await client.rpc("payroll_bn_open_period", {
+    _month: month ?? null,
+  });
+  if (error) fail(error);
+  return mapOpenPeriodResult(firstRow(data));
+}
+
+/** Read-only probe of the current Vietnam month used to show the open action. */
+export async function getCurrentPeriod(client: BepBnClient): Promise<PayrollBnCurrentPeriod> {
+  const { data, error } = await client.rpc("get_payroll_bn_current_period");
+  if (error) fail(error);
+  return mapCurrentPeriod(firstRow(data));
 }
 
 /**

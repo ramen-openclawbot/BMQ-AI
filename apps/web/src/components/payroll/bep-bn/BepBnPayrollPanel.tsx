@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Lock, Send } from "lucide-react";
+import { CalendarPlus, Loader2, Lock, Send } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -77,6 +77,31 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
     }
   };
 
+  // "Hồ sơ nhân viên" always works on the current month's open period: it is
+  // opened automatically each month, and by hand here when it is still missing.
+  const current = source.currentPeriod;
+  const currentMonthLabel = current?.month ? `${current.month.slice(5, 7)}/${current.month.slice(0, 4)}` : "";
+  const [opening, setOpening] = useState(false);
+  const openCurrent = async () => {
+    setOpening(true);
+    try {
+      const result = await source.openCurrentPeriod();
+      setPeriodId(result.periodId);
+      toast({
+        title: result.created ? `Đã mở kỳ lương tháng ${currentMonthLabel}` : `Kỳ lương tháng ${currentMonthLabel} đã có sẵn`,
+        description: result.created ? `Đã chép ${result.copiedEmployees} nhân viên đang làm từ kỳ trước.` : undefined,
+      });
+    } catch (error) {
+      toast({
+        title: "Không mở được kỳ lương",
+        description: error instanceof Error ? error.message : "Vui lòng thử lại.",
+        variant: "destructive",
+      });
+    } finally {
+      setOpening(false);
+    }
+  };
+
   const [publishing, setPublishing] = useState(false);
   const publish = async () => {
     if (!periodId) return;
@@ -151,7 +176,7 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
         <TabsList className="max-w-full justify-start overflow-x-auto [&>*]:shrink-0">
           <TabsTrigger value="attendance">Chấm công</TabsTrigger>
           <TabsTrigger value="payroll">Bảng lương</TabsTrigger>
-          <TabsTrigger value="employees">Nhân viên</TabsTrigger>
+          <TabsTrigger value="employees">Hồ sơ nhân viên</TabsTrigger>
           {canEdit ? <TabsTrigger value="gps">Chấm công GPS</TabsTrigger> : null}
           {canEdit ? <TabsTrigger value="shifts">Xếp ca</TabsTrigger> : null}
         </TabsList>
@@ -193,10 +218,35 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
         </TabsContent>
 
         <TabsContent value="employees" className="space-y-4">
+          {canEdit && current && !current.period ? (
+            <Card className="border-amber-300" data-open-period>
+              <CardContent className="flex flex-col gap-3 py-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  Chưa có kỳ lương tháng {currentMonthLabel}. Mở kỳ để thêm, sửa nhân viên ngay; danh sách được chép từ kỳ trước, bỏ người đã nghỉ.
+                </span>
+                <Button className="gap-2 self-start sm:self-auto" onClick={() => void openCurrent()} disabled={opening} data-open-period-run>
+                  {opening ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />}
+                  Mở kỳ tháng {currentMonthLabel}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
+          {canEdit && current?.period && selected && selected.id !== current.period.id && selected.status === "locked" ? (
+            <Card className="border-amber-300" data-switch-period>
+              <CardContent className="flex flex-col gap-3 py-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  Đang xem kỳ {selected.code} đã chốt nên không thêm được nhân viên ở đây. Thêm, sửa nhân viên ở kỳ đang mở {current.period.code}.
+                </span>
+                <Button variant="outline" className="self-start sm:self-auto" onClick={() => setPeriodId(current.period ? current.period.id : null)} data-switch-period-run>
+                  Sang kỳ {current.period.code}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
           {source.data ? (
             <CatalogSection data={source.data} source={source} canEdit={canEdit} canManagePhones={canEdit} />
           ) : (
-            <EmptyCard text="Danh mục nhân viên được tạo tự động khi upload bảng chấm công." />
+            <EmptyCard text="Chưa có hồ sơ nhân viên. Mở kỳ lương tháng này để bắt đầu thêm nhân viên." />
           )}
         </TabsContent>
 

@@ -10,6 +10,7 @@ import {
   ensurePeriodForRows,
   fetchEmployeeContacts,
   fetchPublishedPayslipCount,
+  getCurrentPeriod,
   getPeriodScheduleSummary,
   importAttendance,
   importGpsAttendance,
@@ -21,6 +22,7 @@ import {
   lockPeriod,
   normalizePayslipPhone,
   normalizeShiftStart,
+  openPeriod,
   previewGpsAttendance,
   publishPayslips,
   setAttendanceApproved,
@@ -1428,4 +1430,147 @@ test("loadPeriodData marks a gps import source and defaults missing to machine",
   assert.equal(call >= 1, true);
   assert.equal(data.imports[0].source, "gps");
   assert.equal(data.imports[1].source, "machine");
+});
+
+// ---------------------------------------------------------------------------
+// Open current period / current-period probe
+// ---------------------------------------------------------------------------
+
+test("openPeriod sends the requested month and maps the created period", async () => {
+  const client = createFakeClient({
+    rpc: {
+      payroll_bn_open_period: (args) => {
+        assert.equal(args?._month, "2026-11-01");
+        return {
+          data: {
+            period_id: "period-11",
+            period_code: "T11.2026",
+            created: true,
+            copied_employees: 12,
+            source_period_code: "T10.2026",
+          },
+          error: null,
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(await openPeriod(client, "2026-11-01"), {
+    periodId: "period-11",
+    periodCode: "T11.2026",
+    created: true,
+    copiedEmployees: 12,
+    sourcePeriodCode: "T10.2026",
+  });
+});
+
+test("openPeriod sends null when no month is given and maps an existing period", async () => {
+  let seen: unknown = "unset";
+  const client = createFakeClient({
+    rpc: {
+      payroll_bn_open_period: (args) => {
+        seen = args?._month;
+        return {
+          data: {
+            period_id: "period-11",
+            period_code: "T11.2026",
+            created: false,
+            copied_employees: 0,
+          },
+          error: null,
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(await openPeriod(client), {
+    periodId: "period-11",
+    periodCode: "T11.2026",
+    created: false,
+    copiedEmployees: 0,
+    sourcePeriodCode: null,
+  });
+  assert.equal(seen, null);
+});
+
+test("getCurrentPeriod maps month, period and latest code", async () => {
+  const client = createFakeClient({
+    rpc: {
+      get_payroll_bn_current_period: () => ({
+        data: {
+          month: "2026-11-01",
+          period: {
+            id: "period-11",
+            period_code: "T11.2026",
+            period_name: "Kỳ lương tháng 11/2026 — Bếp BN",
+            date_from: "2026-11-01",
+            date_to: "2026-11-30",
+            status: "draft",
+            employees: 12,
+          },
+          latest_period_code: "T11.2026",
+        },
+        error: null,
+      }),
+    },
+  });
+
+  assert.deepEqual(await getCurrentPeriod(client), {
+    month: "2026-11-01",
+    period: {
+      id: "period-11",
+      code: "T11.2026",
+      name: "Kỳ lương tháng 11/2026 — Bếp BN",
+      dateFrom: "2026-11-01",
+      dateTo: "2026-11-30",
+      status: "draft",
+      employees: 12,
+    },
+    latestPeriodCode: "T11.2026",
+  });
+});
+
+test("getCurrentPeriod tolerates a missing period and fields", async () => {
+  const client = createFakeClient({
+    rpc: {
+      get_payroll_bn_current_period: () => ({
+        data: { month: "2026-11-01", period: null },
+        error: null,
+      }),
+    },
+  });
+
+  assert.deepEqual(await getCurrentPeriod(client), {
+    month: "2026-11-01",
+    period: null,
+    latestPeriodCode: null,
+  });
+});
+
+test("openPeriod and getCurrentPeriod map month errors to Vietnamese messages", async () => {
+  const future = createFakeClient({
+    rpc: {
+      payroll_bn_open_period: () => ({
+        data: null,
+        error: { code: "22023", message: "payroll_bn_period_month_in_future" },
+      }),
+    },
+  });
+  await assert.rejects(
+    () => openPeriod(future, "2026-12-01"),
+    /Không thể mở kỳ lương của tháng trong tương lai\./,
+  );
+
+  const past = createFakeClient({
+    rpc: {
+      get_payroll_bn_current_period: () => ({
+        data: null,
+        error: { code: "22023", message: "payroll_bn_period_month_in_past" },
+      }),
+    },
+  });
+  await assert.rejects(
+    () => getCurrentPeriod(past),
+    /Không thể mở kỳ lương của tháng trước kỳ gần nhất\./,
+  );
 });

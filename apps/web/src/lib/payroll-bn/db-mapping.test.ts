@@ -4,10 +4,12 @@ import test from "node:test";
 import {
   mapAdjustmentRow,
   mapAttendanceRow,
+  mapCurrentPeriod,
   mapEmployeeRow,
   mapGpsAttendanceImportResult,
   mapGpsAttendancePreview,
   mapIssueReviewRow,
+  mapOpenPeriodResult,
   mapPeriodRow,
   mapPeriodScheduleSummary,
   normalizeImportSource,
@@ -601,4 +603,94 @@ test("mapPeriodScheduleSummary tolerates missing fields and unknown kinds", () =
     employees: [{ details: [{ kind: "other", work_date: "2026-11-03" }] }],
   }).employees[0].details[0];
   assert.equal(detail.kind, "no_show");
+});
+
+// ---------------------------------------------------------------------------
+// Open-period / current-period RPC results
+// ---------------------------------------------------------------------------
+
+test("mapOpenPeriodResult maps the created period and the copied count", () => {
+  const result = mapOpenPeriodResult({
+    period_id: "period-11",
+    period_code: "T11.2026",
+    created: true,
+    copied_employees: 12,
+    source_period_code: "T10.2026",
+  });
+
+  assert.deepEqual(result, {
+    periodId: "period-11",
+    periodCode: "T11.2026",
+    created: true,
+    copiedEmployees: 12,
+    sourcePeriodCode: "T10.2026",
+  });
+});
+
+test("mapOpenPeriodResult tolerates missing fields", () => {
+  assert.deepEqual(mapOpenPeriodResult(null), {
+    periodId: "",
+    periodCode: "",
+    created: false,
+    copiedEmployees: 0,
+    sourcePeriodCode: null,
+  });
+  assert.deepEqual(mapOpenPeriodResult({ period_id: "p", created: false }), {
+    periodId: "p",
+    periodCode: "",
+    created: false,
+    copiedEmployees: 0,
+    sourcePeriodCode: null,
+  });
+});
+
+test("mapCurrentPeriod maps the month, period and latest code", () => {
+  const current = mapCurrentPeriod({
+    month: "2026-11-01",
+    period: {
+      id: "period-11",
+      period_code: "T11.2026",
+      period_name: "Kỳ lương tháng 11/2026 — Bếp BN",
+      date_from: "2026-11-01",
+      date_to: "2026-11-30",
+      status: "draft",
+      employees: 12,
+    },
+    latest_period_code: "T11.2026",
+  });
+
+  assert.deepEqual(current, {
+    month: "2026-11-01",
+    period: {
+      id: "period-11",
+      code: "T11.2026",
+      name: "Kỳ lương tháng 11/2026 — Bếp BN",
+      dateFrom: "2026-11-01",
+      dateTo: "2026-11-30",
+      status: "draft",
+      employees: 12,
+    },
+    latestPeriodCode: "T11.2026",
+  });
+});
+
+test("mapCurrentPeriod tolerates a missing period and missing fields", () => {
+  assert.deepEqual(mapCurrentPeriod({ month: "2026-11-01", period: null }), {
+    month: "2026-11-01",
+    period: null,
+    latestPeriodCode: null,
+  });
+
+  const empty = mapCurrentPeriod(null);
+  assert.equal(empty.month, "");
+  assert.equal(empty.period, null);
+  assert.equal(empty.latestPeriodCode, null);
+});
+
+test("mapCurrentPeriod reads an employees array as its count", () => {
+  const current = mapCurrentPeriod({
+    month: "2026-11-01",
+    period: { id: "period-11", employees: [{ code: "E01" }, { code: "E02" }] },
+  });
+  assert.equal(current.period?.employees, 2);
 });

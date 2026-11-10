@@ -44,9 +44,10 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
     <Card>
       <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1.5">
-          <CardTitle className="text-base">Danh mục nhân viên kỳ {data.period.code}</CardTitle>
+          <CardTitle className="text-base">Hồ sơ nhân viên · kỳ {data.period.code}</CardTitle>
           <CardDescription>
-            Mã chấm công, nhóm, loại, lương và đơn giá lưu riêng cho từng kỳ; sửa kỳ này không ảnh hưởng kỳ khác.
+            Mã chấm công, nhóm, loại, lương và đơn giá lưu riêng cho từng kỳ; sửa kỳ này không ảnh hưởng kỳ đã chốt. Đầu mỗi tháng,
+            kỳ mới tự mở và chép danh sách này sang.
             {canManagePhones ? " Số điện thoại dùng chung mọi kỳ để nhân viên xem phiếu lương tại luong.banhmique.vn." : null}
           </CardDescription>
         </div>

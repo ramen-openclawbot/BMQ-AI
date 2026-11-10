@@ -14,6 +14,7 @@ import {
   ensurePeriodForRows,
   fetchEmployeeContacts,
   fetchPublishedPayslipCount,
+  getCurrentPeriod,
   importAttendance,
   listEmployeeShifts,
   listIssueReviews,
@@ -21,6 +22,7 @@ import {
   loadPeriodData,
   loadPreviousCatalog,
   lockPeriod,
+  openPeriod,
   publishPayslips as publishPayslipsRpc,
   setAttendanceApproved,
   setPeriodStandardDays,
@@ -53,6 +55,7 @@ import type {
 } from "@/lib/payroll-bn/types.ts";
 
 const PERIODS_QUERY_KEY = ["payroll-bn", "periods"] as const;
+const CURRENT_PERIOD_QUERY_KEY = ["payroll-bn", "current-period"] as const;
 const periodQueryKey = (periodId: string) => ["payroll-bn", "period", periodId] as const;
 const previousEmployeesQueryKey = (periodId: string) =>
   ["payroll-bn", "previous-employees", periodId] as const;
@@ -83,6 +86,13 @@ export const useBepBnData: UseBepBnData = (periodId) => {
   const periodsQuery = useQuery({
     queryKey: PERIODS_QUERY_KEY,
     queryFn: () => listPeriods(client),
+    staleTime: 30_000,
+    retry: 1,
+  });
+
+  const currentPeriodQuery = useQuery({
+    queryKey: CURRENT_PERIOD_QUERY_KEY,
+    queryFn: () => getCurrentPeriod(client),
     staleTime: 30_000,
     retry: 1,
   });
@@ -183,6 +193,9 @@ export const useBepBnData: UseBepBnData = (periodId) => {
   };
   const invalidatePeriods = () => {
     void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "periods"] });
+  };
+  const invalidateCurrentPeriod = () => {
+    void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "current-period"] });
   };
   const invalidateReviews = (id: string) => {
     void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "issue-reviews", id] });
@@ -356,6 +369,15 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     onSuccess: () => invalidatePeriods(),
   });
 
+  const openCurrentPeriodMutation = useMutation({
+    mutationFn: () => openPeriod(client, null),
+    onSuccess: (result) => {
+      invalidatePeriods();
+      invalidateCurrentPeriod();
+      invalidatePeriod(result.periodId);
+    },
+  });
+
   const employeeMutation = useMutation({
     mutationFn: (variables: { periodId: string; employee: PayrollEmployee }) =>
       upsertEmployee(client, variables.periodId, variables.employee),
@@ -388,6 +410,15 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     periods: periodsQuery.data ?? [],
     periodsLoading: periodsQuery.isLoading,
     periodsError: periodsQuery.error ? errorMessage(periodsQuery.error) : null,
+    currentPeriod: currentPeriodQuery.data ?? null,
+    openCurrentPeriod: async () => {
+      const result = await openCurrentPeriodMutation.mutateAsync();
+      return {
+        periodId: result.periodId,
+        created: result.created,
+        copiedEmployees: result.copiedEmployees,
+      };
+    },
     // measures is always {}: manual figures are recorded as adjustments.
     data: periodId ? ((dataQuery.data ?? null) as BepBnPeriodData | null) : null,
     dataLoading: Boolean(periodId) && dataQuery.isLoading,

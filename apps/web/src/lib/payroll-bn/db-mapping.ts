@@ -21,6 +21,9 @@ import type {
   GpsAttendancePreview,
   GpsAttendancePreviewRow,
   PayrollAdjustment,
+  PayrollBnCurrentPeriod,
+  PayrollBnCurrentPeriodSummary,
+  PayrollBnOpenPeriodResult,
   PayrollEmployee,
   PayrollGroup,
   PayrollPeriod,
@@ -455,6 +458,47 @@ export function mapGpsAttendanceImportResult(data: unknown): GpsAttendanceImport
     skippedExisting: toCount(row.skipped_existing),
     alreadyImported: row.already_imported === true,
     skippedCodes: toStringArray(row.skipped_codes),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Current-period probe / open-period result
+// ---------------------------------------------------------------------------
+
+/** Map the open-period RPC; absent fields read as an empty, not-created result. */
+export function mapOpenPeriodResult(data: unknown): PayrollBnOpenPeriodResult {
+  const row = asRecord(data);
+  return {
+    periodId: toText(row.period_id),
+    periodCode: toText(row.period_code),
+    created: row.created === true,
+    copiedEmployees: toCount(row.copied_employees),
+    sourcePeriodCode: toNullableText(row.source_period_code),
+  };
+}
+
+function mapCurrentPeriodSummary(value: unknown): PayrollBnCurrentPeriodSummary | null {
+  const row = asRecord(value);
+  if (Object.keys(row).length === 0) return null;
+  return {
+    id: toText(row.id),
+    code: toText(row.period_code),
+    name: toText(row.period_name),
+    dateFrom: toText(row.date_from),
+    dateTo: toText(row.date_to),
+    status: normalizePeriodStatus(row.status),
+    // The RPC returns a count; accepting an array keeps older payloads readable.
+    employees: Array.isArray(row.employees) ? row.employees.length : toCount(row.employees),
+  };
+}
+
+/** Map the read-only current-period RPC, tolerating a missing period/fields. */
+export function mapCurrentPeriod(data: unknown): PayrollBnCurrentPeriod {
+  const row = asRecord(data);
+  return {
+    month: toText(row.month),
+    period: mapCurrentPeriodSummary(row.period),
+    latestPeriodCode: toNullableText(row.latest_period_code),
   };
 }
 

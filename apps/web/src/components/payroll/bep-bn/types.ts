@@ -99,6 +99,18 @@ export interface BepBnDataSource {
   periods: BepBnPeriodSummary[];
   periodsLoading: boolean;
   periodsError: string | null;
+  /** Current Vietnam month and its period (null when it has not been opened). */
+  currentPeriod: {
+    month: string;
+    period: BepBnPeriodSummary | null;
+    latestPeriodCode: string | null;
+  } | null;
+  /** Open (or return) the current month's draft period. */
+  openCurrentPeriod: () => Promise<{
+    periodId: string;
+    created: boolean;
+    copiedEmployees: number;
+  }>;
   data: BepBnPeriodData | null;
   dataLoading: boolean;
   dataError: string | null;

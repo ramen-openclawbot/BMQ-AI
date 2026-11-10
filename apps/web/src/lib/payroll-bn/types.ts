@@ -33,6 +33,36 @@ export interface PayrollPeriod {
   status: PayrollPeriodStatus;
 }
 
+/** Result of opening (or returning) one payroll month. */
+export interface PayrollBnOpenPeriodResult {
+  periodId: string;
+  periodCode: string;
+  created: boolean;
+  copiedEmployees: number;
+  /** Code of the period the catalogue was copied from, or null. */
+  sourcePeriodCode: string | null;
+}
+
+/** One current-month period returned by get_payroll_bn_current_period. */
+export interface PayrollBnCurrentPeriodSummary {
+  id: string;
+  code: string;
+  name: string;
+  dateFrom: string;
+  dateTo: string;
+  status: PayrollPeriodStatus;
+  /** Number of catalogue employees in the period. */
+  employees: number;
+}
+
+/** Current-month probe used to decide whether the "open" action is needed. */
+export interface PayrollBnCurrentPeriod {
+  /** First day of the current Asia/Ho_Chi_Minh month (YYYY-MM-DD). */
+  month: string;
+  period: PayrollBnCurrentPeriodSummary | null;
+  latestPeriodCode: string | null;
+}
+
 /** The three Bếp BN groups the payroll is split into. */
 export type PayrollGroup = "Văn phòng" | "Bếp bánh" | "Kho BN";
 
