@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GpsAttendanceAdmin } from "@/components/payroll/bep-bn/GpsAttendanceAdmin";
+import { ShiftBoard } from "@/components/payroll/bep-bn/ShiftBoard";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,7 +31,7 @@ interface BepBnPayrollPanelProps {
   canLock: boolean;
 }
 
-type PanelTab = "attendance" | "payroll" | "employees" | "gps";
+type PanelTab = "attendance" | "payroll" | "employees" | "gps" | "shifts";
 
 export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPanelProps) {
   const { toast } = useToast();
@@ -152,6 +153,7 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
           <TabsTrigger value="payroll">Bảng lương</TabsTrigger>
           <TabsTrigger value="employees">Nhân viên</TabsTrigger>
           {canEdit ? <TabsTrigger value="gps">Chấm công GPS</TabsTrigger> : null}
+          {canEdit ? <TabsTrigger value="shifts">Xếp ca</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="attendance" className="space-y-4">
@@ -197,6 +199,12 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
             <EmptyCard text="Danh mục nhân viên được tạo tự động khi upload bảng chấm công." />
           )}
         </TabsContent>
+
+        {canEdit ? (
+          <TabsContent value="shifts" className="space-y-4">
+            <ShiftBoard />
+          </TabsContent>
+        ) : null}
 
         {canEdit ? (
           <TabsContent value="gps" className="space-y-4">

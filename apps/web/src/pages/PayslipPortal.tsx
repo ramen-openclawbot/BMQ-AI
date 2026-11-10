@@ -29,7 +29,9 @@ import {
   type PayslipPortalSource,
   type PayrollAttendanceSource,
   type PayrollMissionSource,
+  type PayrollShiftSource,
 } from "@/lib/payslip-portal/types";
+import { ShiftPanel } from "@/components/payslip-portal/ShiftPanel";
 import { AttendancePanel } from "@/components/payslip-portal/AttendancePanel";
 import { MissionPanel } from "@/components/payslip-portal/MissionPanel";
 import { LedgerMark } from "@/components/ui/loading";
@@ -82,9 +84,11 @@ export interface PayslipPortalProps {
   attendance?: PayrollAttendanceSource;
   /** Monthly mission; omitted in the demo. Hidden unless the employee has an offer. */
   missions?: PayrollMissionSource;
+  /** Weekly shift registration; omitted in the demo. Hidden unless eligible. */
+  shifts?: PayrollShiftSource;
 }
 
-export default function PayslipPortal({ source, demo = false, attendance, missions }: PayslipPortalProps) {
+export default function PayslipPortal({ source, demo = false, attendance, missions, shifts }: PayslipPortalProps) {
   const [checkInSignal, setCheckInSignal] = useState(0);
   const [step, setStep] = useState<Step>("loading");
   const [phone, setPhone] = useState("");
@@ -367,6 +371,7 @@ export default function PayslipPortal({ source, demo = false, attendance, missio
               }}
             />
           ) : null}
+          {shifts ? <ShiftPanel source={shifts} onSessionExpired={(message) => resetToLogin(message)} /> : null}
           {missions ? (
             <MissionPanel source={missions} checkInSignal={checkInSignal} onSessionExpired={(message) => resetToLogin(message)} />
           ) : null}

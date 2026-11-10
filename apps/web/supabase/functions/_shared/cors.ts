@@ -35,6 +35,7 @@ const PAYSLIP_PORTAL_FUNCTIONS = new Set([
   "payslip-attendance-checkin",
   "payslip-attendance-consent",
   "payslip-mission",
+  "payslip-shifts",
 ]);
 
 function pathSegments(req: Request): string[] {

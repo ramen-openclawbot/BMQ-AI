@@ -101,7 +101,37 @@ function missionPayload(status) {
   ] : [], review: null, ticket: null } };
 }
 
-async function open(viewport, { geolocation = true, checkinDecision = "accepted", reason = null, consented = true, mission = null } = {}) {
+function mondayAfter(date) {
+  const d = new Date(`${date}T00:00:00Z`);
+  const dow = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + (8 - dow));
+  return d.toISOString().slice(0, 10);
+}
+const plus = (date, n) => { const d = new Date(`${date}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const SHIFT_WEEK = mondayAfter(today);
+function shiftPayload(my) {
+  const types = [["ca-0430", "04:30"], ["ca-0600", "06:00"], ["ca-0700", "07:00"], ["ca-0800", "08:00"]];
+  return { success: true, week: {
+    eligible: true,
+    week: { week_start: SHIFT_WEEK, status: "open", opens_at: new Date(Date.now() - 86400000).toISOString(), deadline: new Date(Date.now() + 3 * 86400000).toISOString(), can_edit: true, closed_dates: [plus(SHIFT_WEEK, 3)] },
+    shift_types: types.map(([code, start], i) => ({ code, label: `Ca ${start}`, start_time: start, end_time: null, sort: i + 1, active: true })),
+    days: Array.from({ length: 7 }, (_, i) => ({
+      work_date: plus(SHIFT_WEEK, i), closed: i === 3,
+      my: my && i !== 3 ? { shift_code: my[i] ?? null, state: i === 5 ? "waitlist" : "registered", source: "employee", previous_shift_code: null } : null,
+      shifts: [
+        { code: "ca-0430", registered: i === 0 ? 0 : 1, needed: 1, full: i !== 0, need_more: i === 0 },
+        { code: "ca-0600", registered: 2, needed: 2, full: true, need_more: false },
+        { code: "ca-0700", registered: 3, needed: 4, full: false, need_more: false },
+        { code: "ca-0800", registered: 1, needed: 4, full: false, need_more: false },
+      ],
+      quota_groups: [], off_count: i === 5 ? 2 : 0, off_full: i === 5, total_staff: 6,
+    })),
+    suggestion: my ? [] : Array.from({ length: 7 }, (_, i) => ({ work_date: plus(SHIFT_WEEK, i), shift_code: i === 6 ? null : "ca-0700", state: "registered", carried: true })),
+    current_week: [{ work_date: today, shift_code: "ca-0700", state: "registered", source: "employee" }, { work_date: plus(today, 1), shift_code: null, state: "registered", source: "manager" }],
+  } };
+}
+
+async function open(viewport, { geolocation = true, checkinDecision = "accepted", reason = null, consented = true, mission = null, shifts = false } = {}) {
   const context = await browser.newContext({
     viewport,
     locale: "vi-VN",
@@ -110,7 +140,7 @@ async function open(viewport, { geolocation = true, checkinDecision = "accepted"
     geolocation: geolocation ? { latitude: 10.7501, longitude: 106.6501, accuracy: 9 } : undefined,
   });
   await context.addInitScript(() => localStorage.setItem("bmq_payslip_session", "psp_qa"));
-  const state = { events: [], checkins: [], consented, consentCalls: [], mission, missionCalls: [] };
+  const state = { events: [], checkins: [], consented, consentCalls: [], mission, missionCalls: [], shiftCalls: [], shiftMine: null };
   await context.route("**/*", async (route) => {
     const request = route.request();
     const url = request.url();
@@ -123,6 +153,13 @@ async function open(viewport, { geolocation = true, checkinDecision = "accepted"
         assert.equal(request.headers()["x-payslip-session"], "psp_qa");
         assert.match(request.headers()["x-payslip-device"] ?? "", /^[0-9a-f-]{36}$/);
         body = todayPayload(state.events, state.consented);
+      } else if (fn === "payslip-shifts") {
+        const payload = JSON.parse(request.postData() || "{}");
+        if (!shifts) { body = { success: true, week: { eligible: false } }; }
+        else {
+          if (payload.action === "submit") { state.shiftCalls.push(payload); state.shiftMine = Object.fromEntries(payload.entries.map((e) => [Math.round((Date.parse(e.work_date) - Date.parse(SHIFT_WEEK)) / 86400000), e.shift_code])); }
+          body = shiftPayload(state.shiftMine);
+        }
       } else if (fn === "payslip-mission") {
         const payload = JSON.parse(request.postData() || "{}");
         state.missionCalls.push(payload);
@@ -276,6 +313,42 @@ try {
     assert.equal(await page.locator("[data-mission-card]").count(), 0, "declined mission is hidden");
     assert.deepEqual(errors, []);
     record("mission decline with confirm");
+    await context.close();
+  }
+
+  // Shift registration: card → sheet → copy last week → submit → week list with waitlist.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1440, height: 900 }]) {
+    const w = viewport.width;
+    const { context, page, errors, state } = await open(viewport, { shifts: true });
+    await page.locator("[data-shift-panel]").waitFor({ timeout: 15_000 });
+    await page.locator("[data-shift-panel]").scrollIntoViewIfNeeded();
+    assert.ok((await overflow(page)) <= 0, `no overflow shift card ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/shift-card-${w}.png`, fullPage: true });
+    await page.locator("[data-shift-open]").click();
+    const sheet = page.getByRole("dialog", { name: "Đăng ký ca" });
+    await sheet.waitFor();
+    const submit = sheet.locator("[data-shift-submit]");
+    assert.equal(await submit.isEnabled(), false, "submit disabled until every day is chosen");
+    await sheet.getByRole("button", { name: "Chép từ tuần trước" }).click();
+    assert.equal(await submit.isEnabled(), true);
+    // Change Monday to the shift that needs people.
+    await sheet.locator(`[data-shift-day="${SHIFT_WEEK}"]`).getByRole("button", { name: "04:30" }).click();
+    assert.ok((await sheet.locator(`[data-shift-day="${plus(SHIFT_WEEK, 3)}"]`).innerText()).includes("Bếp nghỉ"));
+    assert.ok((await overflow(page)) <= 0, `no overflow shift sheet ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/shift-sheet-${w}.png` });
+    await submit.click();
+    await page.locator("[data-shift-week]").waitFor({ timeout: 10_000 });
+    const sent = state.shiftCalls[0];
+    assert.equal(sent.week_start, SHIFT_WEEK);
+    assert.equal(sent.entries.length, 6, "closed day is not sent");
+    assert.deepEqual(sent.entries[0], { work_date: SHIFT_WEEK, shift_code: "ca-0430" });
+    assert.equal(sent.entries.at(-1).shift_code, null, "Sunday off from last week");
+    assert.ok((await page.locator("[data-shift-panel]").innerText()).includes("danh sách chờ"));
+    await page.locator("[data-shift-week]").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${EVIDENCE}/shift-week-${w}.png`, fullPage: true });
+    assert.ok((await overflow(page)) <= 0, `no overflow shift week ${w}`);
+    assert.deepEqual(errors, []);
+    record(`shift registration ${w}`);
     await context.close();
   }
 

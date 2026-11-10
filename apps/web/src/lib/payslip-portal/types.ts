@@ -208,3 +208,100 @@ export interface PayrollMissionSource {
     decision: PayrollMissionDecision,
   ): Promise<PayrollMissionOffer | null>;
 }
+
+// ---------------------------------------------------------------------------
+// Weekly Bếp bánh shift registration (giai đoạn 1)
+// ---------------------------------------------------------------------------
+
+export type PayrollShiftState = "registered" | "waitlist";
+export type PayrollShiftSourceType = "employee" | "manager" | "carried";
+export type PayrollShiftWeekStatus = "open" | "published";
+
+export interface PayrollShiftType {
+  code: string;
+  label: string | null;
+  startTime: string;
+  endTime: string | null;
+  sort: number;
+  active: boolean;
+}
+
+export interface PayrollShiftMyEntry {
+  shiftCode: string | null;
+  state: PayrollShiftState;
+  source: PayrollShiftSourceType;
+  previousShiftCode: string | null;
+}
+
+export interface PayrollShiftCoverageCell {
+  code: string;
+  registered: number;
+  needed: number;
+  full: boolean;
+  needMore: boolean;
+}
+
+export interface PayrollShiftQuotaGroupCell {
+  quotaGroup: string;
+  registered: number;
+  needed: number;
+  full: boolean;
+}
+
+export interface PayrollShiftDay {
+  workDate: string;
+  closed: boolean;
+  my: PayrollShiftMyEntry | null;
+  shifts: PayrollShiftCoverageCell[];
+  quotaGroups: PayrollShiftQuotaGroupCell[];
+  offCount: number;
+  offFull: boolean;
+  totalStaff: number;
+}
+
+export interface PayrollShiftSuggestion {
+  workDate: string;
+  shiftCode: string | null;
+  state: PayrollShiftState;
+  carried: boolean;
+}
+
+export interface PayrollShiftCurrentEntry {
+  workDate: string;
+  shiftCode: string | null;
+  state: PayrollShiftState;
+  source: PayrollShiftSourceType;
+}
+
+export interface PayrollShiftWeekInfo {
+  weekStart: string;
+  status: PayrollShiftWeekStatus;
+  opensAt: string | null;
+  deadline: string | null;
+  canEdit: boolean;
+  closedDates: string[];
+}
+
+export interface PayrollShiftWeek {
+  eligible: boolean;
+  week: PayrollShiftWeekInfo;
+  shiftTypes: PayrollShiftType[];
+  days: PayrollShiftDay[];
+  suggestion: PayrollShiftSuggestion[];
+  currentWeek: PayrollShiftCurrentEntry[];
+}
+
+export interface PayrollShiftRegistrationEntry {
+  workDate: string;
+  shiftCode: string | null;
+}
+
+export interface PayrollShiftSource {
+  /** The employee's own target week (defaults to next week on the server). */
+  getShiftWeek(weekStart?: string): Promise<PayrollShiftWeek>;
+  /** Replace this employee's week choices (server is idempotent until deadline). */
+  submitShiftRegistration(
+    weekStart: string | null | undefined,
+    entries: PayrollShiftRegistrationEntry[],
+  ): Promise<PayrollShiftWeek>;
+}
