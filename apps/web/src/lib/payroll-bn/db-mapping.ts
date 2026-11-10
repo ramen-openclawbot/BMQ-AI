@@ -13,14 +13,22 @@ import type { AnomalyCode } from "./anomalies.ts";
 import type { IssueDecision, IssueReview } from "./issue-review.ts";
 import type {
   AdjustmentField,
+  AttendanceImportSource,
   AttendanceRow,
   AttendanceShift,
   EmploymentType,
+  GpsAttendanceImportResult,
+  GpsAttendancePreview,
+  GpsAttendancePreviewRow,
   PayrollAdjustment,
   PayrollEmployee,
   PayrollGroup,
   PayrollPeriod,
   PayrollPeriodStatus,
+  PeriodScheduleDetail,
+  PeriodScheduleDetailKind,
+  PeriodScheduleEmployee,
+  PeriodScheduleSummary,
 } from "./types.ts";
 
 // ---------------------------------------------------------------------------
@@ -116,6 +124,23 @@ export interface PayrollBnAttendanceImportRow {
   sha256: string;
   row_count?: number | string | null;
   imported_at: string;
+  source?: string | null;
+}
+
+export interface PayrollBnGpsAttendanceRow {
+  employee_code: string;
+  employee_name?: string | null;
+  department?: string | null;
+  work_date: string;
+  check_in?: string | null;
+  check_out?: string | null;
+  shift?: string | null;
+  late_minutes?: number | string | null;
+  early_minutes?: number | string | null;
+  scheduled_shift_code?: string | null;
+  scheduled_start?: string | null;
+  has_override?: boolean | null;
+  already_in_period?: boolean | null;
 }
 
 export interface PayrollBnAdjustmentRow {
@@ -328,6 +353,168 @@ export function mapAttendanceRow(row: PayrollBnAttendanceRow): AttendanceRow {
     shift: normalizeAttendanceShift(row.shift),
     lateMinutes: toOptionalNumber(row.late_minutes),
     earlyMinutes: toOptionalNumber(row.early_minutes),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// GPS attendance preview / import / schedule summary
+// ---------------------------------------------------------------------------
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function asRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> =>
+      Boolean(item) && typeof item === "object" && !Array.isArray(item)
+    )
+    : [];
+}
+
+function toText(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function toNullableText(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+function toCount(value: unknown): number {
+  return toOptionalNumber(value) ?? 0;
+}
+
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+const SCHEDULE_DETAIL_KINDS: readonly PeriodScheduleDetailKind[] = [
+  "no_show",
+  "late",
+  "unscheduled",
+  "missing_out",
+];
+
+function normalizeScheduleDetailKind(value: unknown): PeriodScheduleDetailKind {
+  return typeof value === "string"
+    && (SCHEDULE_DETAIL_KINDS as readonly string[]).includes(value)
+    ? (value as PeriodScheduleDetailKind)
+    : "no_show";
+}
+
+/** A missing/unknown import source reads as a machine file (old rows). */
+export function normalizeImportSource(value: unknown): AttendanceImportSource {
+  return value === "gps" ? "gps" : "machine";
+}
+
+export function mapGpsAttendanceRow(value: unknown): GpsAttendancePreviewRow {
+  const row = asRecord(value);
+  return {
+    employeeCode: toText(row.employee_code),
+    employeeName: toText(row.employee_name),
+    department: toNullableText(row.department),
+    date: toText(row.work_date),
+    checkIn: toTimeValue(row.check_in),
+    checkOut: toTimeValue(row.check_out),
+    shift: toNullableText(row.shift),
+    lateMinutes: toOptionalNumber(row.late_minutes),
+    earlyMinutes: toOptionalNumber(row.early_minutes),
+    scheduledShiftCode: toNullableText(row.scheduled_shift_code),
+    scheduledStart: toTimeValue(row.scheduled_start),
+    hasOverride: row.has_override === true,
+    alreadyInPeriod: row.already_in_period === true,
+  };
+}
+
+export function mapGpsAttendancePreview(data: unknown): GpsAttendancePreview {
+  const row = asRecord(data);
+  const totals = asRecord(row.totals);
+  return {
+    periodId: toText(row.period_id),
+    from: toText(row.from),
+    to: toText(row.to),
+    rows: asRecordArray(row.rows).map(mapGpsAttendanceRow),
+    skippedCodes: toStringArray(row.skipped_codes),
+    totals: {
+      rows: toCount(totals.rows),
+      employees: toCount(totals.employees),
+      daysMissingOut: toCount(totals.days_missing_out),
+      alreadyInPeriod: toCount(totals.already_in_period),
+      toInsert: toCount(totals.to_insert),
+    },
+  };
+}
+
+export function mapGpsAttendanceImportResult(data: unknown): GpsAttendanceImportResult {
+  const row = asRecord(data);
+  return {
+    importId: toNullableText(row.import_id),
+    insertedRows: toCount(row.inserted_rows),
+    skippedExisting: toCount(row.skipped_existing),
+    alreadyImported: row.already_imported === true,
+    skippedCodes: toStringArray(row.skipped_codes),
+  };
+}
+
+function mapScheduleDetail(value: unknown): PeriodScheduleDetail {
+  const row = asRecord(value);
+  return {
+    workDate: toText(row.work_date),
+    kind: normalizeScheduleDetailKind(row.kind),
+    shiftStart: toTimeValue(row.shift_start),
+    checkIn: toTimeValue(row.check_in),
+    checkOut: toTimeValue(row.check_out),
+    minutesLate: toOptionalNumber(row.minutes_late),
+  };
+}
+
+function mapScheduleEmployee(value: unknown): PeriodScheduleEmployee {
+  const row = asRecord(value);
+  return {
+    employeeCode: toText(row.employee_code),
+    employeeName: toText(row.employee_name),
+    groupName: toNullableText(row.group_name),
+    scheduledDays: toCount(row.scheduled_days),
+    offDays: toCount(row.off_days),
+    workedDays: toCount(row.worked_days),
+    workedScheduled: toCount(row.worked_scheduled),
+    noShowDays: toCount(row.no_show_days),
+    unscheduledDays: toCount(row.unscheduled_days),
+    lateDays: toCount(row.late_days),
+    lateMinutesTotal: toCount(row.late_minutes_total),
+    missingOutDays: toCount(row.missing_out_days),
+    approvedLeaves: toCount(row.approved_leaves),
+    approvedChanges: toCount(row.approved_changes),
+    details: asRecordArray(row.details).map(mapScheduleDetail),
+  };
+}
+
+export function mapPeriodScheduleSummary(data: unknown): PeriodScheduleSummary {
+  const row = asRecord(data);
+  const totals = asRecord(row.totals);
+  return {
+    periodId: toText(row.period_id),
+    dateFrom: toText(row.date_from),
+    dateTo: toText(row.date_to),
+    coveredFrom: toNullableText(row.covered_from),
+    coveredTo: toNullableText(row.covered_to),
+    employees: asRecordArray(row.employees).map(mapScheduleEmployee),
+    totals: {
+      employees: toCount(totals.employees),
+      scheduledDays: toCount(totals.scheduled_days),
+      offDays: toCount(totals.off_days),
+      workedDays: toCount(totals.worked_days),
+      workedScheduled: toCount(totals.worked_scheduled),
+      noShowDays: toCount(totals.no_show_days),
+      unscheduledDays: toCount(totals.unscheduled_days),
+      lateDays: toCount(totals.late_days),
+      lateMinutesTotal: toCount(totals.late_minutes_total),
+      missingOutDays: toCount(totals.missing_out_days),
+      approvedLeaves: toCount(totals.approved_leaves),
+      approvedChanges: toCount(totals.approved_changes),
+    },
   };
 }
 

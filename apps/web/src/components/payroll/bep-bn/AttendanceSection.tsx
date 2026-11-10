@@ -16,6 +16,7 @@ import { issueKey, requiresReview, reviewKey, summarizeIssues } from "@/lib/payr
 import type { AttendanceRow } from "@/lib/payroll-bn/types.ts";
 import type { BepBnDataSource, BepBnPeriodData } from "./types";
 import { ANOMALY_LABELS, datesBetween, formatDayMonth, formatTime } from "./format";
+import { GpsAttendanceImportCard, ScheduleCompareCard } from "./GpsAttendanceImport";
 
 // The month is taken from the file itself, so parsing accepts any date and the
 // data layer refuses a file that spans two months.
@@ -172,6 +173,7 @@ export function AttendanceSection({ data, source, canEdit, onOpenEmployees, onAp
   return (
     <div className="space-y-4">
       <ImportHistory data={data} />
+      <GpsAttendanceImportCard data={data} canEdit={canEdit} approved={Boolean(source.attendanceApprovedAt)} />
       {unknownCodes.size > 0 ? (
         <Card className="border-amber-500/40">
           <CardContent className="flex flex-col gap-2 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
@@ -186,6 +188,7 @@ export function AttendanceSection({ data, source, canEdit, onOpenEmployees, onAp
         </Card>
       ) : null}
       <IssueReviewCard data={data} source={source} canEdit={canEdit} anomalies={anomalies} onApproved={onApproved} />
+      <ScheduleCompareCard periodId={data.id} />
       <AttendanceGrid data={data} rows={data.rows} anomalies={anomalies} />
     </div>
   );
@@ -195,7 +198,7 @@ function ImportHistory({ data }: { data: BepBnPeriodData }) {
   if (data.imports.length === 0) return null;
   return (
     <p className="text-sm text-muted-foreground">
-      File đã nhập:{" "}
+      Nguồn chấm công đã nhập:{" "}
       {data.imports.map((item, index) => (
         <span key={item.id}>
           {index > 0 ? "; " : ""}

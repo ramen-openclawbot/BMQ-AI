@@ -103,6 +103,111 @@ export interface AttendanceRow {
   earlyMinutes?: number | null;
 }
 
+/** Where an attendance import came from. */
+export type AttendanceImportSource = "machine" | "gps";
+
+/** One GPS attendance row returned by the preview helper. */
+export interface GpsAttendancePreviewRow {
+  employeeCode: string;
+  employeeName: string;
+  department: string | null;
+  /** YYYY-MM-DD. */
+  date: string;
+  checkIn: string | null;
+  checkOut: string | null;
+  shift: string | null;
+  lateMinutes: number | null;
+  earlyMinutes: number | null;
+  scheduledShiftCode: string | null;
+  scheduledStart: string | null;
+  hasOverride: boolean;
+  alreadyInPeriod: boolean;
+}
+
+export interface GpsAttendancePreviewTotals {
+  rows: number;
+  employees: number;
+  daysMissingOut: number;
+  alreadyInPeriod: number;
+  toInsert: number;
+}
+
+export interface GpsAttendancePreview {
+  periodId: string;
+  /** Clamped period range (YYYY-MM-DD). */
+  from: string;
+  to: string;
+  rows: GpsAttendancePreviewRow[];
+  skippedCodes: string[];
+  totals: GpsAttendancePreviewTotals;
+}
+
+export interface GpsAttendanceImportResult {
+  importId: string | null;
+  insertedRows: number;
+  skippedExisting: number;
+  alreadyImported: boolean;
+  skippedCodes: string[];
+}
+
+export type PeriodScheduleDetailKind =
+  | "no_show"
+  | "late"
+  | "unscheduled"
+  | "missing_out";
+
+export interface PeriodScheduleDetail {
+  workDate: string;
+  kind: PeriodScheduleDetailKind;
+  shiftStart: string | null;
+  checkIn: string | null;
+  checkOut: string | null;
+  minutesLate: number | null;
+}
+
+export interface PeriodScheduleEmployee {
+  employeeCode: string;
+  employeeName: string;
+  groupName: string | null;
+  scheduledDays: number;
+  offDays: number;
+  workedDays: number;
+  workedScheduled: number;
+  noShowDays: number;
+  unscheduledDays: number;
+  lateDays: number;
+  lateMinutesTotal: number;
+  missingOutDays: number;
+  approvedLeaves: number;
+  approvedChanges: number;
+  details: PeriodScheduleDetail[];
+}
+
+export interface PeriodScheduleTotals {
+  employees: number;
+  scheduledDays: number;
+  offDays: number;
+  workedDays: number;
+  workedScheduled: number;
+  noShowDays: number;
+  unscheduledDays: number;
+  lateDays: number;
+  lateMinutesTotal: number;
+  missingOutDays: number;
+  approvedLeaves: number;
+  approvedChanges: number;
+}
+
+export interface PeriodScheduleSummary {
+  periodId: string;
+  dateFrom: string;
+  dateTo: string;
+  coveredFrom: string | null;
+  coveredTo: string | null;
+  employees: PeriodScheduleEmployee[];
+  totals: PeriodScheduleTotals;
+}
+
 export type AdjustmentField =
   | "work_days"
   | "paid_work_days"

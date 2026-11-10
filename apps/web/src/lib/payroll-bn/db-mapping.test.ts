@@ -5,8 +5,12 @@ import {
   mapAdjustmentRow,
   mapAttendanceRow,
   mapEmployeeRow,
+  mapGpsAttendanceImportResult,
+  mapGpsAttendancePreview,
   mapIssueReviewRow,
   mapPeriodRow,
+  mapPeriodScheduleSummary,
+  normalizeImportSource,
   normalizeIssueCode,
   normalizeIssueDecision,
   normalizePeriodStatus,
@@ -405,4 +409,196 @@ test("toIssueReviewUpsertRow builds the upsert payload", () => {
       note: null,
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// GPS attendance preview / import / schedule summary
+// ---------------------------------------------------------------------------
+
+test("normalizeImportSource defaults absent or unknown sources to machine", () => {
+  assert.equal(normalizeImportSource("gps"), "gps");
+  assert.equal(normalizeImportSource("machine"), "machine");
+  assert.equal(normalizeImportSource(null), "machine");
+  assert.equal(normalizeImportSource("other"), "machine");
+});
+
+test("mapGpsAttendancePreview maps rows, totals and skipped codes", () => {
+  const preview = mapGpsAttendancePreview({
+    period_id: "period-1",
+    from: "2026-11-01",
+    to: "2026-11-10",
+    rows: [
+      {
+        employee_code: "E01",
+        employee_name: "Nguyễn Văn A",
+        department: "Bếp bánh",
+        work_date: "2026-11-03",
+        check_in: "08:10:00",
+        check_out: "17:00:00",
+        shift: null,
+        late_minutes: 10,
+        early_minutes: null,
+        scheduled_shift_code: "SANG",
+        scheduled_start: "08:00",
+        has_override: false,
+        already_in_period: true,
+      },
+    ],
+    skipped_codes: ["OUT-1"],
+    totals: {
+      rows: 1,
+      employees: 1,
+      days_missing_out: 0,
+      already_in_period: 1,
+      to_insert: 0,
+    },
+  });
+
+  assert.equal(preview.periodId, "period-1");
+  assert.equal(preview.rows[0].employeeCode, "E01");
+  assert.equal(preview.rows[0].date, "2026-11-03");
+  assert.equal(preview.rows[0].checkIn, "08:10:00");
+  assert.equal(preview.rows[0].lateMinutes, 10);
+  assert.equal(preview.rows[0].scheduledShiftCode, "SANG");
+  assert.equal(preview.rows[0].scheduledStart, "08:00");
+  assert.equal(preview.rows[0].hasOverride, false);
+  assert.equal(preview.rows[0].alreadyInPeriod, true);
+  assert.deepEqual(preview.skippedCodes, ["OUT-1"]);
+  assert.deepEqual(preview.totals, {
+    rows: 1,
+    employees: 1,
+    daysMissingOut: 0,
+    alreadyInPeriod: 1,
+    toInsert: 0,
+  });
+});
+
+test("mapGpsAttendancePreview tolerates missing fields", () => {
+  const preview = mapGpsAttendancePreview(null);
+  assert.equal(preview.periodId, "");
+  assert.deepEqual(preview.rows, []);
+  assert.deepEqual(preview.skippedCodes, []);
+  assert.deepEqual(preview.totals, {
+    rows: 0,
+    employees: 0,
+    daysMissingOut: 0,
+    alreadyInPeriod: 0,
+    toInsert: 0,
+  });
+
+  const row = mapGpsAttendancePreview({ rows: [{}] }).rows[0];
+  assert.equal(row.employeeCode, "");
+  assert.equal(row.date, "");
+  assert.equal(row.checkIn, null);
+  assert.equal(row.lateMinutes, null);
+  assert.equal(row.hasOverride, false);
+});
+
+test("mapGpsAttendanceImportResult maps the import payload", () => {
+  const result = mapGpsAttendanceImportResult({
+    import_id: "import-1",
+    inserted_rows: 5,
+    skipped_existing: 1,
+    already_imported: false,
+    skipped_codes: ["OUT-1"],
+  });
+  assert.deepEqual(result, {
+    importId: "import-1",
+    insertedRows: 5,
+    skippedExisting: 1,
+    alreadyImported: false,
+    skippedCodes: ["OUT-1"],
+  });
+
+  const empty = mapGpsAttendanceImportResult({});
+  assert.equal(empty.importId, null);
+  assert.equal(empty.insertedRows, 0);
+  assert.equal(empty.skippedExisting, 0);
+  assert.equal(empty.alreadyImported, false);
+});
+
+test("mapPeriodScheduleSummary maps counts, details and totals", () => {
+  const summary = mapPeriodScheduleSummary({
+    period_id: "period-1",
+    date_from: "2026-11-01",
+    date_to: "2026-11-30",
+    covered_from: "2026-11-02",
+    covered_to: "2026-11-15",
+    employees: [
+      {
+        employee_code: "E01",
+        employee_name: "Nguyễn Văn A",
+        group_name: "Bếp bánh",
+        scheduled_days: 3,
+        off_days: 1,
+        worked_days: 2,
+        worked_scheduled: 2,
+        no_show_days: 1,
+        unscheduled_days: 0,
+        late_days: 1,
+        late_minutes_total: 10,
+        missing_out_days: 1,
+        approved_leaves: 1,
+        approved_changes: 0,
+        details: [
+          {
+            work_date: "2026-11-03",
+            kind: "late",
+            shift_start: "08:00",
+            check_in: "08:10:00",
+            check_out: "17:00:00",
+            minutes_late: 10,
+          },
+          {
+            work_date: "2026-11-04",
+            kind: "missing_out",
+            shift_start: "08:00",
+            check_in: "08:00:00",
+            check_out: null,
+            minutes_late: null,
+          },
+        ],
+      },
+    ],
+    totals: {
+      employees: 1,
+      scheduled_days: 3,
+      off_days: 1,
+      worked_days: 2,
+      worked_scheduled: 2,
+      no_show_days: 1,
+      unscheduled_days: 0,
+      late_days: 1,
+      late_minutes_total: 10,
+      missing_out_days: 1,
+      approved_leaves: 1,
+      approved_changes: 0,
+    },
+  });
+
+  assert.equal(summary.periodId, "period-1");
+  assert.equal(summary.coveredFrom, "2026-11-02");
+  assert.equal(summary.coveredTo, "2026-11-15");
+  assert.equal(summary.employees[0].employeeCode, "E01");
+  assert.equal(summary.employees[0].groupName, "Bếp bánh");
+  assert.equal(summary.employees[0].lateMinutesTotal, 10);
+  assert.equal(summary.employees[0].approvedLeaves, 1);
+  assert.equal(summary.employees[0].details[0].kind, "late");
+  assert.equal(summary.employees[0].details[0].minutesLate, 10);
+  assert.equal(summary.employees[0].details[1].checkOut, null);
+  assert.equal(summary.totals.missingOutDays, 1);
+});
+
+test("mapPeriodScheduleSummary tolerates missing fields and unknown kinds", () => {
+  const summary = mapPeriodScheduleSummary({ employees: [{}] });
+  assert.equal(summary.periodId, "");
+  assert.equal(summary.coveredFrom, null);
+  assert.equal(summary.employees[0].scheduledDays, 0);
+  assert.deepEqual(summary.employees[0].details, []);
+  assert.equal(summary.totals.employees, 0);
+
+  const detail = mapPeriodScheduleSummary({
+    employees: [{ details: [{ kind: "other", work_date: "2026-11-03" }] }],
+  }).employees[0].details[0];
+  assert.equal(detail.kind, "no_show");
 });

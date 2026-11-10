@@ -14,8 +14,12 @@ import {
   mapAdjustmentRow,
   mapAttendanceRow,
   mapEmployeeRow,
+  mapGpsAttendanceImportResult,
+  mapGpsAttendancePreview,
   mapIssueReviewRow,
   mapPeriodRow,
+  mapPeriodScheduleSummary,
+  normalizeImportSource,
   normalizePeriodStatus,
   toAdjustmentInsertRow,
   toAttendancePayloadRow,
@@ -38,12 +42,16 @@ import type { AnomalyCode } from "./anomalies.ts";
 import type { IssueDecision, IssueReview } from "./issue-review.ts";
 import type {
   AdjustmentField,
+  AttendanceImportSource,
   AttendanceRow,
+  GpsAttendanceImportResult,
+  GpsAttendancePreview,
   PayrollAdjustment,
   PayrollEmployee,
   PayrollEmployeeMeasures,
   PayrollPeriod,
   PayrollPeriodStatus,
+  PeriodScheduleSummary,
 } from "./types.ts";
 
 // ---------------------------------------------------------------------------
@@ -103,6 +111,7 @@ export interface BepBnImportSummary {
   sha256: string;
   rowCount: number;
   importedAt: string;
+  source: AttendanceImportSource;
 }
 
 export interface BepBnPeriodData {
@@ -195,6 +204,9 @@ export function describeDbError(error: unknown): string {
     case "22023":
       if (message.includes("invalid_sha256")) return "Mã sha256 của file chấm công không hợp lệ.";
       if (message.includes("invalid_rows")) return "Dữ liệu chấm công gửi lên không hợp lệ.";
+      if (message.includes("payroll_bn_gps_range_invalid")) {
+        return "Khoảng ngày lấy chấm công GPS không hợp lệ hoặc nằm ngoài kỳ lương.";
+      }
       if (message.includes("date_out_of_period")) {
         return "Có dòng chấm công nằm ngoài khoảng ngày của kỳ hoặc thiếu mã nhân viên/ngày.";
       }
@@ -351,6 +363,7 @@ export async function loadPeriodData(
       sha256: row.sha256,
       rowCount: toRowCount(row.row_count),
       importedAt: row.imported_at,
+      source: normalizeImportSource(row.source),
     })),
     attendanceApprovedAt: periodRow.attendance_approved_at ?? null,
   };
@@ -377,6 +390,50 @@ export async function importAttendance(
     alreadyImported: Boolean(row?.already_imported),
     insertedRows: toRowCount(row?.inserted_rows),
   };
+}
+
+/** Read-only preview of a GPS attendance pull; never writes. */
+export async function previewGpsAttendance(
+  client: BepBnClient,
+  periodId: string,
+  from: string,
+  to: string,
+): Promise<GpsAttendancePreview> {
+  const { data, error } = await client.rpc("preview_payroll_bn_gps_attendance", {
+    _period_id: periodId,
+    _from: from,
+    _to: to,
+  });
+  if (error) fail(error);
+  return mapGpsAttendancePreview(firstRow(data));
+}
+
+/** Import GPS attendance into the same storage as the machine file. */
+export async function importGpsAttendance(
+  client: BepBnClient,
+  periodId: string,
+  from: string,
+  to: string,
+): Promise<GpsAttendanceImportResult> {
+  const { data, error } = await client.rpc("import_payroll_bn_gps_attendance", {
+    _period_id: periodId,
+    _from: from,
+    _to: to,
+  });
+  if (error) fail(error);
+  return mapGpsAttendanceImportResult(firstRow(data));
+}
+
+/** Read-only per-employee attendance vs published-schedule comparison. */
+export async function getPeriodScheduleSummary(
+  client: BepBnClient,
+  periodId: string,
+): Promise<PeriodScheduleSummary> {
+  const { data, error } = await client.rpc("get_payroll_bn_period_schedule_summary", {
+    _period_id: periodId,
+  });
+  if (error) fail(error);
+  return mapPeriodScheduleSummary(firstRow(data));
 }
 
 export async function addAdjustment(

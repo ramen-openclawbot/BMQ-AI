@@ -10,7 +10,9 @@ import {
   ensurePeriodForRows,
   fetchEmployeeContacts,
   fetchPublishedPayslipCount,
+  getPeriodScheduleSummary,
   importAttendance,
+  importGpsAttendance,
   listEmployeeShifts,
   listIssueReviews,
   listPeriods,
@@ -19,6 +21,7 @@ import {
   lockPeriod,
   normalizePayslipPhone,
   normalizeShiftStart,
+  previewGpsAttendance,
   publishPayslips,
   setAttendanceApproved,
   setPeriodStandardDays,
@@ -292,6 +295,7 @@ test("loadPeriodData maps the period, catalogue, attendance, imports and adjustm
       sha256: "a".repeat(64),
       rowCount: 12,
       importedAt: "2026-09-01T00:00:00.000Z",
+      source: "machine",
     },
   ]);
   assert.equal(data.adjustments[0].actor, "12345678");
@@ -1185,4 +1189,243 @@ test("fetchPublishedPayslipCount counts the period's payslips", async () => {
 
   assert.equal(await fetchPublishedPayslipCount(client, "period-1"), 2);
   assert.deepEqual(filters, [["period_id", "period-1"]]);
+});
+
+// ---------------------------------------------------------------------------
+// GPS attendance preview / import / schedule summary
+// ---------------------------------------------------------------------------
+
+test("previewGpsAttendance sends the period/date range and maps the preview", async () => {
+  const client = createFakeClient({
+    rpc: {
+      preview_payroll_bn_gps_attendance: (args) => {
+        assert.equal(args?._period_id, "period-1");
+        assert.equal(args?._from, "2026-11-01");
+        assert.equal(args?._to, "2026-11-10");
+        return {
+          data: {
+            period_id: "period-1",
+            from: "2026-11-01",
+            to: "2026-11-10",
+            rows: [
+              {
+                employee_code: "E01",
+                employee_name: "Nguyễn Văn A",
+                department: "Bếp bánh",
+                work_date: "2026-11-03",
+                check_in: "08:10:00",
+                check_out: "17:00:00",
+                shift: null,
+                late_minutes: 10,
+                early_minutes: null,
+                scheduled_shift_code: "SANG",
+                scheduled_start: "08:00",
+                has_override: false,
+                already_in_period: false,
+              },
+            ],
+            skipped_codes: ["OUT-1"],
+            totals: {
+              rows: 1,
+              employees: 1,
+              days_missing_out: 0,
+              already_in_period: 0,
+              to_insert: 1,
+            },
+          },
+          error: null,
+        };
+      },
+    },
+  });
+
+  const preview = await previewGpsAttendance(client, "period-1", "2026-11-01", "2026-11-10");
+  assert.equal(preview.periodId, "period-1");
+  assert.equal(preview.rows[0].employeeCode, "E01");
+  assert.equal(preview.rows[0].lateMinutes, 10);
+  assert.equal(preview.rows[0].scheduledStart, "08:00");
+  assert.equal(preview.rows[0].alreadyInPeriod, false);
+  assert.deepEqual(preview.skippedCodes, ["OUT-1"]);
+  assert.equal(preview.totals.toInsert, 1);
+});
+
+test("importGpsAttendance maps inserted rows, skipped rows and skipped codes", async () => {
+  const client = createFakeClient({
+    rpc: {
+      import_payroll_bn_gps_attendance: (args) => {
+        assert.equal(args?._period_id, "period-1");
+        assert.equal(args?._from, "2026-11-01");
+        assert.equal(args?._to, "2026-11-10");
+        return {
+          data: {
+            import_id: "import-gps",
+            inserted_rows: 5,
+            skipped_existing: 1,
+            already_imported: false,
+            skipped_codes: ["OUT-1"],
+          },
+          error: null,
+        };
+      },
+    },
+  });
+
+  const result = await importGpsAttendance(client, "period-1", "2026-11-01", "2026-11-10");
+  assert.deepEqual(result, {
+    importId: "import-gps",
+    insertedRows: 5,
+    skippedExisting: 1,
+    alreadyImported: false,
+    skippedCodes: ["OUT-1"],
+  });
+});
+
+test("importGpsAttendance turns locked and bad-range errors into Vietnamese messages", async () => {
+  const locked = createFakeClient({
+    rpc: {
+      import_payroll_bn_gps_attendance: () => ({
+        data: null,
+        error: { code: "55006", message: "payroll_bn_period_locked" },
+      }),
+    },
+  });
+  await assert.rejects(
+    () => importGpsAttendance(locked, "period-1", "2026-11-01", "2026-11-10"),
+    /Kỳ lương đã chốt, không thể thay đổi\./,
+  );
+
+  const invalid = createFakeClient({
+    rpc: {
+      preview_payroll_bn_gps_attendance: () => ({
+        data: null,
+        error: { code: "22023", message: "payroll_bn_gps_range_invalid" },
+      }),
+    },
+  });
+  await assert.rejects(
+    () => previewGpsAttendance(invalid, "period-1", "2026-11-10", "2026-11-01"),
+    /Khoảng ngày lấy chấm công GPS không hợp lệ hoặc nằm ngoài kỳ lương\./,
+  );
+});
+
+test("getPeriodScheduleSummary sends the period id and maps counts/details", async () => {
+  const client = createFakeClient({
+    rpc: {
+      get_payroll_bn_period_schedule_summary: (args) => {
+        assert.equal(args?._period_id, "period-1");
+        return {
+          data: {
+            period_id: "period-1",
+            date_from: "2026-11-01",
+            date_to: "2026-11-30",
+            covered_from: "2026-11-02",
+            covered_to: "2026-11-15",
+            employees: [
+              {
+                employee_code: "E01",
+                employee_name: "Nguyễn Văn A",
+                group_name: "Bếp bánh",
+                scheduled_days: 3,
+                off_days: 1,
+                worked_days: 2,
+                worked_scheduled: 2,
+                no_show_days: 1,
+                unscheduled_days: 0,
+                late_days: 1,
+                late_minutes_total: 10,
+                missing_out_days: 1,
+                approved_leaves: 1,
+                approved_changes: 0,
+                details: [
+                  {
+                    work_date: "2026-11-03",
+                    kind: "late",
+                    shift_start: "08:00",
+                    check_in: "08:10:00",
+                    check_out: "17:00:00",
+                    minutes_late: 10,
+                  },
+                ],
+              },
+            ],
+            totals: {
+              employees: 1,
+              scheduled_days: 3,
+              off_days: 1,
+              worked_days: 2,
+              worked_scheduled: 2,
+              no_show_days: 1,
+              unscheduled_days: 0,
+              late_days: 1,
+              late_minutes_total: 10,
+              missing_out_days: 1,
+              approved_leaves: 1,
+              approved_changes: 0,
+            },
+          },
+          error: null,
+        };
+      },
+    },
+  });
+
+  const summary = await getPeriodScheduleSummary(client, "period-1");
+  assert.equal(summary.periodId, "period-1");
+  assert.equal(summary.coveredFrom, "2026-11-02");
+  assert.equal(summary.employees[0].employeeCode, "E01");
+  assert.equal(summary.employees[0].lateDays, 1);
+  assert.equal(summary.employees[0].lateMinutesTotal, 10);
+  assert.equal(summary.employees[0].details[0].kind, "late");
+  assert.equal(summary.totals.approvedLeaves, 1);
+});
+
+test("describeDbError maps the GPS range error", () => {
+  assert.equal(
+    describeDbError({ code: "22023", message: "payroll_bn_gps_range_invalid" }),
+    "Khoảng ngày lấy chấm công GPS không hợp lệ hoặc nằm ngoài kỳ lương.",
+  );
+});
+
+test("loadPeriodData marks a gps import source and defaults missing to machine", async () => {
+  let call = 0;
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_periods: () => ({ data: PERIOD_ROW, error: null }),
+      payroll_bn_period_employees: () => ({ data: [], error: null }),
+      payroll_bn_attendance_rows: () => ({ data: [], error: null }),
+      payroll_bn_attendance_imports: () => {
+        call += 1;
+        return {
+          data: [
+            {
+              id: "import-gps",
+              period_id: "period-1",
+              file_name: "GPS 01/11 – 10/11",
+              sha256: "c".repeat(64),
+              row_count: 5,
+              imported_at: "2026-11-10T00:00:00.000Z",
+              source: "gps",
+            },
+            {
+              id: "import-old",
+              period_id: "period-1",
+              file_name: "T08.xlsx",
+              sha256: "d".repeat(64),
+              row_count: 12,
+              imported_at: "2026-09-01T00:00:00.000Z",
+            },
+          ],
+          error: null,
+        };
+      },
+      payroll_bn_adjustments: () => ({ data: [], error: null }),
+      payroll_bn_issue_reviews: () => ({ data: [], error: null }),
+    },
+  });
+
+  const data = await loadPeriodData(client, "period-1");
+  assert.ok(data);
+  assert.equal(call >= 1, true);
+  assert.equal(data.imports[0].source, "gps");
+  assert.equal(data.imports[1].source, "machine");
 });
