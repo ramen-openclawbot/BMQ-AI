@@ -63,7 +63,59 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
         ) : (
           <>
           {canManagePhones ? <MissionGiftBar gifts={gifts} employees={data.employees} /> : null}
-          <div className="max-h-[520px] overflow-auto rounded-md border">
+          {/* Phone: one card per employee, everything readable without sideways scrolling. */}
+          <ul className="space-y-2.5 sm:hidden" data-employee-cards>
+            {data.employees.map((employee) => {
+              const shift = shiftByCode.get(employee.code);
+              const pay: [string, number | null | undefined][] = [
+                ["Lương chính thức", employee.monthlySalary],
+                ["Đơn giá giờ", employee.hourlyRate],
+                ["Đơn giá TC", employee.overtimeRate],
+                ["Phụ cấp", employee.allowance],
+              ];
+              const shown = pay.filter(([, value]) => value !== null && value !== undefined && value !== 0);
+              return (
+                <li key={employee.code} className="rounded-lg border bg-card p-3" data-employee-card={employee.code}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="break-words text-[15px] font-semibold leading-snug">{employee.name}</p>
+                      <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                        Mã {employee.code} · {employee.group} · {employee.employmentType === "part_time" ? "Part-time" : "Chính thức"}
+                        {shift ? ` · Ca ${shift}` : ""}
+                      </p>
+                    </div>
+                    {canChange || canManagePhones ? (
+                      <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => openEditor(employee)} aria-label={`Sửa ${employee.name}`}>
+                        <PencilLine className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                  </div>
+                  <dl className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">
+                    {shown.map(([label, value]) => (
+                      <div key={label} className="min-w-0">
+                        <dt className="text-xs text-muted-foreground">{label}</dt>
+                        <dd className="tabular-nums">{formatAdjustmentValue(value as number)}</dd>
+                      </div>
+                    ))}
+                    <div className="min-w-0">
+                      <dt className="text-xs text-muted-foreground">Trạng thái</dt>
+                      <dd className="text-xs leading-5"><EmployeeStatus employee={employee} /></dd>
+                    </div>
+                  </dl>
+                  {canManagePhones ? (
+                    <div className="mt-2.5 flex items-center justify-between gap-3 border-t pt-2.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-muted-foreground">SĐT xem phiếu lương</p>
+                        <PhoneCell contact={contactByCode.get(employee.code)} onEdit={() => setPhoneFor(employee)} name={employee.name} />
+                      </div>
+                      <MissionGiftButton gifts={gifts} employee={employee} />
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden max-h-[520px] overflow-auto rounded-md border sm:block">
             <table className="w-max min-w-full border-collapse text-sm">
               <thead className="text-xs [&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-card [&_th]:shadow-[inset_0_-1px_0_hsl(var(--border))] [&_th:first-child]:z-30">
                 <tr>
