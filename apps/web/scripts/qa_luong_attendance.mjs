@@ -128,6 +128,18 @@ function shiftPayload(my) {
     })),
     suggestion: my ? [] : Array.from({ length: 7 }, (_, i) => ({ work_date: plus(SHIFT_WEEK, i), shift_code: i === 6 ? null : "ca-0700", state: "registered", carried: true })),
     current_week: [{ work_date: today, shift_code: "ca-0700", state: "registered", source: "employee" }, { work_date: plus(today, 1), shift_code: null, state: "registered", source: "manager" }],
+    requests: [], can_request: false,
+  } };
+}
+// The running week: already published, so only change/leave requests apply.
+const CUR_WEEK = plus(SHIFT_WEEK, -7);
+function currentWeekPayload(requests) {
+  const base = shiftPayload(null).week;
+  return { success: true, week: { ...base,
+    week: { week_start: CUR_WEEK, status: "published", opens_at: null, deadline: new Date(Date.now() - 3 * 86400000).toISOString(), can_edit: false, closed_dates: [] },
+    days: Array.from({ length: 7 }, (_, i) => ({ ...base.days[i], work_date: plus(CUR_WEEK, i), closed: false,
+      my: { shift_code: i === 6 ? null : "ca-0700", state: "registered", source: "employee", previous_shift_code: null } })),
+    suggestion: [], requests, can_request: true,
   } };
 }
 
@@ -140,7 +152,7 @@ async function open(viewport, { geolocation = true, checkinDecision = "accepted"
     geolocation: geolocation ? { latitude: 10.7501, longitude: 106.6501, accuracy: 9 } : undefined,
   });
   await context.addInitScript(() => localStorage.setItem("bmq_payslip_session", "psp_qa"));
-  const state = { events: [], checkins: [], consented, consentCalls: [], mission, missionCalls: [], shiftCalls: [], shiftMine: null };
+  const state = { events: [], checkins: [], consented, consentCalls: [], mission, missionCalls: [], shiftCalls: [], shiftMine: null, requestCalls: [], requests: [] };
   await context.route("**/*", async (route) => {
     const request = route.request();
     const url = request.url();
@@ -157,6 +169,24 @@ async function open(viewport, { geolocation = true, checkinDecision = "accepted"
         const payload = JSON.parse(request.postData() || "{}");
         if (!shifts) { body = { success: true, week: { eligible: false } }; }
         else {
+          if (payload.action === "request") {
+            state.requestCalls.push(payload);
+            const row = { id: `req-${state.requests.length + 1}`, work_date: payload.work_date, kind: payload.kind, from_shift_code: "ca-0700", to_shift_code: payload.to_shift_code, reason: payload.reason, state: "pending", decision_note: null, created_at: new Date().toISOString(), decided_at: null };
+            state.requests.unshift(row);
+            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, request: row, coverage: null }) });
+            return;
+          }
+          if (payload.action === "cancel_request") {
+            state.requestCalls.push(payload);
+            const row = state.requests.find((item) => item.id === payload.request_id);
+            row.state = "cancelled";
+            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, request: row }) });
+            return;
+          }
+          if (payload.week_start === CUR_WEEK) {
+            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(currentWeekPayload(state.requests)) });
+            return;
+          }
           if (payload.action === "submit") { state.shiftCalls.push(payload); state.shiftMine = Object.fromEntries(payload.entries.map((e) => [Math.round((Date.parse(e.work_date) - Date.parse(SHIFT_WEEK)) / 86400000), e.shift_code])); }
           body = shiftPayload(state.shiftMine);
         }
@@ -349,6 +379,57 @@ try {
     assert.ok((await overflow(page)) <= 0, `no overflow shift week ${w}`);
     assert.deepEqual(errors, []);
     record(`shift registration ${w}`);
+    await context.close();
+  }
+
+  // Change / leave requests on the running (published) week.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1440, height: 900 }]) {
+    const w = viewport.width;
+    const { context, page, errors, state } = await open(viewport, { shifts: true });
+    const panel = page.locator(`[data-shift-requests="${CUR_WEEK}"]`);
+    await panel.waitFor({ timeout: 15_000 });
+    assert.equal(await page.locator(`[data-shift-requests="${SHIFT_WEEK}"]`).count(), 0, "open week takes no request");
+    await panel.locator('[data-shift-request="change"]').click();
+    let sheet = page.getByRole("dialog", { name: "Xin đổi ca" });
+    await sheet.waitFor();
+    let submit = sheet.locator("[data-shift-request-submit]");
+    assert.equal(await submit.isEnabled(), false, "needs day, shift and reason");
+    const dayButtons = sheet.locator("[data-shift-request-day]");
+    const firstDay = await dayButtons.first().getAttribute("data-shift-request-day");
+    assert.equal(firstDay, today, "past days are not offered");
+    const offered = await dayButtons.count();
+    await dayButtons.first().click();
+    assert.equal(await sheet.locator('[data-shift-request-target="ca-0700"]').count(), 0, "current shift is not a target");
+    await sheet.locator('[data-shift-request-target="ca-0600"]').click();
+    assert.equal(await submit.isEnabled(), false, "reason still missing");
+    await sheet.locator("#shift-request-reason").fill("Sáng đưa con đi khám, xin vào sớm hơn");
+    assert.ok((await overflow(page)) <= 0, `no overflow request sheet ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/shift-request-sheet-${w}.png` });
+    await submit.click();
+    await panel.locator('[data-shift-request-row="pending"]').waitFor({ timeout: 10_000 });
+    assert.deepEqual(
+      { ...state.requestCalls[0], session_token: undefined },
+      { action: "request", work_date: today, kind: "change", to_shift_code: "ca-0600", reason: "Sáng đưa con đi khám, xin vào sớm hơn", session_token: undefined },
+    );
+    assert.ok((await panel.innerText()).includes("Đổi ca 07:00 → 06:00"));
+    assert.ok((await panel.innerText()).includes("Chờ duyệt"));
+    // A day with a waiting request is not offered again.
+    if (offered > 1) {
+      await panel.locator('[data-shift-request="leave"]').click();
+      sheet = page.getByRole("dialog", { name: "Báo nghỉ đột xuất" });
+      await sheet.waitFor();
+      assert.equal(await sheet.locator(`[data-shift-request-day="${today}"]`).count(), 0, "pending day hidden");
+      await sheet.getByRole("button", { name: "Đóng" }).click();
+    }
+    await panel.locator("[data-shift-request-cancel]").click();
+    await panel.locator('[data-shift-request-row="cancelled"]').waitFor({ timeout: 10_000 });
+    assert.equal(state.requestCalls.at(-1).action, "cancel_request");
+    assert.equal(state.requestCalls.at(-1).request_id, "req-1");
+    await panel.scrollIntoViewIfNeeded();
+    assert.ok((await overflow(page)) <= 0, `no overflow request list ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/shift-request-list-${w}.png`, fullPage: true });
+    assert.deepEqual(errors, []);
+    record(`shift change request ${w}`);
     await context.close();
   }
 

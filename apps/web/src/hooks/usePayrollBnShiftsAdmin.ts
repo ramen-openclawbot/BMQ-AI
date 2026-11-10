@@ -31,12 +31,14 @@ const client = supabase as unknown as PayrollBnShiftsAdminClient;
 export interface PayrollBnShiftSettings {
   id: boolean;
   eligible_groups: string[];
+  extra_employee_codes: string[];
   open_iso_dow: number;
   deadline_iso_dow: number;
   deadline_time: string;
   max_off_per_day: number;
   min_staff_per_day: number;
   min_off_days_per_week: number;
+  late_grace_minutes: number;
 }
 
 export interface PayrollBnShiftType {
@@ -146,6 +148,7 @@ export interface PayrollBnShiftBoard {
   week: PayrollBnShiftWeekRow | null;
   coverage: PayrollBnShiftCoverage;
   employees: PayrollBnShiftEmployee[];
+  pending_requests: number;
   totals: {
     employees: number;
     entries: number;
@@ -175,8 +178,67 @@ export interface PayrollBnShiftConfigInput {
   settings?: Partial<Omit<PayrollBnShiftSettings, "id">>;
 }
 
+export type PayrollBnShiftRequestKind = "change" | "leave";
+export type PayrollBnShiftRequestState =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "cancelled";
+
+export interface PayrollBnShiftRequest {
+  id: string;
+  week_start: string;
+  work_date: string;
+  employee_code: string;
+  employee_name: string;
+  kind: PayrollBnShiftRequestKind;
+  from_shift_code: string | null;
+  to_shift_code: string | null;
+  reason: string;
+  state: PayrollBnShiftRequestState;
+  decision_note: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  created_at: string;
+  updated_at: string;
+  current_shift_code: string | null;
+  current_state: "registered" | "waitlist" | null;
+  current_source: "employee" | "manager" | "carried" | null;
+  impact: Record<string, unknown> | null;
+}
+
+export interface PayrollBnShiftRequestsResult {
+  week_start: string;
+  state: string | null;
+  requests: PayrollBnShiftRequest[];
+}
+
+export type PayrollBnShiftAttendanceFlagKind =
+  | "no_show"
+  | "late"
+  | "unscheduled"
+  | "missing_out";
+
+export interface PayrollBnShiftAttendanceFlag {
+  employee_code: string;
+  name: string;
+  work_date: string;
+  shift_code: string | null;
+  shift_start: string | null;
+  kind: PayrollBnShiftAttendanceFlagKind;
+  check_in_at: string | null;
+  check_out_at: string | null;
+  minutes_late: number | null;
+}
+
+export interface PayrollBnShiftAttendanceFlagsResult {
+  week_start: string;
+  flags: PayrollBnShiftAttendanceFlag[];
+}
+
 export interface PayrollBnShiftsAdminOptions {
   weekStart?: string | null;
+  requestsState?: string | null;
   enabled?: boolean;
 }
 
@@ -193,10 +255,88 @@ async function callRpc(name: string, args: Record<string, unknown>): Promise<unk
   return data;
 }
 
+/** Manager request list for one week, optionally filtered by state. */
+export function useShiftRequests(
+  weekStart: string | null,
+  state: string | null = null,
+  options: { enabled?: boolean } = {},
+) {
+  const query = useQuery({
+    queryKey: ["payroll-bn-shift-requests", weekStart, state],
+    enabled: options.enabled ?? true,
+    queryFn: async (): Promise<PayrollBnShiftRequestsResult> => {
+      const data = await callRpc("list_payroll_bn_shift_requests", {
+        p_week_start: weekStart,
+        p_state: state,
+      });
+      if (data && typeof data === "object") {
+        const payload = data as PayrollBnShiftRequestsResult;
+        return {
+          week_start: payload.week_start ?? (weekStart ?? ""),
+          state: payload.state ?? state,
+          requests: Array.isArray(payload.requests) ? payload.requests : [],
+        };
+      }
+      return { week_start: weekStart ?? "", state, requests: [] };
+    },
+  });
+  return { ...query, requests: query.data?.requests ?? [] };
+}
+
+/** Attendance-vs-schedule flags for one published week. */
+export function useShiftAttendanceFlags(
+  weekStart: string | null,
+  options: { enabled?: boolean } = {},
+) {
+  const query = useQuery({
+    queryKey: ["payroll-bn-shift-attendance-flags", weekStart],
+    enabled: options.enabled ?? true,
+    queryFn: async (): Promise<PayrollBnShiftAttendanceFlagsResult> => {
+      const data = await callRpc("get_payroll_bn_shift_attendance_flags", {
+        p_week_start: weekStart,
+      });
+      if (data && typeof data === "object") {
+        const payload = data as PayrollBnShiftAttendanceFlagsResult;
+        return {
+          week_start: payload.week_start ?? (weekStart ?? ""),
+          flags: Array.isArray(payload.flags) ? payload.flags : [],
+        };
+      }
+      return { week_start: weekStart ?? "", flags: [] };
+    },
+  });
+  return { ...query, flags: query.data?.flags ?? [] };
+}
+
+/** Approve/reject one request; refreshes the board, request list and flags. */
+export function useDecideShiftRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      requestId: string;
+      approve: boolean;
+      note?: string | null;
+    }) =>
+      callRpc("decide_payroll_bn_shift_request", {
+        p_request_id: input.requestId,
+        p_approve: input.approve,
+        p_note: input.note ?? null,
+      }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["payroll-bn-shifts"] }),
+        queryClient.invalidateQueries({ queryKey: ["payroll-bn-shift-requests"] }),
+        queryClient.invalidateQueries({ queryKey: ["payroll-bn-shift-attendance-flags"] }),
+      ]);
+    },
+  });
+}
+
 export function usePayrollBnShiftsAdmin(options: PayrollBnShiftsAdminOptions = {}) {
   const queryClient = useQueryClient();
   const enabled = options.enabled ?? true;
   const weekStart = options.weekStart ?? null;
+  const requestsState = options.requestsState ?? null;
 
   const boardQuery = useQuery({
     queryKey: ["payroll-bn-shifts", weekStart],
@@ -209,8 +349,18 @@ export function usePayrollBnShiftsAdmin(options: PayrollBnShiftsAdminOptions = {
     },
   });
 
+  const requestsQuery = useShiftRequests(weekStart, requestsState, { enabled });
+  const attendanceFlagsQuery = useShiftAttendanceFlags(weekStart, { enabled });
+  const decideRequest = useDecideShiftRequest();
+
+  // Editing a cell, publishing or reopening also changes request impact and
+  // which days count as off-schedule, so all three lists refresh together.
   const invalidate = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: ["payroll-bn-shifts"] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["payroll-bn-shifts"] }),
+      queryClient.invalidateQueries({ queryKey: ["payroll-bn-shift-requests"] }),
+      queryClient.invalidateQueries({ queryKey: ["payroll-bn-shift-attendance-flags"] }),
+    ]);
   }, [queryClient]);
 
   const setEntryMutation = useMutation({
@@ -272,6 +422,11 @@ export function usePayrollBnShiftsAdmin(options: PayrollBnShiftsAdminOptions = {
     employees: boardQuery.data?.employees ?? [],
     coverage: boardQuery.data?.coverage ?? null,
     warnings: boardQuery.data?.warnings ?? null,
+    requestsQuery,
+    requests: requestsQuery.requests,
+    decideRequest,
+    attendanceFlagsQuery,
+    flags: attendanceFlagsQuery.flags,
     setEntry: setEntryMutation,
     publish: publishMutation,
     reopen: reopenMutation,

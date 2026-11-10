@@ -582,3 +582,303 @@ export function cutoffForDate(
   if (!type || !isValidTime(type.start_time)) return fallback;
   return minutesToText(timeTextToMinutes(type.start_time)!);
 }
+
+// ---------------------------------------------------------------------------
+// Phase 2: change / leave requests, pure validation + transport normalisation
+// ---------------------------------------------------------------------------
+
+export type PayrollShiftRequestKind = "change" | "leave";
+export type PayrollShiftRequestState = "pending" | "approved" | "rejected" | "cancelled";
+
+export const SHIFT_REQUEST_KINDS: readonly PayrollShiftRequestKind[] = ["change", "leave"];
+
+export const SHIFT_REQUEST_ERROR_USE_REGISTRATION = "shift_request_use_registration";
+export const SHIFT_REQUEST_ERROR_PAST_DATE = "shift_request_past_date";
+export const SHIFT_REQUEST_ERROR_CLOSED_DATE = "shift_request_closed_date";
+export const SHIFT_REQUEST_ERROR_NO_SHIFT = "shift_request_no_shift";
+export const SHIFT_REQUEST_ERROR_DUPLICATE = "shift_request_duplicate";
+export const SHIFT_REQUEST_ERROR_SAME_SHIFT = "shift_request_same_shift";
+export const SHIFT_REQUEST_ERROR_INVALID_KIND = "shift_request_invalid_kind";
+export const SHIFT_REQUEST_ERROR_REASON_REQUIRED = "shift_request_reason_required";
+export const SHIFT_REQUEST_ERROR_NOT_FOUND = "shift_request_not_found";
+export const SHIFT_REQUEST_ERROR_NOT_PENDING = "shift_request_not_pending";
+export const SHIFT_REQUEST_ERROR_STALE = "shift_request_stale";
+export const SHIFT_REQUEST_ERROR_NOTE_TOO_LONG = "shift_request_note_too_long";
+
+export interface PayrollShiftRequestInput {
+  work_date?: unknown;
+  kind?: unknown;
+  to_shift_code?: unknown;
+  reason?: unknown;
+}
+
+export interface PayrollShiftRequestValidation {
+  ok: boolean;
+  error: string | null;
+  kind: PayrollShiftRequestKind;
+  workDate: string;
+  toShiftCode: string | null;
+  reason: string;
+}
+
+export interface NormalizedShiftRequest {
+  id: string;
+  work_date: string;
+  kind: PayrollShiftRequestKind;
+  from_shift_code: string | null;
+  to_shift_code: string | null;
+  reason: string;
+  state: PayrollShiftRequestState;
+  decision_note: string | null;
+  created_at: string | null;
+  decided_at: string | null;
+}
+
+export interface ShiftErrorMapping {
+  status: number;
+  code: string;
+  message: string;
+}
+
+export function isShiftRequestKind(value: unknown): value is PayrollShiftRequestKind {
+  return typeof value === "string"
+    && (SHIFT_REQUEST_KINDS as readonly string[]).includes(value.trim().toLowerCase());
+}
+
+export function isShiftRequestState(value: unknown): value is PayrollShiftRequestState {
+  return value === "pending"
+    || value === "approved"
+    || value === "rejected"
+    || value === "cancelled";
+}
+
+/**
+ * Validate the employee request body before it reaches SQL. Mirrors the SQL
+ * rules and returns the same error codes. `today` is the ICT date.
+ */
+export function validateShiftRequestInput(
+  input: PayrollShiftRequestInput,
+  today: string = vietnamYmd(),
+): PayrollShiftRequestValidation {
+  const workDate = typeof input.work_date === "string" ? input.work_date.trim() : "";
+  const kindText = typeof input.kind === "string" ? input.kind.trim().toLowerCase() : "";
+  const toShiftCode = typeof input.to_shift_code === "string" && input.to_shift_code.trim() !== ""
+    ? input.to_shift_code.trim()
+    : null;
+  const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+  const kind: PayrollShiftRequestKind = isShiftRequestKind(kindText) ? kindText : "change";
+
+  if (!isShiftRequestKind(kindText)) {
+    return {
+      ok: false,
+      error: SHIFT_REQUEST_ERROR_INVALID_KIND,
+      kind,
+      workDate,
+      toShiftCode,
+      reason,
+    };
+  }
+  if (!parseYmd(workDate)) {
+    return {
+      ok: false,
+      error: "shift_request_work_date_required",
+      kind,
+      workDate,
+      toShiftCode,
+      reason,
+    };
+  }
+  if (today && workDate < today) {
+    return {
+      ok: false,
+      error: SHIFT_REQUEST_ERROR_PAST_DATE,
+      kind,
+      workDate,
+      toShiftCode,
+      reason,
+    };
+  }
+  if (kind === "change" && toShiftCode === null) {
+    return {
+      ok: false,
+      error: SHIFT_ERROR_INVALID_SHIFT,
+      kind,
+      workDate,
+      toShiftCode,
+      reason,
+    };
+  }
+  if (reason.length < 3 || reason.length > 500) {
+    return {
+      ok: false,
+      error: SHIFT_REQUEST_ERROR_REASON_REQUIRED,
+      kind,
+      workDate,
+      toShiftCode,
+      reason,
+    };
+  }
+
+  return {
+    ok: true,
+    error: null,
+    kind,
+    workDate,
+    toShiftCode: kind === "leave" ? null : toShiftCode,
+    reason,
+  };
+}
+
+/** Normalise a SQL request row; tolerates missing optional fields. */
+export function normalizeShiftRequest(value: unknown): NormalizedShiftRequest | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const id = typeof row.id === "string" ? row.id : "";
+  if (id === "") return null;
+
+  const kind = isShiftRequestKind(row.kind) ? (row.kind as string).trim().toLowerCase() as PayrollShiftRequestKind : "change";
+  const state = isShiftRequestState(row.state) ? row.state : "pending";
+  return {
+    id,
+    work_date: typeof row.work_date === "string" ? row.work_date : "",
+    kind,
+    from_shift_code: typeof row.from_shift_code === "string" ? row.from_shift_code : null,
+    to_shift_code: typeof row.to_shift_code === "string" ? row.to_shift_code : null,
+    reason: typeof row.reason === "string" ? row.reason : "",
+    state,
+    decision_note: typeof row.decision_note === "string" ? row.decision_note : null,
+    created_at: typeof row.created_at === "string" ? row.created_at : null,
+    decided_at: typeof row.decided_at === "string" ? row.decided_at : null,
+  };
+}
+
+/**
+ * Vietnamese message + HTTP status for the phase 2 SQL error codes. The Edge
+ * Function passes either an error object or a raw error string.
+ */
+export function mapShiftRequestError(raw: unknown): ShiftErrorMapping {
+  const message = typeof raw === "string"
+    ? raw
+    : raw && typeof raw === "object" && typeof (raw as { message?: unknown }).message === "string"
+      ? String((raw as { message: string }).message)
+      : "";
+  const lowered = message.toLowerCase();
+
+  if (lowered.includes(SHIFT_REQUEST_ERROR_USE_REGISTRATION)) {
+    return {
+      status: 409,
+      code: SHIFT_REQUEST_ERROR_USE_REGISTRATION,
+      message: "Tuần này vẫn đang mở đăng ký. Vui lòng sửa đăng ký ca thay vì gửi yêu cầu.",
+    };
+  }
+  if (lowered.includes(SHIFT_REQUEST_ERROR_PAST_DATE)) {
+    return {
+      status: 400,
+      code: SHIFT_REQUEST_ERROR_PAST_DATE,
+      message: "Chỉ có thể gửi yêu cầu cho hôm nay hoặc ngày sau.",
+    };
+  }
+  if (lowered.includes(SHIFT_REQUEST_ERROR_CLOSED_DATE)) {
+    return {
+      status: 400,
+      code: SHIFT_REQUEST_ERROR_CLOSED_DATE,
+      message: "Ngày này đã được đóng, không thể đổi ca hoặc báo nghỉ.",
+    };
+  }
+  if (lowered.includes(SHIFT_REQUEST_ERROR_NO_SHIFT)) {
+    return {
+      status: 400,
+      code: SHIFT_REQUEST_ERROR_NO_SHIFT,
+      message: "Ngày này bạn không có ca làm đã đăng ký để báo nghỉ.",
+    };
+  }
+  if (lowered.includes(SHIFT_REQUEST_ERROR_DUPLICATE)) {
+    return {
+      status: 409,
+      code: SHIFT_REQUEST_ERROR_DUPLICATE,
+      message: "Bạn đã có một yêu cầu đang chờ cho ngày này.",
+    };
+  }
+  if (lowered.includes(SHIFT_REQUEST_ERROR_SAME_SHIFT)) {
+    return {
+      status: 400,
+      code: SHIFT_REQUEST_ERROR_SAME_SHIFT,
+      message: "Ca mới trùng với ca hiện tại.",
+    };
+  }
+  if (lowered.includes(SHIFT_REQUEST_ERROR_INVALID_KIND)) {
+    return {
+      status: 400,
+      code: SHIFT_REQUEST_ERROR_INVALID_KIND,
+      message: "Loại yêu cầu không hợp lệ.",
+    };
+  }
+  if (lowered.includes("shift_request_work_date_required")) {
+    return {
+      status: 400,
+      code: "shift_request_work_date_required",
+      message: "Ngày yêu cầu không hợp lệ.",
+    };
+  }
+  if (lowered.includes(SHIFT_REQUEST_ERROR_REASON_REQUIRED)) {
+    return {
+      status: 400,
+      code: SHIFT_REQUEST_ERROR_REASON_REQUIRED,
+      message: "Vui lòng nhập lý do (3–500 ký tự).",
+    };
+  }
+  if (lowered.includes(SHIFT_REQUEST_ERROR_NOT_FOUND)) {
+    return {
+      status: 404,
+      code: SHIFT_REQUEST_ERROR_NOT_FOUND,
+      message: "Không tìm thấy yêu cầu.",
+    };
+  }
+  if (lowered.includes(SHIFT_REQUEST_ERROR_NOT_PENDING)) {
+    return {
+      status: 409,
+      code: SHIFT_REQUEST_ERROR_NOT_PENDING,
+      message: "Yêu cầu này đã được xử lý.",
+    };
+  }
+  if (lowered.includes(SHIFT_REQUEST_ERROR_STALE)) {
+    return {
+      status: 409,
+      code: SHIFT_REQUEST_ERROR_STALE,
+      message: "Lịch ngày này đã thay đổi. Yêu cầu chưa được duyệt.",
+    };
+  }
+  if (lowered.includes(SHIFT_REQUEST_ERROR_NOTE_TOO_LONG)) {
+    return {
+      status: 400,
+      code: SHIFT_REQUEST_ERROR_NOTE_TOO_LONG,
+      message: "Ghi chú quyết định quá dài (tối đa 1000 ký tự).",
+    };
+  }
+  if (lowered.includes("shift_not_eligible")) {
+    return {
+      status: 403,
+      code: "shift_not_eligible",
+      message: "Bạn không thuộc nhóm nhân viên được đăng ký ca.",
+    };
+  }
+  if (lowered.includes("shift_invalid_shift")) {
+    return {
+      status: 400,
+      code: "shift_invalid_shift",
+      message: "Ca làm không hợp lệ hoặc đã ngừng sử dụng.",
+    };
+  }
+  if (lowered.includes("shift_registration_closed")) {
+    return {
+      status: 409,
+      code: "shift_registration_closed",
+      message: "Đã hết hạn đăng ký ca tuần này. Vui lòng liên hệ quản lý.",
+    };
+  }
+  return {
+    status: 500,
+    code: "payslip_shift_failed",
+    message: "Không thể gửi yêu cầu đổi ca. Vui lòng thử lại.",
+  };
+}

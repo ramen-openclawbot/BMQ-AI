@@ -12,6 +12,10 @@ import {
   normalizePayslipDeviceId,
   PAYSLIP_SESSION_TOKEN_PREFIX,
 } from "../_shared/payslip-portal.ts";
+import {
+  mapShiftRequestError,
+  validateShiftRequestInput,
+} from "../_shared/payroll-shifts.ts";
 
 // Employee-facing weekly shift registration endpoint.
 //
@@ -47,6 +51,17 @@ function extractDeviceId(body: Record<string, unknown>, req: Request): string | 
 
 function isYmd(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+}
+
+function isUuid(value: unknown): value is string {
+  return typeof value === "string"
+    && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value.trim());
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 /** Map the SQL error codes/messages to employee-facing Vietnamese text. */
@@ -197,7 +212,12 @@ serve(async (req) => {
     }
 
     const action = typeof body.action === "string" ? body.action.trim().toLowerCase() : "";
-    if (action !== "get" && action !== "submit") {
+    if (
+      action !== "get"
+      && action !== "submit"
+      && action !== "request"
+      && action !== "cancel_request"
+    ) {
       return errorResponse(req, "Thao tác đăng ký ca không hợp lệ.", 400, "invalid_action");
     }
 
@@ -220,6 +240,56 @@ serve(async (req) => {
         return errorResponse(req, mapped.message, mapped.status, mapped.code);
       }
       return jsonResponse(req, { success: true, week: data ?? null });
+    }
+
+    if (action === "request") {
+      const validation = validateShiftRequestInput({
+        work_date: body.work_date,
+        kind: body.kind,
+        to_shift_code: body.to_shift_code,
+        reason: body.reason,
+      });
+      if (!validation.ok) {
+        const mapped = mapShiftRequestError(validation.error);
+        return errorResponse(req, mapped.message, mapped.status, mapped.code);
+      }
+
+      const { data, error } = await supabase.rpc("submit_payroll_bn_shift_request", {
+        p_employee_code: session.employee_code,
+        p_work_date: validation.workDate,
+        p_kind: validation.kind,
+        p_to_shift_code: validation.toShiftCode,
+        p_reason: validation.reason,
+      });
+      if (error) {
+        const mapped = mapShiftRequestError(error);
+        return errorResponse(req, mapped.message, mapped.status, mapped.code);
+      }
+      const result = asObject(data);
+      return jsonResponse(req, {
+        success: true,
+        request: result.request ?? null,
+        coverage: result.coverage ?? null,
+      });
+    }
+
+    if (action === "cancel_request") {
+      const requestId = typeof body.request_id === "string" ? body.request_id.trim() : "";
+      if (!isUuid(requestId)) {
+        const mapped = mapShiftRequestError("shift_request_not_found");
+        return errorResponse(req, mapped.message, mapped.status, mapped.code);
+      }
+
+      const { data, error } = await supabase.rpc("cancel_payroll_bn_shift_request", {
+        p_employee_code: session.employee_code,
+        p_request_id: requestId,
+      });
+      if (error) {
+        const mapped = mapShiftRequestError(error);
+        return errorResponse(req, mapped.message, mapped.status, mapped.code);
+      }
+      const result = asObject(data);
+      return jsonResponse(req, { success: true, request: result.request ?? null });
     }
 
     if (!Array.isArray(body.entries)) {

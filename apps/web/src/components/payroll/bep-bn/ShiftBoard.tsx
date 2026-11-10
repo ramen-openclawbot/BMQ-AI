@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { ShiftRequestsAdmin } from "./ShiftRequestsAdmin";
 import {
   usePayrollBnShiftsAdmin,
   type PayrollBnShiftBoard,
@@ -67,6 +68,10 @@ export function ShiftBoard() {
   const types = board?.shift_types ?? [];
   const toneOf = (code: string) => TONES[Math.max(0, types.findIndex((type) => type.code === code)) % TONES.length];
   const timeOf = (code: string) => types.find((type) => type.code === code)?.start_time ?? code;
+  const groupLabel = (group: string) => {
+    const members = (board?.quotas ?? []).filter((quota) => quota.quota_group === group).map((quota) => timeOf(quota.shift_code));
+    return members.length > 0 ? `ca ${[...new Set(members)].join(" + ")}` : `nhóm ${group}`;
+  };
   const nameOf = (code: string) => board?.employees.find((employee) => employee.employee_code === code)?.employee_name ?? code;
 
   return (
@@ -85,7 +90,7 @@ export function ShiftBoard() {
             </CardTitle>
             <CardDescription>
               {board
-                ? `Đã đăng ký ${board.totals.employees - board.totals.unregistered}/${board.totals.employees} · ${published ? "đã công bố" : "chưa công bố"}`
+                ? `Đã đăng ký ${board.totals.employees - board.totals.unregistered}/${board.totals.employees} · ${published ? "đã công bố" : "chưa công bố"}${board.pending_requests > 0 ? ` · ${board.pending_requests} yêu cầu chờ duyệt` : ""}`
                 : "Đang tải…"}
             </CardDescription>
           </div>
@@ -202,6 +207,29 @@ export function ShiftBoard() {
             {board.totals.waitlist > 0 ? <p><b>Danh sách chờ:</b> {board.totals.waitlist} ô viền cam. Chọn lại ca trong ô để xếp chính thức.</p> : null}
           </CardContent>
         </Card>
+      ) : null}
+
+      {board && types.length > 0 ? (
+        <ShiftRequestsAdmin
+          published={published}
+          requests={admin.requests}
+          requestsLoading={admin.requestsQuery.isLoading}
+          flags={admin.flags}
+          flagsLoading={admin.attendanceFlagsQuery.isLoading}
+          deciding={admin.decideRequest.isPending}
+          timeOf={timeOf}
+          groupLabel={groupLabel}
+          onDecide={async (request, approve, note) => {
+            try {
+              await admin.decideRequest.mutateAsync({ requestId: request.id, approve, note: note === "" ? null : note });
+              toast({ title: approve ? "Đã duyệt, lịch đã cập nhật" : "Đã từ chối yêu cầu" });
+              return true;
+            } catch (error) {
+              toast({ title: "Không thực hiện được", description: errorText(error), variant: "destructive" });
+              return false;
+            }
+          }}
+        />
       ) : null}
 
       {board ? (
@@ -401,6 +429,7 @@ function ConfigDialog({
   const [deadlineDow, setDeadlineDow] = useState(String(board.settings.deadline_iso_dow));
   const [deadlineTime, setDeadlineTime] = useState(String(board.settings.deadline_time).slice(0, 5));
   const [openDow, setOpenDow] = useState(String(board.settings.open_iso_dow));
+  const [lateGrace, setLateGrace] = useState(String(board.settings.late_grace_minutes ?? 0));
 
   const set = (index: number, patch: Partial<ShiftDraft>) => setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   const timeOk = (value: string) => /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(value);
@@ -410,7 +439,7 @@ function ConfigDialog({
     rows.length > 0 &&
     rows.every((row) => timeOk(row.startTime) && numOk(row.needed)) &&
     new Set(starts).size === starts.length &&
-    numOk(maxOff) && numOk(minStaff) && timeOk(deadlineTime);
+    numOk(maxOff) && numOk(minStaff) && timeOk(deadlineTime) && numOk(lateGrace) && Number(lateGrace) <= 120;
 
   return (
     <Dialog open={open} onOpenChange={(next) => (!next && !saving ? onClose() : undefined)}>
@@ -455,6 +484,10 @@ function ConfigDialog({
               <Input type="time" className="w-28" value={deadlineTime} onChange={(e) => setDeadlineTime(e.target.value)} aria-label="Giờ hạn chót" />
             </div>
           </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="shift-late-grace">Vào trễ quá bao nhiêu phút thì báo lệch lịch (0–120)</Label>
+            <Input id="shift-late-grace" inputMode="numeric" className="sm:w-40" value={lateGrace} onChange={(e) => setLateGrace(e.target.value)} />
+          </div>
         </div>
         {!valid ? <p className="text-xs text-destructive">Kiểm tra lại: giờ vào ca không trùng nhau và đúng dạng HH:MM, số người là số nguyên.</p> : null}
         <DialogFooter className="gap-2 sm:gap-0">
@@ -482,6 +515,7 @@ function ConfigDialog({
                   deadline_iso_dow: Number(deadlineDow),
                   deadline_time: deadlineTime,
                   open_iso_dow: Number(openDow),
+                  late_grace_minutes: Number(lateGrace),
                 },
               })
             }

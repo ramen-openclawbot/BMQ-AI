@@ -12,6 +12,11 @@ import type {
   PayrollShiftMyEntry,
   PayrollShiftQuotaGroupCell,
   PayrollShiftRegistrationEntry,
+  PayrollShiftRequest,
+  PayrollShiftRequestInput,
+  PayrollShiftRequestKind,
+  PayrollShiftRequestResult,
+  PayrollShiftRequestState,
   PayrollShiftSource,
   PayrollShiftSourceType,
   PayrollShiftState,
@@ -79,6 +84,8 @@ function serverMessage(data: Record<string, unknown> | null): string | null {
 
 const SHIFT_ERROR = "Không tải được lịch ca. Vui lòng thử lại.";
 const SUBMIT_ERROR = "Không thể đăng ký ca. Vui lòng thử lại.";
+const REQUEST_ERROR = "Không thể gửi yêu cầu đổi ca. Vui lòng thử lại.";
+const CANCEL_ERROR = "Không thể huỷ yêu cầu. Vui lòng thử lại.";
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -232,6 +239,45 @@ function asCurrentEntry(value: unknown): PayrollShiftCurrentEntry | null {
   };
 }
 
+function asRequestKind(value: unknown): PayrollShiftRequestKind {
+  return value === "leave" ? "leave" : "change";
+}
+
+function asRequestState(value: unknown): PayrollShiftRequestState {
+  if (value === "approved" || value === "rejected" || value === "cancelled") return value;
+  return "pending";
+}
+
+function asRequest(value: unknown): PayrollShiftRequest | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const id = asString(row.id);
+  if (id === "") return null;
+  return {
+    id,
+    workDate: asString(row.work_date),
+    kind: asRequestKind(row.kind),
+    fromShiftCode: typeof row.from_shift_code === "string" ? row.from_shift_code : null,
+    toShiftCode: typeof row.to_shift_code === "string" ? row.to_shift_code : null,
+    reason: asString(row.reason),
+    state: asRequestState(row.state),
+    decisionNote: typeof row.decision_note === "string" ? row.decision_note : null,
+    createdAt: asNullableString(row.created_at),
+    decidedAt: asNullableString(row.decided_at),
+  };
+}
+
+/** Normalise the Edge Function result of a change/leave request. */
+export function normalizeShiftRequestResult(
+  data: Record<string, unknown> | null,
+): PayrollShiftRequestResult {
+  const request = asRequest(data?.request);
+  const coverage = data?.coverage && typeof data.coverage === "object"
+    ? asDay(data.coverage)
+    : null;
+  return { request, coverage };
+}
+
 function emptyWeek(): PayrollShiftWeek {
   return {
     eligible: false,
@@ -247,6 +293,8 @@ function emptyWeek(): PayrollShiftWeek {
     days: [],
     suggestion: [],
     currentWeek: [],
+    requests: [],
+    canRequest: false,
   };
 }
 
@@ -276,6 +324,12 @@ export function normalizeShiftWeek(data: Record<string, unknown> | null): Payrol
         .map(asCurrentEntry)
         .filter((entry): entry is PayrollShiftCurrentEntry => entry !== null)
       : [],
+    requests: Array.isArray(row.requests)
+      ? row.requests
+        .map(asRequest)
+        .filter((request): request is PayrollShiftRequest => request !== null)
+      : [],
+    canRequest: row.can_request === true,
   };
 }
 
@@ -379,6 +433,47 @@ export function createPayrollShiftApi(
         throw new Error(serverMessage(result.data) || SUBMIT_ERROR);
       }
       return normalizeShiftWeek(result.data);
+    },
+
+    async requestChange(input: PayrollShiftRequestInput) {
+      const { token, deviceId } = requireSession();
+      const response = await post(
+        {
+          action: "request",
+          work_date: input.workDate,
+          kind: input.kind,
+          to_shift_code: input.toShiftCode ?? null,
+          reason: input.reason,
+          session_token: token,
+        },
+        token,
+        deviceId,
+      );
+      const result = await parse(response);
+      if (result.status === 401) handleUnauthorized(result);
+      if (!result.ok) {
+        throw new Error(serverMessage(result.data) || REQUEST_ERROR);
+      }
+      return normalizeShiftRequestResult(result.data);
+    },
+
+    async cancelRequest(requestId: string) {
+      const { token, deviceId } = requireSession();
+      const response = await post(
+        {
+          action: "cancel_request",
+          request_id: requestId,
+          session_token: token,
+        },
+        token,
+        deviceId,
+      );
+      const result = await parse(response);
+      if (result.status === 401) handleUnauthorized(result);
+      if (!result.ok) {
+        throw new Error(serverMessage(result.data) || CANCEL_ERROR);
+      }
+      return asRequest(result.data?.request);
     },
   };
 }

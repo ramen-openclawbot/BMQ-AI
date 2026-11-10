@@ -9,6 +9,7 @@ import {
   type PayrollShiftType,
   type PayrollShiftWeek,
 } from "@/lib/payslip-portal/types";
+import { ShiftRequestPanel } from "./ShiftRequestPanel";
 
 const BRAND_GRADIENT = { background: "linear-gradient(90deg, #dc4f78 0%, #dc527a 100%)" };
 const WEEKDAYS = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
@@ -36,6 +37,11 @@ function addDays(date: string, days: number): string {
 
 function todayVietnam(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+function mondayOf(date: string): string {
+  const dow = new Date(`${date.slice(0, 10)}T00:00:00Z`).getUTCDay() || 7;
+  return addDays(date, 1 - dow);
 }
 
 function deadlineText(value: string | null): string {
@@ -68,12 +74,22 @@ export interface ShiftPanelProps {
  */
 export function ShiftPanel({ source, onSessionExpired }: ShiftPanelProps) {
   const [week, setWeek] = useState<PayrollShiftWeek | null>(null);
+  // The running week, loaded separately: change/leave requests are mostly
+  // about today and the next few days, not the week being registered.
+  const [thisWeek, setThisWeek] = useState<PayrollShiftWeek | null>(null);
   const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setWeek(await source.getShiftWeek());
+      const next = await source.getShiftWeek();
+      setWeek(next);
+      const currentStart = mondayOf(todayVietnam());
+      if (!next.eligible || next.shiftTypes.length === 0 || next.week.weekStart === currentStart) {
+        setThisWeek(null);
+        return;
+      }
+      setThisWeek(await source.getShiftWeek(currentStart));
     } catch (err) {
       if (err instanceof PayslipSessionExpiredError) onSessionExpired(err.message);
     }
@@ -125,6 +141,10 @@ export function ShiftPanel({ source, onSessionExpired }: ShiftPanelProps) {
         </div>
       ) : null}
 
+      {thisWeek ? (
+        <ShiftRequestPanel week={thisWeek} today={today} source={source} onChanged={load} onSessionExpired={onSessionExpired} />
+      ) : null}
+
       {info.canEdit ? (
         <div
           className="mt-3 rounded-[22px] p-4 text-white shadow-[0_14px_28px_rgba(220,79,120,0.28)]"
@@ -173,6 +193,8 @@ export function ShiftPanel({ source, onSessionExpired }: ShiftPanelProps) {
           Tuần {weekRange}: {published ? "bạn chưa có lịch, vui lòng hỏi quản lý." : "chưa mở hoặc đã hết hạn đăng ký. Quản lý sẽ xếp ca cho bạn."}
         </p>
       ) : null}
+
+      <ShiftRequestPanel week={week} today={today} source={source} onChanged={load} onSessionExpired={onSessionExpired} />
 
       {open ? (
         <RegisterSheet

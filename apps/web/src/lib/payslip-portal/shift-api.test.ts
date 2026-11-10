@@ -130,6 +130,21 @@ function weekPayload() {
           source: "manager",
         },
       ],
+      requests: [
+        {
+          id: "req-1",
+          work_date: "2026-11-10",
+          kind: "change",
+          from_shift_code: "sang",
+          to_shift_code: "chieu",
+          reason: "Đổi lịch gia đình",
+          state: "pending",
+          decision_note: null,
+          created_at: "2026-11-06T08:00:00+00:00",
+          decided_at: null,
+        },
+      ],
+      can_request: true,
     },
   };
 }
@@ -165,6 +180,12 @@ test("getShiftWeek sends session/device headers and normalises the payload", asy
   assert.equal(week.suggestion[0].carried, true);
   assert.equal(week.currentWeek[0].shiftCode, null);
   assert.equal(week.currentWeek[0].source, "manager");
+  assert.equal(week.canRequest, true);
+  assert.equal(week.requests[0].id, "req-1");
+  assert.equal(week.requests[0].kind, "change");
+  assert.equal(week.requests[0].fromShiftCode, "sang");
+  assert.equal(week.requests[0].toShiftCode, "chieu");
+  assert.equal(week.requests[0].state, "pending");
 });
 
 test("getShiftWeek forwards an explicit week_start", async () => {
@@ -249,6 +270,91 @@ test("normalizeShiftWeek tolerates a missing payload", () => {
     days: [],
     suggestion: [],
     currentWeek: [],
+    requests: [],
+    canRequest: false,
   });
   assert.equal(normalizeShiftWeek({ week: null }).eligible, false);
+  const partial = normalizeShiftWeek({ week: { eligible: true } });
+  assert.deepEqual(partial.requests, []);
+  assert.equal(partial.canRequest, false);
+});
+
+test("requestChange posts the request and normalises request + coverage", async () => {
+  const storage = signedInStorage();
+  const { fetchImpl, calls } = createFakeFetch([{
+    body: {
+      success: true,
+      request: {
+        id: "req-1",
+        work_date: "2026-11-10",
+        kind: "change",
+        from_shift_code: "sang",
+        to_shift_code: "chieu",
+        reason: "Đổi lịch gia đình",
+        state: "pending",
+        decision_note: null,
+        created_at: "2026-11-06T08:00:00+00:00",
+        decided_at: null,
+      },
+      coverage: {
+        work_date: "2026-11-10",
+        shifts: [{ code: "chieu", registered: 2, needed: 3, full: false, need_more: true }],
+        quota_groups: [],
+        off_count: 0,
+        total_staff: 2,
+      },
+    },
+  }]);
+  const api = createPayrollShiftApi({ baseUrl: BASE, anonKey: "anon", fetch: fetchImpl, storage });
+
+  const result = await api.requestChange({
+    workDate: "2026-11-10",
+    kind: "change",
+    toShiftCode: "chieu",
+    reason: "Đổi lịch gia đình",
+  });
+  assert.deepEqual(JSON.parse(String(calls[0].body)), {
+    action: "request",
+    work_date: "2026-11-10",
+    kind: "change",
+    to_shift_code: "chieu",
+    reason: "Đổi lịch gia đình",
+    session_token: "psp_abc",
+  });
+  assert.equal(result.request?.state, "pending");
+  assert.equal(result.request?.fromShiftCode, "sang");
+  assert.equal(result.coverage?.workDate, "2026-11-10");
+  assert.equal(result.coverage?.totalStaff, 2);
+});
+
+test("cancelRequest posts the request id and normalises the cancelled request", async () => {
+  const storage = signedInStorage();
+  const { fetchImpl, calls } = createFakeFetch([{
+    body: {
+      success: true,
+      request: {
+        id: "req-1",
+        work_date: "2026-11-10",
+        kind: "leave",
+        from_shift_code: "sang",
+        to_shift_code: null,
+        reason: "Việc nhà",
+        state: "cancelled",
+        decision_note: null,
+        created_at: "2026-11-06T08:00:00+00:00",
+        decided_at: "2026-11-06T09:00:00+00:00",
+      },
+    },
+  }]);
+  const api = createPayrollShiftApi({ baseUrl: BASE, anonKey: "anon", fetch: fetchImpl, storage });
+
+  const request = await api.cancelRequest("req-1");
+  assert.deepEqual(JSON.parse(String(calls[0].body)), {
+    action: "cancel_request",
+    request_id: "req-1",
+    session_token: "psp_abc",
+  });
+  assert.equal(request?.id, "req-1");
+  assert.equal(request?.state, "cancelled");
+  assert.equal(request?.kind, "leave");
 });

@@ -273,6 +273,38 @@ export interface PayrollShiftCurrentEntry {
   source: PayrollShiftSourceType;
 }
 
+export type PayrollShiftRequestKind = "change" | "leave";
+export type PayrollShiftRequestState =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "cancelled";
+
+export interface PayrollShiftRequest {
+  id: string;
+  workDate: string;
+  kind: PayrollShiftRequestKind;
+  fromShiftCode: string | null;
+  toShiftCode: string | null;
+  reason: string;
+  state: PayrollShiftRequestState;
+  decisionNote: string | null;
+  createdAt: string | null;
+  decidedAt: string | null;
+}
+
+export interface PayrollShiftRequestInput {
+  workDate: string;
+  kind: PayrollShiftRequestKind;
+  toShiftCode?: string | null;
+  reason: string;
+}
+
+export interface PayrollShiftRequestResult {
+  request: PayrollShiftRequest | null;
+  coverage: PayrollShiftDay | null;
+}
+
 export interface PayrollShiftWeekInfo {
   weekStart: string;
   status: PayrollShiftWeekStatus;
@@ -289,6 +321,8 @@ export interface PayrollShiftWeek {
   days: PayrollShiftDay[];
   suggestion: PayrollShiftSuggestion[];
   currentWeek: PayrollShiftCurrentEntry[];
+  requests: PayrollShiftRequest[];
+  canRequest: boolean;
 }
 
 export interface PayrollShiftRegistrationEntry {
@@ -304,4 +338,8 @@ export interface PayrollShiftSource {
     weekStart: string | null | undefined,
     entries: PayrollShiftRegistrationEntry[],
   ): Promise<PayrollShiftWeek>;
+  /** Ask for a change or a day off after the week is published/closed. */
+  requestChange(input: PayrollShiftRequestInput): Promise<PayrollShiftRequestResult>;
+  /** Cancel one of this employee's pending requests. */
+  cancelRequest(requestId: string): Promise<PayrollShiftRequest | null>;
 }

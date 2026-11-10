@@ -5,13 +5,19 @@ import {
   carrySuggestion,
   coverage,
   cutoffForDate,
+  mapShiftRequestError,
+  normalizeShiftRequest,
   SHIFT_ERROR_CLOSED,
   SHIFT_ERROR_DAY_OFF_REQUIRED,
   SHIFT_ERROR_INCOMPLETE_WEEK,
   SHIFT_ERROR_INVALID_SHIFT,
+  SHIFT_REQUEST_ERROR_INVALID_KIND,
+  SHIFT_REQUEST_ERROR_PAST_DATE,
+  SHIFT_REQUEST_ERROR_REASON_REQUIRED,
   shiftDeadline,
   shiftOpensAt,
   validateRegistration,
+  validateShiftRequestInput,
   weekStart,
 } from "./payroll-shifts.ts";
 import type {
@@ -225,4 +231,81 @@ test("Monday/Sunday week boundaries at 23:59 and 00:01 Vietnam time", () => {
 test("deadline and opening instants are in Vietnam time", () => {
   assert.equal(shiftDeadline(WEEK).toISOString(), "2026-11-07T05:00:00.000Z");
   assert.equal(shiftOpensAt(WEEK).toISOString(), "2026-11-02T17:00:00.000Z");
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2: change / leave request validation and error mapping
+// ---------------------------------------------------------------------------
+
+test("request validation accepts a future change and leave", () => {
+  const change = validateShiftRequestInput({
+    work_date: D1,
+    kind: "change",
+    to_shift_code: "sang",
+    reason: "  Đổi lịch gia đình  ",
+  }, D0);
+  assert.equal(change.ok, true);
+  assert.equal(change.error, null);
+  assert.equal(change.kind, "change");
+  assert.equal(change.toShiftCode, "sang");
+  assert.equal(change.reason, "Đổi lịch gia đình");
+
+  const leave = validateShiftRequestInput({
+    work_date: D1,
+    kind: "leave",
+    to_shift_code: "sang",
+    reason: "Việc nhà",
+  }, D0);
+  assert.equal(leave.ok, true);
+  assert.equal(leave.toShiftCode, null);
+});
+
+test("request validation rejects past dates, bad kinds, missing change shift and short reasons", () => {
+  assert.equal(
+    validateShiftRequestInput({ work_date: "2026-11-08", kind: "leave", reason: "Việc nhà" }, D0).error,
+    SHIFT_REQUEST_ERROR_PAST_DATE,
+  );
+  assert.equal(
+    validateShiftRequestInput({ work_date: D1, kind: "swap", reason: "Việc nhà" }, D0).error,
+    SHIFT_REQUEST_ERROR_INVALID_KIND,
+  );
+  assert.equal(
+    validateShiftRequestInput({ work_date: D1, kind: "change", reason: "Việc nhà" }, D0).error,
+    SHIFT_ERROR_INVALID_SHIFT,
+  );
+  assert.equal(
+    validateShiftRequestInput({ work_date: D1, kind: "leave", reason: "ab" }, D0).error,
+    SHIFT_REQUEST_ERROR_REASON_REQUIRED,
+  );
+});
+
+test("request error map returns Vietnamese messages and statuses", () => {
+  assert.deepEqual(mapShiftRequestError("shift_request_duplicate"), {
+    status: 409,
+    code: "shift_request_duplicate",
+    message: "Bạn đã có một yêu cầu đang chờ cho ngày này.",
+  });
+  assert.equal(mapShiftRequestError({ message: "shift_request_stale" }).status, 409);
+  assert.equal(mapShiftRequestError("shift_request_past_date").status, 400);
+  assert.equal(mapShiftRequestError("shift_not_eligible").status, 403);
+  assert.equal(mapShiftRequestError("something_else").code, "payslip_shift_failed");
+});
+
+test("request normaliser tolerates missing optional fields", () => {
+  assert.equal(normalizeShiftRequest(null), null);
+  assert.equal(normalizeShiftRequest({}), null);
+  const request = normalizeShiftRequest({
+    id: "r1",
+    work_date: D1,
+    kind: "leave",
+    reason: "Việc nhà",
+    state: "pending",
+  });
+  assert.ok(request);
+  assert.equal(request.id, "r1");
+  assert.equal(request.kind, "leave");
+  assert.equal(request.from_shift_code, null);
+  assert.equal(request.to_shift_code, null);
+  assert.equal(request.decision_note, null);
+  assert.equal(request.created_at, null);
 });
