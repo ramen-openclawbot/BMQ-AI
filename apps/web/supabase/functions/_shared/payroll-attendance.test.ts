@@ -117,36 +117,67 @@ test("check-out requires an accepted check-in and duplicates are already_recorde
   );
 });
 
-test("an unapproved device waits for a manager", () => {
+test("a valid OTP-bound session auto-activates a device without a manager", () => {
   assert.equal(
-    evaluateCheckin(baseInput({ deviceApproved: false })).reasonCode,
-    "device_not_approved",
+    evaluateCheckin(baseInput({ deviceApproved: false, sessionValid: true })).decision,
+    "accepted",
+  );
+  // An existing replaced device may be activated again by a fresh OTP session.
+  assert.equal(
+    evaluateCheckin(
+      baseInput({ deviceApproved: false, sessionValid: true, deviceRevokedByManager: false }),
+    ).decision,
+    "accepted",
   );
 });
 
-test("the employee's first device is registered automatically, later devices wait", () => {
+test("an unapproved device waits when the session is invalid, the device is another employee's, or a manager revoked it", () => {
   assert.equal(
-    evaluateCheckin(baseInput({ deviceApproved: false, isFirstDeviceForEmployee: true })).decision,
-    "accepted",
+    evaluateCheckin(baseInput({ deviceApproved: false, sessionValid: false })).reasonCode,
+    "session_invalid",
   );
   assert.equal(
-    evaluateCheckin(baseInput({ deviceApproved: false, isFirstDeviceForEmployee: false })).reasonCode,
-    "device_not_approved",
+    evaluateCheckin(baseInput({ deviceApproved: true, sessionValid: false })).reasonCode,
+    "session_invalid",
   );
-  // A colleague's active phone can never become someone else's first device.
   assert.equal(
     evaluateCheckin(
-      baseInput({ deviceApproved: false, isFirstDeviceForEmployee: true, deviceActiveForOtherEmployee: true }),
+      baseInput({ deviceApproved: false, sessionValid: true, deviceActiveForOtherEmployee: true }),
+    ).reasonCode,
+    "device_not_approved",
+  );
+  assert.equal(
+    evaluateCheckin(
+      baseInput({ deviceApproved: false, sessionValid: true, deviceRevokedByManager: true }),
+    ).reasonCode,
+    "device_not_approved",
+  );
+  // A colleague's active phone or a manager-revoked phone can never auto-switch.
+  assert.equal(
+    evaluateCheckin(
+      baseInput({
+        deviceApproved: false,
+        sessionValid: true,
+        deviceActiveForOtherEmployee: true,
+        deviceRevokedByManager: true,
+      }),
     ).reasonCode,
     "device_not_approved",
   );
   // Sharing on the same day is still caught first.
   assert.equal(
     evaluateCheckin(
-      baseInput({ deviceApproved: false, isFirstDeviceForEmployee: true, deviceUsedByOtherEmployeeToday: true }),
+      baseInput({ deviceApproved: false, sessionValid: true, deviceUsedByOtherEmployeeToday: true }),
     ).reasonCode,
     "device_used_by_other",
   );
+});
+
+test("the device_not_approved message names manager removal and another employee", () => {
+  const message = attendanceMessage("device_not_approved");
+  assert.ok(message.includes("quản lý gỡ"));
+  assert.ok(message.includes("nhân viên khác"));
+  assert.ok(message.includes("liên hệ quản lý"));
 });
 
 test("a device already used by another employee is flagged as suspected proxy", () => {

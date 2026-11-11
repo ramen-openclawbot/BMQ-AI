@@ -2,8 +2,9 @@
 //
 // No Deno-only imports and no DOM globals: `node --test` runs this file
 // directly. The reason codes and decision order mirror
-// public.record_payroll_bn_attendance_event(...) in the
-// 20261109100000_payroll_bn_gps_attendance.sql migration.
+// public.record_payroll_bn_attendance_event(...) in the latest
+// 20261112090000_payroll_bn_attendance_device_auto_switch.sql migration
+// (consent gate from 20261109120000 plus the Zalo-OTP device auto-switch).
 
 export type AttendanceEventKind = "in" | "out";
 export type AttendanceDecision = "accepted" | "rejected";
@@ -54,6 +55,8 @@ export interface EvaluateCheckinInput {
   eventKind: AttendanceEventKind;
   /** Active, non-withdrawn consent for the current agreement version. */
   consentAccepted?: boolean;
+  /** Valid, unexpired, unrevoked psp_ session bound to this exact device. */
+  sessionValid?: boolean;
   gateEnabled: boolean;
   siteConfigured: boolean;
   siteLatitude?: number | null;
@@ -63,10 +66,10 @@ export interface EvaluateCheckinInput {
   longitude?: number | null;
   accuracyM?: number | null;
   deviceApproved: boolean;
-  /** The employee has never had any device row; this device becomes active (owner decision 09/11). */
-  isFirstDeviceForEmployee?: boolean;
   /** This device is already the active device of another employee. */
   deviceActiveForOtherEmployee?: boolean;
+  /** This exact device was revoked by a manager; it never auto-activates again. */
+  deviceRevokedByManager?: boolean;
   deviceUsedByOtherEmployeeToday?: boolean;
   hasAcceptedIn?: boolean;
   hasAcceptedOut?: boolean;
@@ -220,8 +223,9 @@ function coordinatesAreValid(latitude: number | null | undefined, longitude: num
 
 /**
  * Server-authoritative decision. The order is deliberate and matches the SQL
- * RPC: rollout gate, site configuration, device fix quality, device sharing,
- * device approval, in/out ordering, then the radius.
+ * RPC: session binding, rollout gate, site configuration, device fix quality,
+ * device sharing, device auto-activation/approval, in/out ordering, then the
+ * radius.
  */
 export function evaluateCheckin(input: EvaluateCheckinInput): EvaluateCheckinResult {
   const reject = (
@@ -234,6 +238,22 @@ export function evaluateCheckin(input: EvaluateCheckinInput): EvaluateCheckinRes
     distanceM,
     suspectedProxy,
   });
+
+  // Owner decision 2026-11-12: a valid Zalo-OTP-bound session on a new browser
+  // auto-activates that exact device and retires the previous active one. A
+  // device owned by another employee, or one a manager revoked, must still wait
+  // for a manager and keeps the device_not_approved path. Computed before the
+  // session early-return so TypeScript keeps the boolean unnarrowed.
+  const autoActivatedByOtpSwitch =
+    input.sessionValid !== false &&
+    input.deviceActiveForOtherEmployee !== true &&
+    input.deviceRevokedByManager !== true;
+
+  // The psp_ session must be live, owned by this employee and bound to this
+  // exact device. The Edge Functions also reject this with a 401; the mirror
+  // keeps the same fail-closed outcome. Defaults to true only so legacy
+  // callers/tests keep their pre-existing behaviour.
+  if (input.sessionValid === false) return reject("session_invalid");
 
   if (!input.gateEnabled) return reject("gate_disabled");
 
@@ -265,11 +285,9 @@ export function evaluateCheckin(input: EvaluateCheckinInput): EvaluateCheckinRes
     return reject("device_used_by_other", true);
   }
 
-  const autoRegisteredFirstDevice =
-    !input.deviceApproved &&
-    input.isFirstDeviceForEmployee === true &&
-    input.deviceActiveForOtherEmployee !== true;
-  if (!input.deviceApproved && !autoRegisteredFirstDevice) return reject("device_not_approved");
+  // A device owned by another employee or revoked by a manager stays on the
+  // manager-approval path.
+  if (!input.deviceApproved && !autoActivatedByOtpSwitch) return reject("device_not_approved");
 
   if (input.eventKind === "out" && !input.hasAcceptedIn) {
     return reject("checkout_before_checkin");
@@ -339,7 +357,7 @@ export function attendanceMessage(reasonCode: string | null | undefined): string
     case "outside_geofence":
       return "Bạn đang ở ngoài phạm vi bếp. Vui lòng đến đúng vị trí và thử lại.";
     case "device_not_approved":
-      return "Thiết bị này chưa được duyệt. Vui lòng chờ quản lý duyệt thiết bị.";
+      return "Thiết bị này đã bị quản lý gỡ hoặc đang được dùng cho nhân viên khác. Vui lòng liên hệ quản lý.";
     case "device_used_by_other":
       return "Thiết bị này đã được dùng cho nhân viên khác trong ngày. Vui lòng liên hệ quản lý.";
     case "already_recorded":

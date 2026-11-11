@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, Camera, Crosshair, Loader2, MapPin, ShieldAlert, Smartphone } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Camera, Crosshair, Loader2, MapPin, ShieldAlert, Smartphone } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  useAttendanceDeviceChanges,
   usePayrollBnAttendanceAdmin,
   type PayrollAttendanceAdminDay,
   type PayrollAttendanceAdminEvent,
@@ -55,6 +56,7 @@ export interface GpsAttendanceAdminProps {
  */
 export function GpsAttendanceAdmin({ employees }: GpsAttendanceAdminProps) {
   const admin = usePayrollBnAttendanceAdmin();
+  const changesQuery = useAttendanceDeviceChanges();
   const { toast } = useToast();
   const list = admin.attendanceQuery.data;
   const devices = admin.devicesQuery.data ?? [];
@@ -143,6 +145,12 @@ export function GpsAttendanceAdmin({ employees }: GpsAttendanceAdminProps) {
         onSave={(value) => run(() => admin.setKitchenSite.mutateAsync(value), "Đã lưu vị trí Bếp Q7")}
       />
 
+      <DeviceChangesCard
+        loading={changesQuery.isLoading}
+        error={changesQuery.error ? errorText(changesQuery.error) : null}
+        changes={changesQuery.data ?? []}
+      />
+
       {(pendingDays.length > 0 || flagged.length > 0 || pendingDevices.length > 0) && (
         <Card className="border-amber-300">
           <CardHeader>
@@ -153,7 +161,7 @@ export function GpsAttendanceAdmin({ employees }: GpsAttendanceAdminProps) {
           <CardContent className="space-y-5">
             {pendingDevices.length > 0 && (
               <div className="space-y-2">
-                <p className="text-sm font-semibold">Máy mới chờ duyệt</p>
+                <p className="text-sm font-semibold">Máy cần anh duyệt</p>
                 {pendingDevices.map((device) => (
                   <div key={device.id} className="flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm">
                     <Smartphone className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -180,7 +188,10 @@ export function GpsAttendanceAdmin({ employees }: GpsAttendanceAdminProps) {
                     </div>
                   </div>
                 ))}
-                <p className="text-xs text-muted-foreground">Duyệt máy mới sẽ thay máy cũ của nhân viên đó.</p>
+                <p className="text-xs text-muted-foreground">
+                  Máy đăng nhập bằng OTP Zalo tự được dùng; chỉ máy anh đã gỡ, máy đang là máy của nhân viên khác hoặc máy chưa đăng nhập lại
+                  mới cần duyệt. Duyệt máy sẽ thay máy cũ của nhân viên đó.
+                </p>
               </div>
             )}
 
@@ -224,7 +235,7 @@ export function GpsAttendanceAdmin({ employees }: GpsAttendanceAdminProps) {
         <CardHeader>
           <CardTitle className="text-base">Nhân viên được chấm công GPS</CardTitle>
           <CardDescription>
-            Bật cho từng người. Máy đầu tiên nhân viên dùng được ghi nhận tự động; máy khác phải chờ duyệt.
+            Bật cho từng người. Máy nhân viên vừa đăng nhập OTP Zalo được dùng chấm công ngay và thay máy cũ.
           </CardDescription>
         </CardHeader>
         <CardContent className="divide-y p-0">
@@ -525,3 +536,60 @@ function ApproveDayDialog({
 }
 
 export default GpsAttendanceAdmin;
+
+const BROWSER_LABEL: Record<string, string> = { ios: "iPhone", android: "Android" };
+
+/** Read-only review of automatic device switches after a Zalo OTP login (last 14 days). */
+function DeviceChangesCard({
+  loading,
+  error,
+  changes,
+}: {
+  loading: boolean;
+  error: string | null;
+  changes: { id: string; employee_code: string; employee_name: string; from_device_hash: string | null; user_agent_family: string | null; changed_at: string }[];
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const shown = showAll ? changes : changes.slice(0, 6);
+  return (
+    <Card data-device-changes>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <ArrowRightLeft className="h-4 w-4 text-muted-foreground" /> Đổi máy gần đây
+        </CardTitle>
+        <CardDescription>
+          Nhân viên đăng nhập OTP Zalo trên trình duyệt hoặc máy khác thì tự chuyển sang máy đó. Chỉ để anh xem lại; mỗi lần chấm vẫn có ảnh và vị trí.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="text-sm">
+        {loading ? (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Đang tải" />
+        ) : error ? (
+          <p className="text-destructive">{error}</p>
+        ) : changes.length === 0 ? (
+          <p className="text-muted-foreground">14 ngày qua chưa có ai đổi máy.</p>
+        ) : (
+          <>
+            <ul className="divide-y rounded-lg border">
+              {shown.map((change) => (
+                <li key={change.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 px-3 py-2" data-device-change={change.employee_code}>
+                  <span className="min-w-0 font-medium">{change.employee_name || change.employee_code}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {change.user_agent_family ? BROWSER_LABEL[change.user_agent_family] ?? change.user_agent_family : "Máy"} ·{" "}
+                    {formatDateTime(change.changed_at)}
+                    {change.from_device_hash ? "" : " · trước đó chưa có máy"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {changes.length > 6 ? (
+              <Button variant="link" size="sm" className="mt-1 h-auto px-0" onClick={() => setShowAll((value) => !value)}>
+                {showAll ? "Thu gọn" : `Xem tất cả ${changes.length} lần`}
+              </Button>
+            ) : null}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

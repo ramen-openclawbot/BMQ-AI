@@ -109,6 +109,18 @@ export interface PayrollAttendanceAdminDevice {
   approved_by: string | null;
   approved_at: string | null;
   user_agent_family: string | null;
+  activation: "first" | "otp_switch" | "manager" | null;
+  revoked_reason: "replaced" | "manager" | null;
+}
+
+export interface PayrollAttendanceAdminDeviceChange {
+  id: string;
+  employee_code: string;
+  employee_name: string;
+  from_device_hash: string | null;
+  to_device_hash: string;
+  user_agent_family: string | null;
+  changed_at: string;
 }
 
 export interface PayrollAttendanceAdminOptions {
@@ -145,6 +157,23 @@ async function callRpc(name: string, args: Record<string, unknown>): Promise<unk
   const { data, error } = await client.rpc(name, args);
   if (error) throw new Error(formatPayrollAttendanceAdminError(error));
   return data;
+}
+
+/**
+ * Manager review of every automatic Zalo-OTP device switch. `since` is an ISO
+ * timestamp; the server defaults to the last 14 days and clamps the limit.
+ */
+export function useAttendanceDeviceChanges(since?: string | null) {
+  return useQuery({
+    queryKey: ["payroll-bn-attendance-device-changes", since ?? null],
+    queryFn: async (): Promise<PayrollAttendanceAdminDeviceChange[]> => {
+      const data = await callRpc("list_payroll_bn_attendance_device_changes", {
+        p_since: since ?? null,
+      });
+      const payload = (data || {}) as { changes?: PayrollAttendanceAdminDeviceChange[] };
+      return Array.isArray(payload.changes) ? payload.changes : [];
+    },
+  });
 }
 
 export function usePayrollBnAttendanceAdmin(options: PayrollAttendanceAdminOptions = {}) {
@@ -184,6 +213,7 @@ export function usePayrollBnAttendanceAdmin(options: PayrollAttendanceAdminOptio
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["payroll-bn-attendance"] }),
       queryClient.invalidateQueries({ queryKey: ["payroll-bn-attendance-devices"] }),
+      queryClient.invalidateQueries({ queryKey: ["payroll-bn-attendance-device-changes"] }),
     ]);
   }, [queryClient]);
 
