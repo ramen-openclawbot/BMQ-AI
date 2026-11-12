@@ -81,7 +81,8 @@ function fixtureRows(st) {
   if (st.table === "sku_cogs_materials") return [
     ["NVL-BOT-MI", "Bột mì số 13"], ["NVL-PATE", "Pate gan"], ["NVL-BO", "Bơ lạt"], ["NVL-DUONG", "Đường tinh luyện"], ["NVL-MUOI", "Muối sấy"],
     ["NVL-MEN-KHO-MEIZAN-NHAN-VANG-0-5-10KG-THUN", "Men Khô Meizan - Nhãn Vàng (0.5*10kg/Thùng)"],
-  ].map(([material_code, canonical_name], i) => ({ id: "m" + i, material_code, canonical_name, default_unit: "g", ingredient_sku_id: null }));
+    ["UC-25KG", "Bơ Peerless Úc 25kg"],
+  ].map(([material_code, canonical_name], i) => ({ id: "m" + i, material_code, canonical_name, default_unit: material_code === "UC-25KG" ? "kg" : "g", ingredient_sku_id: null }));
   if (st.table === "payment_request_items") return [
     { sku_id: null, product_name: "Bột mì số 13", product_code: "NVL-BOT-MI", unit: "g", quantity: 25000, unit_price: 19, line_total: 475000, created_at: month + "-05T03:00:00Z", confirmed_standard_cost_code: "NVL-BOT-MI", payment_requests: { request_number: "PR-1", payment_status: "paid", status: "approved", paid_at: month + "-05T03:00:00Z" } },
     { sku_id: null, product_name: "Bột mì số 13", product_code: "NVL-BOT-MI", unit: "g", quantity: 25000, unit_price: 20, line_total: 500000, created_at: month + "-12T03:00:00Z", confirmed_standard_cost_code: "NVL-BOT-MI", payment_requests: { request_number: "PR-2", payment_status: "paid", status: "approved", paid_at: month + "-12T03:00:00Z" } },
@@ -421,6 +422,25 @@ try {
       // Đơn vị của đơn giá stays at the unit the price was loaded in, so switching g → kg converts the cost.
       assert.deepEqual(saved.p_formulations.map((row) => row.price_unit), ["g", "g", "g", "kg", "g", "g"], "price unit kept from load");
       errors.length = 0; // the fixture answers save with no SKU, which the page reports as a save error
+      // Regression (owner 12/11, Bơ Peerless Úc 25kg 95.000 đ/kg): on a NEW line, switching the dosage to g must keep
+      // the price per kg — it used to turn into "95.000 đ/g" and be saved ×1000.
+      await page.evaluate(() => { window.__qaRpc = []; });
+      await page.getByRole("button", { name: "+ Thêm NVL cấp 1" }).click();
+      const newRow = page.locator("[data-bmq-sku-edit] table tbody tr").last();
+      await newRow.locator("[data-bmq-material-picker]").click();
+      await page.getByRole("option", { name: /UC-25KG/ }).click();
+      await newRow.locator("[data-bmq-price] input").fill("95000");
+      await newRow.locator("[data-bmq-dosage] input").fill("120");
+      assert.match(await newRow.locator("[data-bmq-price-unit]").innerText(), /\/kg/, "new kg material is priced per kg");
+      await newRow.locator("[data-bmq-dosage-unit]").selectOption("g");
+      assert.match(await newRow.locator("[data-bmq-price-unit]").innerText(), /\/kg/, "price stays per kg after the dosage becomes g");
+      assert.equal((await newRow.locator("td").nth(5).innerText()).replace(/\D/g, ""), "11400", "120 g × 95.000 đ/kg = 11.400 đ");
+      await page.getByRole("button", { name: "Lưu SKU" }).click();
+      await page.waitForFunction(() => (window.__qaRpc || []).some((x) => x.startsWith("save_sku_cogs:")));
+      const saved2 = await page.evaluate(() => JSON.parse(window.__qaRpc.find((x) => x.startsWith("save_sku_cogs:")).slice("save_sku_cogs:".length)));
+      const butter = saved2.p_formulations.find((row) => row.material_code === "UC-25KG");
+      assert.equal(butter.dosage_unit, "g"); assert.equal(butter.price_unit, "kg", "saved price unit is kg, not g"); assert.equal(butter.unit_price, 95000);
+      errors.length = 0;
     }
     // Natural scroll positions inside the edit dialog (top, NVL cards, totals).
     for (const [i, frac] of [[0, 0], [1, 0.35], [2, 0.7]]) {

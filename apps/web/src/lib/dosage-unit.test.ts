@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   DOSAGE_UNITS,
+  dosageUnitChangePatch,
   dosageUnitCode,
   dosageUnitOptions,
   effectiveDosageUnit,
@@ -174,4 +175,28 @@ test("lineCost treats non-numeric inputs as 0", () => {
     wastage_percent: null,
   });
   assert.equal(result.cost, 0);
+});
+
+test("changing the dosage unit keeps the unit price quoted per kg (95.000 đ/kg stays đ/kg)", () => {
+  const row = { unit: "kg", unit_price: 95000, dosage_qty: 120 };
+  assert.equal(effectivePriceUnit(row), "kg");
+  const patch = dosageUnitChangePatch(row, "g");
+  assert.deepEqual(patch, { dosage_unit: "g", price_unit: "kg" });
+  const changed = { ...row, ...patch };
+  assert.equal(effectivePriceUnit(changed), "kg");
+  // 120 g × 95.000 đ/kg = 11.400 đ, not 11.400.000 đ.
+  assert.equal(Math.round(lineCost(changed).cost), 11400);
+});
+
+test("changing the dosage unit twice never moves the price unit", () => {
+  let row: Record<string, unknown> = { unit: "kg", unit_price: 95000, dosage_qty: 120 };
+  row = { ...row, ...dosageUnitChangePatch(row, "g") };
+  row = { ...row, ...dosageUnitChangePatch(row, "kg") };
+  assert.equal(effectivePriceUnit(row), "kg");
+  assert.equal(effectiveDosageUnit(row), "kg");
+});
+
+test("an explicit price unit is kept when the dosage unit changes", () => {
+  const row = { unit: "kg", price_unit: "g", dosage_unit: "g", unit_price: 95, dosage_qty: 120 };
+  assert.deepEqual(dosageUnitChangePatch(row, "kg"), { dosage_unit: "kg", price_unit: "g" });
 });

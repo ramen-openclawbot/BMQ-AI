@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_SKU_COST_TEMPLATE, DEFAULT_SKU_COST_VALUES, parseCostTemplate, parseCostValues, toNumber } from "@/lib/sku-cost-template";
 import { isFinishedSku } from "@/lib/skuType";
 import { dosageInputText, parseDosageGramInput } from "@/lib/dosage-input";
-import { dosageUnitCode, dosageUnitOptions, effectiveDosageUnit, effectivePriceUnit, lineCost, withDosageUnit } from "@/lib/dosage-unit";
+import { dosageUnitChangePatch, dosageUnitCode, dosageUnitOptions, effectiveDosageUnit, effectivePriceUnit, lineCost, withDosageUnit } from "@/lib/dosage-unit";
 import { describeSkuCogsSaveError } from "@/lib/sku-cogs-save-error";
 import { MaterialPicker } from "@/components/sku-costs/MaterialPicker";
 import { SkuCostHeader } from "@/components/sku-costs/SkuCostMenuBar";
@@ -1004,7 +1004,7 @@ export default function SkuCostsManagement() {
                                   ingredient_name: picked.canonical_name,
                                   material_code: picked.material_code,
                                   unit: picked.default_unit || "g",
-                                  canonical_default_unit: picked.default_unit || "g",
+                                  canonical_default_unit: picked.default_unit || "g", price_unit: picked.default_unit || "g",
                                   material_resolution_status: "resolved_exact",
                                   material_resolution_request_id: "",
                                 };
@@ -1022,7 +1022,7 @@ export default function SkuCostsManagement() {
                                   ingredient_name: `${next[idx].level1_name || ""}${LEVEL2_SEPARATOR}${picked.canonical_name}`,
                                   material_code: picked.material_code,
                                   unit: picked.default_unit || "g",
-                                  canonical_default_unit: picked.default_unit || "g",
+                                  canonical_default_unit: picked.default_unit || "g", price_unit: picked.default_unit || "g",
                                   material_resolution_status: "resolved_exact",
                                   material_resolution_request_id: "",
                                 };
@@ -1034,7 +1034,7 @@ export default function SkuCostsManagement() {
                         </TableCell>
                         {/* DVT cố định gram theo nghiệp vụ */}
                         <TableCell><div className="flex min-w-[9rem] items-center gap-1.5" data-bmq-price><Input className="min-w-[6.5rem]" inputMode="decimal" disabled={hasChildren} value={hasChildren ? String(Math.round(displayUnitPrice * 1000) / 1000) : (r.unit_price_input ?? (toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0))))} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price_input = e.target.value; const unit_price = unit_price_input === "" ? 0 : Number(unit_price_input); next[idx] = withLineCost(next[idx], { unit_price_input, unit_price: Number.isFinite(unit_price) ? unit_price : 0 }); setImportedFormulaDraft(next); }} /><span className="shrink-0 text-xs text-muted-foreground" data-bmq-price-unit>/{effectivePriceUnit(r)}</span></div></TableCell>
-                        <TableCell><div className="flex min-w-[10.5rem] items-center gap-2" data-bmq-dosage><Input className="min-w-[5rem]" inputMode="decimal" value={dosageInputText(r.dosage_input, displayDosage)} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); next[idx] = withLineCost(next[idx], { dosage_input, dosage_qty }); setImportedFormulaDraft(next); }} /><DosageUnitSelect value={effectiveDosageUnit(r)} label={`Đơn vị định lượng ${r.ingredient_name || ""}`} onChange={(unit) => { const next = [...importedFormulaDraft]; next[idx] = withLineCost(next[idx], { dosage_unit: unit }); setImportedFormulaDraft(next); }} /></div></TableCell>
+                        <TableCell><div className="flex min-w-[10.5rem] items-center gap-2" data-bmq-dosage><Input className="min-w-[5rem]" inputMode="decimal" value={dosageInputText(r.dosage_input, displayDosage)} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); next[idx] = withLineCost(next[idx], { dosage_input, dosage_qty }); setImportedFormulaDraft(next); }} /><DosageUnitSelect value={effectiveDosageUnit(r)} label={`Đơn vị định lượng ${r.ingredient_name || ""}`} onChange={(unit) => { const next = [...importedFormulaDraft]; next[idx] = withLineCost(next[idx], dosageUnitChangePatch(next[idx], unit)); setImportedFormulaDraft(next); }} /></div></TableCell>
                         <TableCell>{vnd(lineCost)}</TableCell>
                         <TableCell>{vnd(perUnit)}</TableCell>
                         <TableCell>
@@ -1093,7 +1093,7 @@ export default function SkuCostsManagement() {
                                 ingredient_name: picked.canonical_name,
                                 material_code: picked.material_code,
                                 unit: picked.default_unit || "g",
-                                canonical_default_unit: picked.default_unit || "g",
+                                canonical_default_unit: picked.default_unit || "g", price_unit: picked.default_unit || "g",
                                 material_resolution_status: "resolved_exact",
                                 material_resolution_request_id: "",
                               };
@@ -1111,7 +1111,7 @@ export default function SkuCostsManagement() {
                                 ingredient_name: `${next[idx].level1_name || ""}${LEVEL2_SEPARATOR}${picked.canonical_name}`,
                                 material_code: picked.material_code,
                                 unit: picked.default_unit || "g",
-                                canonical_default_unit: picked.default_unit || "g",
+                                canonical_default_unit: picked.default_unit || "g", price_unit: picked.default_unit || "g",
                                 material_resolution_status: "resolved_exact",
                                 material_resolution_request_id: "",
                               };
@@ -1131,7 +1131,7 @@ export default function SkuCostsManagement() {
                           <Label>Định lượng</Label>
                           <div className="flex min-w-0 items-center gap-2" data-bmq-dosage>
                             <Input className="h-11 min-w-0" inputMode="decimal" value={dosageInputText(r.dosage_input, displayDosage)} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); next[idx] = withLineCost(next[idx], { dosage_input, dosage_qty }); setImportedFormulaDraft(next); }} />
-                            <DosageUnitSelect className="h-11" value={effectiveDosageUnit(r)} label={`Đơn vị định lượng ${r.ingredient_name || ""}`} onChange={(unit) => { const next = [...importedFormulaDraft]; next[idx] = withLineCost(next[idx], { dosage_unit: unit }); setImportedFormulaDraft(next); }} />
+                            <DosageUnitSelect className="h-11" value={effectiveDosageUnit(r)} label={`Đơn vị định lượng ${r.ingredient_name || ""}`} onChange={(unit) => { const next = [...importedFormulaDraft]; next[idx] = withLineCost(next[idx], dosageUnitChangePatch(next[idx], unit)); setImportedFormulaDraft(next); }} />
                           </div>
                         </div>
                       </div>

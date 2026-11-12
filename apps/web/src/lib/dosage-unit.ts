@@ -51,6 +51,18 @@ export function effectivePriceUnit(
 }
 
 /**
+ * Fields to patch when the dosage unit of a line is changed in the UI. The unit price keeps the unit it is
+ * quoted per at that moment: without this a line that follows its dosage unit (no price_unit yet) would silently
+ * turn "95.000 đ/kg" into "95.000 đ/g" the moment the dosage is switched from kg to g.
+ */
+export function dosageUnitChangePatch(
+  row: PriceUnitFields | null | undefined,
+  unit: string,
+): { dosage_unit: string; price_unit: string } {
+  return { dosage_unit: unit, price_unit: effectivePriceUnit(row) };
+}
+
+/**
  * How many `to` units one `from` unit is, using the shared stock units.
  * Same spelling is 1, convertible weight/volume units use their base ratio,
  * and an unknown or cross-kind pair is null (no conversion exists).
