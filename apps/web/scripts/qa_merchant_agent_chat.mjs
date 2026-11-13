@@ -595,6 +595,14 @@ try {
     await page.waitForFunction(() => document.querySelectorAll("[data-merchant-message='agent']").length >= 1);
     assert.ok(/[A-Za-z]/.test(calls[calls.length - 1].body.message) && !/[à-ỹ]/i.test(calls[calls.length - 1].body.message), calls[calls.length - 1].body.message);
     assert.equal(calls[calls.length - 1].body.language, "en");
+    // The snapshot card follows the UI language (server-written flag sentences stay as sent).
+    await page.locator("textarea, input[type=text]").first().fill("Revenue snapshot");
+    await page.locator("[data-merchant-send]").click();
+    await page.locator("[data-merchant-ui='revenue_snapshot']").waitFor();
+    const card = await page.locator("[data-merchant-ui='revenue_snapshot']").innerText();
+    for (const vi of ["Snapshot doanh thu", "Điểm bán nộp", "Bất thường", "Job tự động", "Đại lý"]) assert.ok(!card.includes(vi), `card has no Vietnamese label: ${vi}`);
+    assert.ok(card.includes("Revenue snapshot") && card.includes("Anomalies") && card.includes("687.7M VND") && card.includes("Distributors"), card);
+    assert.ok(!(await panel(page).innerText()).includes("is working"), "typing line removed");
     record("english UI shows English chat chrome and sends English starters");
     assert.deepEqual(errors, []);
     await context.close();

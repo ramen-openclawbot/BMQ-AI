@@ -705,7 +705,6 @@ export function MerchantAgentChatWidget() {
             {responding ? (
               <div className="ac-thinking" data-merchant-responding>
                 <span className="ac-thinking-dots" aria-hidden="true"><i /><i /><i /></span>
-                {t("BMQ Agent đang xử lý…")}
               </div>
             ) : null}
             <div ref={endRef} />

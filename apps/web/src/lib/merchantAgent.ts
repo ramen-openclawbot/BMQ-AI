@@ -233,10 +233,16 @@ export function merchantMetricLabel(metric: string): string {
   return METRIC_LABELS[metric.trim().toLowerCase().replace(/\s+/g, "_")] || metric;
 }
 
-export function formatMerchantValue(value: unknown, unit?: string | null): string {
+export function formatMerchantValue(value: unknown, unit?: string | null, language: "en" | "vi" = "vi"): string {
   const numeric = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(numeric)) return value == null ? "—" : String(value);
-  if (unit === "VND" || unit === "vnd") {
+  if (language === "en") {
+    if (unit === "VND" || unit === "vnd") {
+      if (Math.abs(numeric) >= 1_000_000) return `${(numeric / 1_000_000).toLocaleString("en-US", { maximumFractionDigits: 1 })}M VND`;
+      return `${Math.round(numeric).toLocaleString("en-US")} VND`;
+    }
+    return numeric.toLocaleString("en-US", { maximumFractionDigits: 1 });
+  }  if (unit === "VND" || unit === "vnd") {
     if (Math.abs(numeric) >= 1_000_000) return `${(numeric / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} triệu`;
     return `${Math.round(numeric).toLocaleString("vi-VN")} đ`;
   }
