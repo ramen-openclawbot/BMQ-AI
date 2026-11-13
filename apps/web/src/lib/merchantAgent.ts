@@ -159,12 +159,13 @@ function postWithUploadProgress<T>(path: string, token: string, body: string, ti
 
 export function sendMerchantMessage(
   token: string,
-  input: { message: string; sessionId?: string | null; page?: string; attachments?: MerchantAttachment[]; onUploadProgress?: (fraction: number) => void },
+  input: { message: string; sessionId?: string | null; page?: string; language?: "en" | "vi"; attachments?: MerchantAttachment[]; onUploadProgress?: (fraction: number) => void },
 ) {
   const body = JSON.stringify({
     message: input.message,
     ...(input.sessionId ? { session_id: input.sessionId } : {}),
     ...(input.page ? { page: input.page } : {}),
+    ...(input.language ? { language: input.language } : {}),
     ...(input.attachments?.length ? { attachments: input.attachments } : {}),
   });
   if (input.attachments?.length && input.onUploadProgress && typeof XMLHttpRequest !== "undefined") {

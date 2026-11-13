@@ -445,6 +445,7 @@ export function MerchantAgentChatWidget() {
         message,
         sessionId,
         page: merchantPageContext(location.pathname),
+        language,
         ...(prepared ? {
           attachments: [{ kind: "image" as const, mime_type: prepared.mimeType, data_base64: prepared.base64 }],
           onUploadProgress: (fraction: number) => setSendStage(fraction >= 1 ? { label: t("BMQ Agent đang đọc bankslip…"), fraction: null } : { label: t("Đang tải lên"), fraction }),
@@ -563,7 +564,7 @@ export function MerchantAgentChatWidget() {
               <SheetTitle className="ac-title">BMQ Agent</SheetTitle>
               <div className="ac-status">
                 <span className={cn("ac-dot", responding && "is-busy")} />
-                <span>{t(responding ? "Đang trả lời" : "Sẵn sàng")} · {t("Trợ lý AI của BMQ")}</span>
+                <span>{t(responding ? "Đang trả lời" : "Sẵn sàng")}</span>
               </div>
             </div>
             <button type="button" className="ac-key" onClick={reset} aria-label={t("Tạo cuộc trò chuyện mới")} data-merchant-agent-reset><RotateCcw /></button>

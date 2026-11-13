@@ -586,14 +586,15 @@ try {
     await page.locator("[data-merchant-agent-launcher]").click();
     await panel(page).waitFor();
     const text = await panel(page).innerText();
-    for (const vi of ["Sẵn sàng", "Trợ lý AI của BMQ", "Xin chào", "Gợi ý", "Nhắn cho"]) assert.ok(!text.includes(vi), `no Vietnamese chrome: ${vi}`);
-    assert.ok(text.includes("Ready · BMQ AI assistant") && text.includes("Hello") && text.includes("Suggestions"), text);
+    for (const vi of ["Sẵn sàng", "Trợ lý AI", "Xin chào", "Gợi ý", "Nhắn cho"]) assert.ok(!text.includes(vi), `no Vietnamese chrome: ${vi}`);
+    assert.ok(text.includes("Ready") && !text.includes("AI assistant") && text.includes("Hello") && text.includes("Suggestions"), text);
     assert.equal(await page.locator("textarea, input[type=text]").first().getAttribute("placeholder"), "Message BMQ Agent…");
     await page.waitForTimeout(700);
     await page.screenshot({ path: `${EVIDENCE}/english-chat.png` });
     await page.locator("[data-merchant-starter]").first().click();
     await page.waitForFunction(() => document.querySelectorAll("[data-merchant-message='agent']").length >= 1);
     assert.ok(/[A-Za-z]/.test(calls[calls.length - 1].body.message) && !/[à-ỹ]/i.test(calls[calls.length - 1].body.message), calls[calls.length - 1].body.message);
+    assert.equal(calls[calls.length - 1].body.language, "en");
     record("english UI shows English chat chrome and sends English starters");
     assert.deepEqual(errors, []);
     await context.close();

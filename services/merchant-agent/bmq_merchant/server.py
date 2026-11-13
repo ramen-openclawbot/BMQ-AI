@@ -136,6 +136,7 @@ class ChatRequest(BaseModel):
     session_id: str | None = Field(default=None, min_length=1, max_length=128)
     message: str = Field(default="", max_length=4000)
     page: str | None = Field(default=None, max_length=300)
+    language: Literal["vi", "en"] | None = None
     attachments: list[ChatAttachment] | None = Field(default=None, max_length=1)
 
     @model_validator(mode="after")
@@ -686,6 +687,11 @@ def create_app(
         if payload.page and payload.page.strip():
             page = " ".join(payload.page.split())
             message = f"[Trang: {page}]\n{message}"
+        if payload.language == "en":
+            message = (
+                "[Giao diện đang là tiếng Anh: trả lời bằng tiếng Anh, "
+                "kể cả khi số liệu công cụ trả về bằng tiếng Việt]\n" + message
+            )
 
         async with chat_session.lock:
             chat_session.last_used = time.monotonic()

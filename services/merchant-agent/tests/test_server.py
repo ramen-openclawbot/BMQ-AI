@@ -208,6 +208,32 @@ def test_chat_uses_fake_sdk_and_returns_pending_changes(settings: Settings) -> N
     assert captured["options_kwargs"]["operator"] == "owner@bmq.vn"
 
 
+def test_chat_english_ui_tells_the_model_to_answer_in_english(settings: Settings) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
+        captured["message"] = text
+        return TurnResult(text="Hello")
+
+    app = _app(settings, FakeBackend(), captured, turn_runner=fake_turn)
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={"session_id": "session-en", "message": "Cost by category", "page": "/dashboard", "language": "en"},
+        )
+        bad = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={"session_id": "session-en", "message": "x", "language": "fr"},
+        )
+
+    assert response.status_code == 200
+    assert "trả lời bằng tiếng Anh" in captured["message"]
+    assert captured["message"].endswith("Cost by category")
+    assert bad.status_code == 422
+
+
 def test_chat_snapshot_command_skips_turn_runner(settings: Settings) -> None:
     captured: dict[str, Any] = {"turns": []}
 
