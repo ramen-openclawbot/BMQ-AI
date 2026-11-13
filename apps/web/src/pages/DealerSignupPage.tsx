@@ -734,6 +734,15 @@ function VerifyField({
         )}
       </div>
       {state.sent && !state.verified ? (
+        <p className="mt-2 text-xs leading-5 text-[#34252c]" data-verify-sent-to={id}>
+          {id === "email" ? "Đã gửi mã tới email " : "Đã gửi mã Zalo tới số "}
+          <b className="break-all">{value.trim()}</b>.{" "}
+          {id === "email"
+            ? "Chưa thấy? Xem mục Spam, hoặc kiểm tra email có gõ nhầm không — sửa lại rồi bấm Gửi mã."
+            : "Chưa thấy? Kiểm tra số có gõ nhầm không — sửa lại rồi bấm Gửi mã."}
+        </p>
+      ) : null}
+      {state.sent && !state.verified ? (
         <div className="mt-2 flex gap-2">
           <input
             aria-label={`Mã xác minh ${label.toLowerCase()}`}
