@@ -48,3 +48,10 @@ test("previousRevenuePeriod crosses the year boundary", () => {
   assert.equal(previousRevenuePeriod("2026-11"), "2026-10");
   assert.equal(previousRevenuePeriod("2026-01"), "2025-12");
 });
+
+test("previousLinesUpToDay keeps only the first N days of last month while the month is in progress", async () => {
+  const { previousLinesUpToDay } = await import("./revenue-customer-rollup.ts");
+  const rows = [{ day: 1 }, { day: 12 }, { day: 13 }, { day: 14 }, { day: 30 }, { day: 0 }];
+  assert.deepEqual(previousLinesUpToDay(rows, 13, (row) => row.day).map((row) => row.day), [1, 12, 13]);
+  assert.equal(previousLinesUpToDay(rows, null, (row) => row.day).length, 6, "a finished month is compared in full");
+});

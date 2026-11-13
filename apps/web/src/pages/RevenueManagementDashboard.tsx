@@ -23,7 +23,7 @@ import {
 } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRevenueLines, type RevenueLine } from "@/lib/revenue-ledger";
-import { buildHistoricalParentMap, resolveCustomerRollup, type CustomerRollup } from "@/lib/revenue-customer-rollup";
+import { buildHistoricalParentMap, previousLinesUpToDay, resolveCustomerRollup, type CustomerRollup } from "@/lib/revenue-customer-rollup";
 import { channelGroup } from "@/lib/overview/overview-summary";
 import { CHANNEL_META, CHANNEL_ORDER } from "@/components/overview/RevenueChannelChart";
 import { Button } from "@/components/ui/button";
@@ -423,8 +423,19 @@ export default function RevenueManagementDashboard() {
     return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
   }, [lines]);
 
+  // A month in progress is compared with the same first N days of last month (N = last day with ledger figures),
+  // not with the whole of last month; a finished month is compared in full.
+  const compareCutoffDay = isSelectedCurrentMonth
+    ? Math.min(maxRevenueDay(lines, period), daysInPeriod(prevPeriod))
+    : null;
+  const previousComparableLines = useMemo(
+    () => previousLinesUpToDay(previousLines, compareCutoffDay, lineDateDay),
+    [previousLines, compareCutoffDay],
+  );
+  const compareBasisLabel = compareCutoffDay === null ? "cả tháng trước" : `ngày 1–${compareCutoffDay} của tháng trước`;
+
   const mom = useMemo(() => {
-    const previousTotal = sumRevenue(previousLines);
+    const previousTotal = sumRevenue(previousComparableLines);
     const delta = stats.total - previousTotal;
     const pct = previousTotal > 0 ? (delta / previousTotal) * 100 : null;
     return {
@@ -432,7 +443,7 @@ export default function RevenueManagementDashboard() {
       delta,
       pct,
     };
-  }, [previousLines, stats.total]);
+  }, [previousComparableLines, stats.total]);
 
   const monthlyRevenueChart = useMemo(() => {
     let previousRevenue = 0;
@@ -871,7 +882,7 @@ export default function RevenueManagementDashboard() {
     const resolveRollup = (row: RevenueLine): CustomerRollup => resolveCustomerRollup(row, historicalParentByCustomerName);
 
     const previousMap = new Map<string, { revenue: number; name: string }>();
-    for (const row of previousLines) {
+    for (const row of previousComparableLines) {
       const rollup = resolveRollup(row);
       const cur = previousMap.get(rollup.key) || {
         revenue: 0,
@@ -943,7 +954,7 @@ export default function RevenueManagementDashboard() {
         if (b.qty !== a.qty) return b.qty - a.qty;
         return Math.abs(b.delta) - Math.abs(a.delta);
       });
-  }, [lines, period, previousLines]);
+  }, [lines, period, previousLines, previousComparableLines]);
 
   const openSources = (params: Readonly<Record<string, string>>) => {
     const sp = new URLSearchParams({ period, ...params });
@@ -1030,7 +1041,7 @@ export default function RevenueManagementDashboard() {
           <div className="d3-rv-card-h">
             <h2>Đã vào ledger</h2>
             {!isLoading && !error ? (
-              <span className={mom.pct === null ? "d3-rv-pill" : mom.delta >= 0 ? "d3-rv-up" : "d3-rv-dn"}>
+              <span className={mom.pct === null ? "d3-rv-pill" : mom.delta >= 0 ? "d3-rv-up" : "d3-rv-dn"} title={`So với ${compareBasisLabel}`} data-bmq-compare-basis>
                 {mom.pct === null ? "Tháng trước: N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`}
               </span>
             ) : null}
@@ -1169,10 +1180,10 @@ export default function RevenueManagementDashboard() {
         <section className="d3-rv-card" style={{ ["--i" as string]: 4 }}>
           <div className="d3-rv-card-h">
             <h2>Doanh thu theo tháng</h2>
-            <span className={mom.pct === null ? "d3-rv-pill" : mom.delta >= 0 ? "d3-rv-up" : "d3-rv-dn"}>
+            <span className={mom.pct === null ? "d3-rv-pill" : mom.delta >= 0 ? "d3-rv-up" : "d3-rv-dn"} title={`So với ${compareBasisLabel}`}>
               Tháng trước: {mom.pct === null ? "N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`}
             </span>
-            <p>So sánh doanh thu từng tháng trong 6 tháng gần nhất, dùng ledger đã kiểm soát.</p>
+            <p>So sánh doanh thu từng tháng trong 6 tháng gần nhất, dùng ledger đã kiểm soát. Số % "Tháng trước" so với {compareBasisLabel}.</p>
           </div>
           <div className="d3-rv-chart">
             <ChartContainer config={{ revenue: { label: "Doanh thu", color: MOM_CURRENT_COLOR } }} className="h-full w-full">
@@ -1289,7 +1300,7 @@ export default function RevenueManagementDashboard() {
           <div className="d3-rv-card-h">
             <h2>Doanh thu theo customer / NPP</h2>
             <span className="d3-rv-pill">{figure(String(byCustomer.length))}</span>
-            <p>Sắp xếp theo doanh thu hiện tại; khách chỉ có kỳ trước nằm cuối danh sách. Chạm một dòng để xem source lines, PO trace và audit.</p>
+            <p data-bmq-customers-basis>Sắp xếp theo doanh thu hiện tại; khách chỉ có kỳ trước nằm cuối danh sách. % so với {compareBasisLabel}. Chạm một dòng để xem source lines, PO trace và audit.</p>
           </div>
           {isLoading ? (
             <LoadingState rows={3} label="Đang tải doanh thu…" />

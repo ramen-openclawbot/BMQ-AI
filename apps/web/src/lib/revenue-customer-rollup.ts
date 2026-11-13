@@ -66,3 +66,20 @@ export function resolveCustomerRollup(
     name: row.customer_name || "Chưa rõ khách hàng",
   };
 }
+
+/**
+ * Lines of the previous month that fall on or before `cutoffDay`, so a month in progress is compared with the
+ * same number of days of last month instead of with the whole month (which made every customer look −50…−80%).
+ * `cutoffDay` null keeps every line (a finished month is compared with a full month).
+ */
+export function previousLinesUpToDay<T>(
+  previousLines: readonly T[],
+  cutoffDay: number | null,
+  dayOf: (row: T) => number,
+): T[] {
+  if (cutoffDay === null) return [...previousLines];
+  return previousLines.filter((row) => {
+    const day = dayOf(row);
+    return day > 0 && day <= cutoffDay;
+  });
+}

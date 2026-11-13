@@ -322,6 +322,9 @@ try {
         const leg = await page.$$eval(".d3-rv-leg b", (els) => els.map((el) => parseFloat(el.textContent.replace(",", "."))));
         assert.ok(Math.abs(leg.reduce((a, b) => a + b, 0) - 100) < 0.6, `channel shares add to 100: ${leg}`);
         assert.ok(await page.locator(".d3-rv-trow").count() >= 4, "customer rows");
+        // The % compare the first N days of this month with the same N days of last month, and say so.
+        assert.match(await page.locator("[data-bmq-customers-basis]").innerText(), /% so với ngày 1–\d+ của tháng trước/, "customer % basis stated");
+        assert.match((await page.locator("[data-bmq-compare-basis]").getAttribute("title")) || "", /^So với ngày 1–\d+ của tháng trước$/, "hero % basis stated");
         assert.equal(await page.locator(".d3-rv-ch").count(), 4, "channel rows");
         assert.equal(await page.locator(".d3-rv-alert").count(), 0);
       }
