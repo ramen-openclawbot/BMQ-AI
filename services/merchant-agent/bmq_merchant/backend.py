@@ -663,11 +663,15 @@ class BmqMerchantBackend(MerchantBackend):
 
     # -- revenue snapshot -----------------------------------------------------
 
-    async def revenue_snapshot(self, today: date | None = None) -> dict[str, Any]:
+    async def revenue_snapshot(
+        self, today: date | None = None, language: str = "vi"
+    ) -> dict[str, Any]:
         """Snapshot doanh thu theo kênh, dùng chung engine với tool MCP."""
 
         return await build_revenue_snapshot(
-            self._db, today or self._today_provider()
+            self._db,
+            today or self._today_provider(),
+            language,
         )
 
     # -- performance ----------------------------------------------------------

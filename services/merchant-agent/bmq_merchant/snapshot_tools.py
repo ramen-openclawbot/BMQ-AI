@@ -49,7 +49,12 @@ def build_snapshot_tools(
         SNAPSHOT_TOOL_SCHEMA,
     )
     async def revenue_snapshot_tool(args: dict[str, Any]) -> dict[str, Any]:
-        result = await chat_session.backend.revenue_snapshot()
+        ui_language = getattr(chat_session, "ui_language", None)
+        requested = args.get("language") if isinstance(args, dict) else None
+        language = ui_language if ui_language in ("vi", "en") else (
+            requested if requested in ("vi", "en") else "vi"
+        )
+        result = await chat_session.backend.revenue_snapshot(language=language)
         block = result["block"]
         payload = block["payload"]
         _append_ui(chat_session, block)

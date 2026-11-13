@@ -162,6 +162,8 @@ class _ChatSession:
     # The Agent SDK runtime never passes get_merchant_context to the prompt, so the
     # first message of a session carries it (real channel names, limitations).
     context_sent: bool = False
+    # UI language of the latest request, used by tools that return user-facing text.
+    ui_language: str = "vi"
     # Refreshed from every /v1/chat Authorization header; only forwarded to
     # bmq-analytics, never persisted or logged.
     owner_token: str = field(default="", repr=False)
@@ -621,10 +623,13 @@ def create_app(
                 ],
             }
         if is_snapshot_command(payload.message):
+            language = payload.language or "vi"
             async with chat_session.lock:
                 chat_session.last_used = time.monotonic()
                 try:
-                    result_dict = await chat_session.backend.revenue_snapshot()
+                    result_dict = await chat_session.backend.revenue_snapshot(
+                        language=language
+                    )
                 except Exception as exc:
                     logger.warning(
                         "Không dựng được snapshot doanh thu", exc_info=True
@@ -638,6 +643,19 @@ def create_app(
                 chat_session.last_used = time.monotonic()
             context = _session_context(chat_session.session_id, owner)
             pending = await chat_session.backend.get_pending_changes(context)
+            suggestions = (
+                [
+                    "Why did the channel drop?",
+                    "Which outlets have not submitted a report?",
+                    "This month's revenue by channel",
+                ]
+                if language == "en"
+                else [
+                    "Vì sao kênh giảm?",
+                    "Điểm bán nào chưa nộp báo cáo?",
+                    "Doanh thu tháng này theo kênh",
+                ]
+            )
             return {
                 "session_id": chat_session.session_id,
                 "text": result_dict["text"],
@@ -645,13 +663,7 @@ def create_app(
                     result_dict["block"],
                     {
                         "component": "suggestions",
-                        "payload": {
-                            "suggestions": [
-                                "Vì sao kênh giảm?",
-                                "Điểm bán nào chưa nộp báo cáo?",
-                                "Doanh thu tháng này theo kênh",
-                            ]
-                        },
+                        "payload": {"suggestions": suggestions},
                     },
                 ],
                 "tool_calls": ["bmq_revenue_snapshot"],
@@ -683,6 +695,7 @@ def create_app(
                     _serialize_change(change) for change in pending
                 ],
             }
+        chat_session.ui_language = payload.language or "vi"
         message = payload.message
         if payload.page and payload.page.strip():
             page = " ".join(payload.page.split())

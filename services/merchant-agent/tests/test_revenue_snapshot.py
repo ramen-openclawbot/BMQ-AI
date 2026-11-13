@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -7,7 +8,9 @@ import pytest
 
 from bmq_merchant.revenue_snapshot import (
     CAVEAT,
+    CAVEAT_EN,
     CHANNEL_GROUP_LABELS,
+    CHANNEL_GROUP_LABELS_EN,
     build_revenue_snapshot,
     channel_group,
     evaluate_flags,
@@ -18,6 +21,13 @@ from bmq_merchant.revenue_snapshot import (
 from bmq_merchant.snapshot_tools import build_snapshot_tools
 
 TODAY = date(2026, 10, 19)
+
+
+def _has_vietnamese_diacritics(text: str) -> bool:
+    decomposed = unicodedata.normalize("NFD", text)
+    if any(unicodedata.category(char) == "Mn" for char in decomposed):
+        return True
+    return any(char in text for char in "đĐ")
 
 
 class FakeDb:
@@ -597,12 +607,148 @@ async def test_render_snapshot_text_is_vietnamese_and_has_caveat() -> None:
     assert "haiku" not in lowered
 
 
+async def test_english_snapshot_has_no_vietnamese_diacritics() -> None:
+    result = await build_revenue_snapshot(FakeDb(_fixtures()), TODAY, "en")
+    payload = result["block"]["payload"]
+    text = result["text"]
+
+    assert _has_vietnamese_diacritics(text) is False
+    assert text.startswith("Revenue snapshot 19/10")
+    assert "20.0M VND" in text
+    assert "Anomalies (" in text
+    assert CAVEAT_EN in text
+    assert payload["caveat"] == CAVEAT_EN
+
+    groups = {group["group"]: group for group in payload["revenue"]["groups"]}
+    assert groups["dealer"]["label"] == CHANNEL_GROUP_LABELS_EN["dealer"]
+    assert groups["b2b"]["label"] == CHANNEL_GROUP_LABELS_EN["b2b"]
+    assert groups["bakery"]["label"] == CHANNEL_GROUP_LABELS_EN["bakery"]
+
+    expected_codes = {
+        "channel_drop",
+        "channel_spike",
+        "channel_silent",
+        "kiosk_missing_reports",
+        "kiosk_channel_drop",
+        "auto_job_failed",
+        "auto_job_missing",
+        "dealer_orders_zero",
+    }
+    assert expected_codes <= _codes(payload["flags"])
+    for flag in payload["flags"]:
+        for field in ("title", "detail", "action"):
+            assert _has_vietnamese_diacritics(flag[field]) is False, (
+                flag["code"],
+                field,
+                flag[field],
+            )
+
+
+async def test_english_snapshot_data_source_error_is_english() -> None:
+    db = FakeDb(_fixtures(), errors={"dealer_orders": RuntimeError("boom")})
+    result = await build_revenue_snapshot(db, TODAY, "en")
+    payload = result["block"]["payload"]
+
+    error_flag = next(
+        flag for flag in payload["flags"] if flag["code"] == "data_source_error"
+    )
+    assert error_flag["title"] == "Could not read dealer orders data"
+    assert error_flag["detail"] == "boom"
+    assert error_flag["action"] == (
+        "Try again later; if it repeats, report it to engineering"
+    )
+    assert _has_vietnamese_diacritics(result["text"]) is False
+    assert _has_vietnamese_diacritics(payload["dealer_orders"]["message"]) is False
+
+
+async def test_english_snapshot_over_row_limit_is_english() -> None:
+    fixtures = _fixtures()
+    fixtures["revenue_ledger_lines"] = [{}] * 20_001
+    result = await build_revenue_snapshot(FakeDb(fixtures), TODAY, "en")
+    payload = result["block"]["payload"]
+
+    assert payload["revenue"]["message"] == "too many rows"
+    error_flag = next(
+        flag for flag in payload["flags"] if flag["code"] == "data_source_error"
+    )
+    assert error_flag["title"] == "Could not read revenue data"
+    assert error_flag["detail"] == "too many rows"
+    assert _has_vietnamese_diacritics(result["text"]) is False
+
+
+def test_no_anomaly_flag_in_english_has_no_vietnamese_diacritics() -> None:
+    sections = {
+        "periods": {
+            "current": {"start": "2026-10-01", "end": "2026-10-19"},
+            "previous": {"start": "2026-09-01", "end": "2026-09-19"},
+        },
+        "revenue": {
+            "groups": [
+                {
+                    "group": "dealer",
+                    "label": CHANNEL_GROUP_LABELS_EN["dealer"],
+                    "current": 10_000_000,
+                    "previous": 10_000_000,
+                    "delta_pct": 0.0,
+                    "silent_days": 0,
+                    "previous_active_days": 15,
+                }
+            ]
+        },
+        "kiosk": {
+            "channels": [],
+            "reported_yesterday": 4,
+            "missing_yesterday": [],
+            "reported_today": 0,
+            "active_count": 4,
+        },
+        "dealer_orders": {
+            "orders_last_2_days": 3,
+            "previous_daily_avg": 2.0,
+        },
+        "auto_job": {
+            "last_success_date": "2026-10-18",
+            "failed_dates": [],
+            "missing_dates": [],
+            "stuck_dates": [],
+        },
+    }
+
+    flags = evaluate_flags(sections, TODAY, "en")
+
+    assert len(flags) == 1
+    assert flags[0]["code"] == "no_anomaly"
+    assert flags[0]["title"] == "No anomalies detected under the current rules"
+    for field in ("title", "detail", "action"):
+        assert _has_vietnamese_diacritics(flags[0][field]) is False
+
+
+async def test_default_language_matches_explicit_vietnamese() -> None:
+    default = await build_revenue_snapshot(FakeDb(_fixtures()), TODAY)
+    explicit = await build_revenue_snapshot(FakeDb(_fixtures()), TODAY, "vi")
+
+    assert default["text"] == explicit["text"]
+    assert default["text"].startswith("Snapshot doanh thu 19/10")
+    assert CAVEAT in default["text"]
+
+    default_payload = dict(default["block"]["payload"])
+    explicit_payload = dict(explicit["block"]["payload"])
+    default_payload.pop("generated_at")
+    explicit_payload.pop("generated_at")
+    assert default_payload == explicit_payload
+    assert default_payload["caveat"] == CAVEAT
+
+
 class _FakeSnapshotBackend:
     def __init__(self) -> None:
         self.calls = 0
+        self.languages: list[str] = []
 
-    async def revenue_snapshot(self) -> dict[str, Any]:
+    async def revenue_snapshot(
+        self, today: Any = None, language: str = "vi"
+    ) -> dict[str, Any]:
         self.calls += 1
+        self.languages.append(language)
         return {
             "text": "Tóm tắt snapshot",
             "block": {
@@ -616,6 +762,7 @@ class _FakeChatSession:
     def __init__(self) -> None:
         self.pending_ui: list[dict[str, Any]] = []
         self.backend = _FakeSnapshotBackend()
+        self.ui_language = "vi"
 
 
 async def test_snapshot_tool_appends_exactly_one_revenue_block(settings: Any) -> None:
@@ -632,3 +779,21 @@ async def test_snapshot_tool_appends_exactly_one_revenue_block(settings: Any) ->
     assert len(chat_session.pending_ui) == 1
     assert chat_session.pending_ui[0]["component"] == "revenue_snapshot"
     assert chat_session.backend.calls == 1
+
+
+async def test_snapshot_tool_follows_the_ui_language(settings: Any) -> None:
+    chat_session = _FakeChatSession()
+    chat_session.ui_language = "en"
+    tools = build_snapshot_tools(chat_session, settings)
+
+    await tools[0].handler({"language": "vi"})
+    chat_session.ui_language = "vi"
+    await tools[0].handler({})
+
+    assert chat_session.backend.languages == ["en", "vi"]
+
+
+async def test_english_unknown_source_error_is_not_transliterated() -> None:
+    db = FakeDb(_fixtures(), errors={"dealer_orders": RuntimeError("Lỗi kết nối Supabase")})
+    result = await build_revenue_snapshot(db, TODAY, "en")
+    assert result["block"]["payload"]["dealer_orders"]["message"] == "could not read data"

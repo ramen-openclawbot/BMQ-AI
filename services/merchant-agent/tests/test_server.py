@@ -39,6 +39,7 @@ class FakeBackend:
             "change-2": _change("change-2"),
         }
         self.intake: dict[str, Any] | None = None
+        self.snapshot_language: str | None = None
 
     async def get_pending_changes(self, session: Any) -> list[StagedChange]:
         return [
@@ -92,9 +93,18 @@ class FakeBackend:
         self.changes[change_id] = updated
         return updated
 
-    async def revenue_snapshot(self, today: Any = None) -> dict[str, Any]:
+    async def revenue_snapshot(
+        self, today: Any = None, language: str = "vi"
+    ) -> dict[str, Any]:
+        self.snapshot_language = language
+        if language == "en":
+            text = "Revenue snapshot 19/10 — total 10.0M VND"
+            caveat = "Controlled figures from the revenue ledger, not audited numbers."
+        else:
+            text = "Snapshot doanh thu 19/10 — tổng 10,0 tr"
+            caveat = "Số đã kiểm soát theo sổ doanh thu, chưa phải số kiểm toán."
         return {
-            "text": "Snapshot doanh thu 19/10 — tổng 10,0 tr",
+            "text": text,
             "block": {
                 "component": "revenue_snapshot",
                 "payload": {
@@ -109,9 +119,7 @@ class FakeBackend:
                     "auto_job": {},
                     "flags": [],
                     "sources": [],
-                    "caveat": (
-                        "Số đã kiểm soát theo sổ doanh thu, chưa phải số kiểm toán."
-                    ),
+                    "caveat": caveat,
                 },
             },
         }
@@ -262,7 +270,78 @@ def test_chat_snapshot_command_skips_turn_runner(settings: Settings) -> None:
     assert body["tool_calls"] == ["bmq_revenue_snapshot"]
     assert body["pending_changes"][0]["change_id"] == "change-1"
     assert body["text"].startswith("Snapshot doanh thu")
+    assert fake.snapshot_language == "vi"
+    assert body["ui"][1]["payload"]["suggestions"] == [
+        "Vì sao kênh giảm?",
+        "Điểm bán nào chưa nộp báo cáo?",
+        "Doanh thu tháng này theo kênh",
+    ]
     assert captured["turns"] == [], "snapshot fast path must not call turn_runner"
+
+
+def test_chat_snapshot_english_uses_english_text_and_suggestions(
+    settings: Settings,
+) -> None:
+    captured: dict[str, Any] = {"turns": []}
+
+    async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
+        captured["turns"].append(text)
+        return TurnResult(text="must not be called")
+
+    fake = FakeBackend()
+    app = _app(settings, fake, captured, turn_runner=fake_turn)
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={
+                "session_id": "session-snapshot-en",
+                "message": "Snapshot doanh thu",
+                "page": "/dashboard",
+                "language": "en",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert fake.snapshot_language == "en"
+    assert body["text"].startswith("Revenue snapshot")
+    assert body["ui"][0]["component"] == "revenue_snapshot"
+    assert body["ui"][1]["payload"]["suggestions"] == [
+        "Why did the channel drop?",
+        "Which outlets have not submitted a report?",
+        "This month's revenue by channel",
+    ]
+    assert captured["turns"] == []
+
+
+def test_chat_snapshot_without_language_keeps_vietnamese(settings: Settings) -> None:
+    captured: dict[str, Any] = {"turns": []}
+
+    async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
+        captured["turns"].append(text)
+        return TurnResult(text="must not be called")
+
+    fake = FakeBackend()
+    app = _app(settings, fake, captured, turn_runner=fake_turn)
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={
+                "session_id": "session-snapshot-default",
+                "message": "revenue snapshot",
+            },
+        )
+
+    assert response.status_code == 200
+    assert fake.snapshot_language == "vi"
+    assert response.json()["ui"][1]["payload"]["suggestions"] == [
+        "Vì sao kênh giảm?",
+        "Điểm bán nào chưa nộp báo cáo?",
+        "Doanh thu tháng này theo kênh",
+    ]
+    assert captured["turns"] == []
 
 
 def test_chat_greeting_fast_reply_skips_turn_runner(settings: Settings) -> None:
@@ -448,7 +527,9 @@ def test_chat_snapshot_error_returns_502_without_breaking_session(
     settings: Settings,
 ) -> None:
     class BrokenSnapshotBackend(FakeBackend):
-        async def revenue_snapshot(self, today: Any = None) -> dict[str, Any]:
+        async def revenue_snapshot(
+            self, today: Any = None, language: str = "vi"
+        ) -> dict[str, Any]:
             raise RuntimeError("snapshot boom")
 
     fake = BrokenSnapshotBackend()

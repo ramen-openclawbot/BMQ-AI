@@ -37,6 +37,13 @@ CHANNEL_GROUP_LABELS = {
     "bakery": "Bánh ngọt",
     "other": "Khác",
 }
+CHANNEL_GROUP_LABELS_EN = {
+    "dealer": "Dealer",
+    "b2b": "B2B / Supermarket",
+    "retail": "Retail kiosk",
+    "bakery": "Bakery",
+    "other": "Other",
+}
 DEALER_CHANNELS = frozenset(
     {
         "franchise",
@@ -48,6 +55,7 @@ DEALER_CHANNELS = frozenset(
 DELIVERY_CHANNEL_MARKERS = ("grab", "shopee", "befood", "baemin", "gojek")
 
 CAVEAT = "Số đã kiểm soát theo sổ doanh thu, chưa phải số kiểm toán."
+CAVEAT_EN = "Controlled figures from the revenue ledger, not audited numbers."
 SNAPSHOT_COMPONENT = "revenue_snapshot"
 SNAPSHOT_VERSION = 1
 MAX_SOURCE_ROWS = 20_000
@@ -72,6 +80,12 @@ _SECTION_LABELS = {
     "dealer_orders": "đơn đại lý",
     "auto_job": "nhật ký job 23:59",
 }
+_SECTION_LABELS_EN = {
+    "revenue": "revenue",
+    "kiosk": "outlet reports",
+    "dealer_orders": "dealer orders",
+    "auto_job": "23:59 job log",
+}
 _EDGE_PUNCTUATION = string.punctuation + "…“”‘’–—"
 
 
@@ -90,6 +104,17 @@ def _strip_accents(value: Any) -> str:
 
 def _normalize(value: Any) -> str:
     return _strip_accents(value).casefold()
+
+
+def _is_english(language: str | None) -> bool:
+    return language == "en"
+
+
+def _dynamic_text(value: Any, language: str | None) -> str:
+    """Keep proper names as-is in Vietnamese, transliterate them in English."""
+
+    text = str(value or "")
+    return _strip_accents(text) if _is_english(language) else text
 
 
 def is_snapshot_command(message: str) -> bool:
@@ -124,8 +149,9 @@ def channel_group(channel: Any) -> str:
     return "other"
 
 
-def channel_label(group: str) -> str:
-    return CHANNEL_GROUP_LABELS.get(group, CHANNEL_GROUP_LABELS["other"])
+def channel_label(group: str, language: str = "vi") -> str:
+    labels = CHANNEL_GROUP_LABELS_EN if _is_english(language) else CHANNEL_GROUP_LABELS
+    return labels.get(group, labels["other"])
 
 
 # -- period helpers -----------------------------------------------------------
@@ -217,8 +243,14 @@ def _pct_change(current: float, previous: float) -> float | None:
     return round((current - previous) / previous * 100, 1)
 
 
-def _money(value: Any) -> str:
+def _money(value: Any, language: str = "vi") -> str:
     amount = _number(value)
+    if _is_english(language):
+        if abs(amount) >= 1_000_000:
+            return f"{amount / 1_000_000:.1f}M VND"
+        if abs(amount) >= 1_000:
+            return f"{int(round(amount)):,} VND"
+        return f"{int(round(amount))} VND"
     if abs(amount) >= 1_000_000:
         text = f"{amount / 1_000_000:.1f}".replace(".", ",")
         return f"{text} tr"
@@ -227,8 +259,14 @@ def _money(value: Any) -> str:
     return f"{int(round(amount))} đ"
 
 
-def _pct_text(value: Any) -> str:
-    return f"{_number(value):+.1f}%".replace(".", ",")
+def _pct_value(value: Any, language: str = "vi") -> str:
+    text = f"{_number(value):.1f}%"
+    return text if _is_english(language) else text.replace(".", ",")
+
+
+def _pct_text(value: Any, language: str = "vi") -> str:
+    text = f"{_number(value):+.1f}%"
+    return text if _is_english(language) else text.replace(".", ",")
 
 
 def _dmy(value: Any) -> str:
@@ -251,6 +289,20 @@ def _iso_periods(periods: Mapping[str, Mapping[str, date]]) -> dict[str, dict[st
 def _short_error(exc: BaseException) -> str:
     text = str(exc).strip() or type(exc).__name__
     return text[:160]
+
+
+def _error_message(value: Any, language: str = "vi") -> str:
+    text = str(value)
+    if not _is_english(language):
+        return text
+    known = {
+        "quá nhiều dòng": "too many rows",
+        "không đọc được dữ liệu": "could not read data",
+        "dữ liệu trả về không phải danh sách": "the returned data is not a list",
+    }
+    if text in known:
+        return known[text]
+    return text if text.isascii() else "could not read data"
 
 
 # -- section readers ----------------------------------------------------------
@@ -346,6 +398,7 @@ def _auto_job_params(today: date) -> dict[str, str]:
 def _build_revenue(
     rows: Sequence[Mapping[str, Any]],
     periods: Mapping[str, Mapping[str, date]],
+    language: str = "vi",
 ) -> dict[str, Any]:
     current = periods["current"]
     previous = periods["previous"]
@@ -378,7 +431,7 @@ def _build_revenue(
         channel = str(row.get("channel") or "").strip()
         group = channel_group(channel)
         bucket = groups[group]
-        raw_name = channel or "Không tên"
+        raw_name = channel or ("Unnamed" if _is_english(language) else "Không tên")
         raw_bucket = raw_channels.setdefault(
             raw_name, {"channel": raw_name, "current": 0.0, "previous": 0.0}
         )
@@ -415,7 +468,7 @@ def _build_revenue(
         group_rows.append(
             {
                 "group": group,
-                "label": channel_label(group),
+                "label": channel_label(group, language),
                 "current": current_total,
                 "previous": previous_total,
                 "delta_pct": _pct_change(current_total, previous_total),
@@ -746,7 +799,9 @@ def _has_delivery_marker(channel: Mapping[str, Any]) -> bool:
 
 
 def evaluate_flags(
-    payload_sections: Mapping[str, Any], today: date
+    payload_sections: Mapping[str, Any],
+    today: date,
+    language: str = "vi",
 ) -> list[dict[str, str]]:
     """Evaluate every anomaly rule against the payload sections.
 
@@ -757,6 +812,7 @@ def evaluate_flags(
 
     if isinstance(today, datetime):
         today = today.date()
+    english = _is_english(language)
     flags: list[dict[str, str]] = []
 
     revenue = payload_sections.get("revenue")
@@ -767,9 +823,10 @@ def evaluate_flags(
             for group in groups:
                 if not isinstance(group, Mapping):
                     continue
-                label = str(
+                label = _dynamic_text(
                     group.get("label")
-                    or channel_label(str(group.get("group") or "other"))
+                    or channel_label(str(group.get("group") or "other"), language),
+                    language,
                 )
                 current = _number(group.get("current"))
                 previous = _number(group.get("previous"))
@@ -791,16 +848,36 @@ def evaluate_flags(
                         _flag(
                             "channel_drop",
                             severity,
-                            f"Kênh {label} giảm {abs(delta_value):.1f}%".replace(
-                                ".", ","
+                            (
+                                f"Channel {label} is down "
+                                f"{_pct_value(abs(delta_value), language)}"
+                                if english
+                                else f"Kênh {label} giảm "
+                                f"{_pct_value(abs(delta_value), language)}"
                             ),
                             (
-                                f"Doanh thu kỳ này {_money(current)}, cùng kỳ "
-                                f"{_money(previous)} ({_pct_text(delta_value)})."
+                                f"Revenue this period {_money(current, language)}, "
+                                f"same period {_money(previous, language)} "
+                                f"({_pct_text(delta_value, language)})."
+                                if english
+                                else (
+                                    f"Doanh thu kỳ này {_money(current, language)}, "
+                                    f"cùng kỳ {_money(previous, language)} "
+                                    f"({_pct_text(delta_value, language)})."
+                                )
                             ),
                             (
-                                f"Kiểm tra kênh {label}: app/kênh bán có gián đoạn "
-                                "không, đối chiếu sổ doanh thu đã nhập đủ chưa"
+                                (
+                                    f"Check channel {label}: whether the app/sales "
+                                    "channel was interrupted, and whether the "
+                                    "revenue ledger is fully entered"
+                                )
+                                if english
+                                else (
+                                    f"Kiểm tra kênh {label}: app/kênh bán có gián "
+                                    "đoạn không, đối chiếu sổ doanh thu đã nhập "
+                                    "đủ chưa"
+                                )
                             ),
                         )
                     )
@@ -813,16 +890,32 @@ def evaluate_flags(
                         _flag(
                             "channel_spike",
                             "medium",
-                            f"Kênh {label} tăng {delta_value:.1f}%".replace(
-                                ".", ","
+                            (
+                                f"Channel {label} is up "
+                                f"{_pct_value(delta_value, language)}"
+                                if english
+                                else f"Kênh {label} tăng "
+                                f"{_pct_value(delta_value, language)}"
                             ),
                             (
-                                f"Doanh thu kỳ này {_money(current)}, cùng kỳ "
-                                f"{_money(previous)} ({_pct_text(delta_value)})."
+                                f"Revenue this period {_money(current, language)}, "
+                                f"same period {_money(previous, language)} "
+                                f"({_pct_text(delta_value, language)})."
+                                if english
+                                else (
+                                    f"Doanh thu kỳ này {_money(current, language)}, "
+                                    f"cùng kỳ {_money(previous, language)} "
+                                    f"({_pct_text(delta_value, language)})."
+                                )
                             ),
                             (
-                                "Xác minh số nhập trùng hoặc đơn bất thường ở "
-                                f"kênh {label}"
+                                f"Verify duplicate entries or unusual orders in "
+                                f"channel {label}"
+                                if english
+                                else (
+                                    "Xác minh số nhập trùng hoặc đơn bất thường ở "
+                                    f"kênh {label}"
+                                )
                             ),
                         )
                     )
@@ -838,14 +931,31 @@ def evaluate_flags(
                         _flag(
                             "channel_silent",
                             "high",
-                            f"Kênh {label} không có số {silent_days} ngày",
                             (
-                                f"Kênh có số {active_days}/{previous_days} ngày "
-                                "của tháng trước nhưng đang im lặng."
+                                f"Channel {label} has had no data for "
+                                f"{silent_days} days"
+                                if english
+                                else f"Kênh {label} không có số {silent_days} ngày"
                             ),
                             (
-                                f"Kênh {label} không có số 2 ngày liền: kiểm tra "
-                                "app/kênh vận hành hoặc job nhập sổ"
+                                f"The channel had data on {active_days}/"
+                                f"{previous_days} days last month but is "
+                                "currently silent."
+                                if english
+                                else (
+                                    f"Kênh có số {active_days}/{previous_days} ngày "
+                                    "của tháng trước nhưng đang im lặng."
+                                )
+                            ),
+                            (
+                                f"Channel {label} has no data for 2 days in a row: "
+                                "check the app/operating channel or the ledger "
+                                "import job"
+                                if english
+                                else (
+                                    f"Kênh {label} không có số 2 ngày liền: kiểm tra "
+                                    "app/kênh vận hành hoặc job nhập sổ"
+                                )
                             ),
                         )
                     )
@@ -865,7 +975,10 @@ def evaluate_flags(
                 else "medium"
             )
             names = ", ".join(
-                str(item.get("location_name") or item.get("location_code") or "")
+                _dynamic_text(
+                    item.get("location_name") or item.get("location_code") or "",
+                    language,
+                )
                 for item in missing
                 if isinstance(item, Mapping)
             )
@@ -873,11 +986,26 @@ def evaluate_flags(
                 _flag(
                     "kiosk_missing_reports",
                     severity,
-                    f"{len(missing)} điểm bán chưa nộp báo cáo hôm qua",
-                    f"Điểm chưa nộp: {names}.",
                     (
-                        "Nhắc các điểm chưa nộp báo cáo ngày "
+                        f"{len(missing)} "
+                        f"{'outlet has' if len(missing) == 1 else 'outlets have'}"
+                        " not submitted yesterday's report"
+                        if english
+                        else f"{len(missing)} điểm bán chưa nộp báo cáo hôm qua"
+                    ),
+                    (
+                        f"Outlets missing: {names}."
+                        if english
+                        else f"Điểm chưa nộp: {names}."
+                    ),
+                    (
+                        f"Remind outlets that have not submitted the report for "
                         f"{_dmy(today - timedelta(days=1))}: {names}"
+                        if english
+                        else (
+                            "Nhắc các điểm chưa nộp báo cáo ngày "
+                            f"{_dmy(today - timedelta(days=1))}: {names}"
+                        )
                     ),
                 )
             )
@@ -898,24 +1026,42 @@ def evaluate_flags(
                     previous >= KIOSK_DROP_MIN_PREVIOUS
                     and delta_value <= KIOSK_DROP_PCT
                 ):
-                    label = str(
+                    label = _dynamic_text(
                         channel.get("channel_name")
                         or channel.get("channel_code")
-                        or "giao hàng"
+                        or ("delivery" if english else "giao hàng"),
+                        language,
                     )
                     flags.append(
                         _flag(
                             "kiosk_channel_drop",
                             "medium",
-                            f"Kênh {label} tại điểm bán giảm "
-                            f"{abs(delta_value):.1f}%".replace(".", ","),
                             (
-                                f"Kỳ này {_money(channel.get('current'))}, cùng kỳ "
-                                f"{_money(previous)} ({_pct_text(delta_value)})."
+                                f"Channel {label} at outlets is down "
+                                f"{_pct_value(abs(delta_value), language)}"
+                                if english
+                                else f"Kênh {label} tại điểm bán giảm "
+                                f"{_pct_value(abs(delta_value), language)}"
                             ),
                             (
-                                f"Kiểm tra app {label} tại điểm bán (đóng gian "
-                                "hàng, lỗi app, hết hàng)"
+                                f"This period {_money(channel.get('current'), language)}, "
+                                f"same period {_money(previous, language)} "
+                                f"({_pct_text(delta_value, language)})."
+                                if english
+                                else (
+                                    f"Kỳ này {_money(channel.get('current'), language)}, "
+                                    f"cùng kỳ {_money(previous, language)} "
+                                    f"({_pct_text(delta_value, language)})."
+                                )
+                            ),
+                            (
+                                f"Check the {label} app at outlets (stall closed, "
+                                "app error, out of stock)"
+                                if english
+                                else (
+                                    f"Kiểm tra app {label} tại điểm bán (đóng gian "
+                                    "hàng, lỗi app, hết hàng)"
+                                )
                             ),
                         )
                     )
@@ -938,18 +1084,39 @@ def evaluate_flags(
             first_date = (failed_dates + stuck_dates)[0]
             problems: list[str] = []
             if failed_dates:
-                problems.append(f"lỗi {len(failed_dates)} ngày")
+                problems.append(
+                    f"{len(failed_dates)} failed days"
+                    if english
+                    else f"lỗi {len(failed_dates)} ngày"
+                )
             if stuck_dates:
-                problems.append(f"treo {len(stuck_dates)} ngày")
+                problems.append(
+                    f"{len(stuck_dates)} stuck days"
+                    if english
+                    else f"treo {len(stuck_dates)} ngày"
+                )
             flags.append(
                 _flag(
                     "auto_job_failed",
                     "high",
-                    "Job 23:59 lỗi hoặc bị treo",
-                    f"Nhật ký tự động có {', '.join(problems)}.",
                     (
-                        "Mở Doanh thu > nhật ký tự động 23:59, chạy lại ngày "
+                        "Job 23:59 failed or is stuck"
+                        if english
+                        else "Job 23:59 lỗi hoặc bị treo"
+                    ),
+                    (
+                        f"The automated log has {', '.join(problems)}."
+                        if english
+                        else f"Nhật ký tự động có {', '.join(problems)}."
+                    ),
+                    (
+                        f"Open Revenue > 23:59 automated log, rerun "
                         f"{_dmy(first_date)}"
+                        if english
+                        else (
+                            "Mở Doanh thu > nhật ký tự động 23:59, chạy lại ngày "
+                            f"{_dmy(first_date)}"
+                        )
                     ),
                 )
             )
@@ -965,11 +1132,24 @@ def evaluate_flags(
                 _flag(
                     "auto_job_missing",
                     "medium",
-                    "Job 23:59 thiếu ngày",
-                    f"Không có dòng nhật ký cho {len(missing_dates)} ngày.",
                     (
-                        "Job 23:59 không chạy ngày "
-                        f"{_dmy(missing_dates[0])}: kiểm tra lịch tự động"
+                        "Job 23:59 is missing days"
+                        if english
+                        else "Job 23:59 thiếu ngày"
+                    ),
+                    (
+                        f"There is no log row for {len(missing_dates)} days."
+                        if english
+                        else f"Không có dòng nhật ký cho {len(missing_dates)} ngày."
+                    ),
+                    (
+                        f"Job 23:59 did not run on {_dmy(missing_dates[0])}: "
+                        "check the automated schedule"
+                        if english
+                        else (
+                            "Job 23:59 không chạy ngày "
+                            f"{_dmy(missing_dates[0])}: kiểm tra lịch tự động"
+                        )
                     ),
                 )
             )
@@ -982,45 +1162,87 @@ def evaluate_flags(
             orders_last_2_days == 0
             and previous_daily_avg >= DEALER_ZERO_MIN_PREVIOUS_DAILY_AVG
         ):
+            avg_text = str(round(previous_daily_avg, 1))
+            if not english:
+                avg_text = avg_text.replace(".", ",")
             flags.append(
                 _flag(
                     "dealer_orders_zero",
                     "high",
-                    "Đơn đại lý về 0 trong 2 ngày",
                     (
-                        "Không có đơn đại lý trong 2 ngày; tháng trước trung bình "
-                        f"{str(round(previous_daily_avg, 1)).replace('.', ',')} "
-                        "đơn/ngày."
+                        "Dealer orders dropped to zero for 2 days"
+                        if english
+                        else "Đơn đại lý về 0 trong 2 ngày"
                     ),
                     (
-                        "Đơn Zalo đại lý về 0 trong 2 ngày: kiểm tra cổng đặt "
-                        "hàng dathang và Zalo OA"
+                        "No dealer orders for 2 days; last month averaged "
+                        f"{avg_text} orders/day."
+                        if english
+                        else (
+                            "Không có đơn đại lý trong 2 ngày; tháng trước trung "
+                            f"bình {avg_text} đơn/ngày."
+                        )
+                    ),
+                    (
+                        "Dealer Zalo orders dropped to zero for 2 days: check "
+                        "the dathang ordering portal and Zalo OA"
+                        if english
+                        else (
+                            "Đơn Zalo đại lý về 0 trong 2 ngày: kiểm tra cổng đặt "
+                            "hàng dathang và Zalo OA"
+                        )
                     ),
                 )
             )
 
-    for section, label in _SECTION_LABELS.items():
+    section_labels = _SECTION_LABELS_EN if english else _SECTION_LABELS
+    for section, label in section_labels.items():
         value = payload_sections.get(section)
         if isinstance(value, Mapping) and value.get("status") == "error":
-            message = str(value.get("message") or "không đọc được dữ liệu")
+            message = _error_message(
+                value.get("message")
+                or ("could not read data" if english else "không đọc được dữ liệu"),
+                language,
+            )
             flags.append(
                 _flag(
                     "data_source_error",
                     "info",
-                    f"Không đọc được dữ liệu {label}",
+                    (
+                        f"Could not read {label} data"
+                        if english
+                        else f"Không đọc được dữ liệu {label}"
+                    ),
                     message,
-                    "Thử lại sau; nếu lặp lại, báo kỹ thuật",
+                    (
+                        "Try again later; if it repeats, report it to engineering"
+                        if english
+                        else "Thử lại sau; nếu lặp lại, báo kỹ thuật"
+                    ),
                 )
             )
 
     if not flags:
+        title = (
+            "No anomalies detected under the current rules"
+            if english
+            else "Không phát hiện bất thường theo quy tắc hiện có"
+        )
         flags.append(
             _flag(
                 "no_anomaly",
                 "info",
-                "Không phát hiện bất thường theo quy tắc hiện có",
-                "Không phát hiện bất thường theo quy tắc hiện có.",
-                "Tiếp tục theo dõi doanh thu hằng ngày.",
+                title,
+                (
+                    "No anomalies detected under the current rules."
+                    if english
+                    else "Không phát hiện bất thường theo quy tắc hiện có."
+                ),
+                (
+                    "Keep tracking revenue daily."
+                    if english
+                    else "Tiếp tục theo dõi doanh thu hằng ngày."
+                ),
             )
         )
 
@@ -1054,7 +1276,7 @@ async def build_revenue_snapshot(
             _revenue_params(periods),
             sources,
         )
-        return _build_revenue(rows, periods)
+        return _build_revenue(rows, periods, language)
 
     async def kiosk_section() -> dict[str, Any]:
         locations = await _read_rows(
@@ -1093,10 +1315,18 @@ async def build_revenue_snapshot(
         try:
             return await builder()
         except _TooManyRows:
-            return {"status": "error", "message": "quá nhiều dòng"}
+            return {
+                "status": "error",
+                "message": (
+                    "too many rows" if _is_english(language) else "quá nhiều dòng"
+                ),
+            }
         except Exception as exc:  # one source must never break the snapshot
             logger.warning("Không đọc được nguồn snapshot doanh thu", exc_info=True)
-            return {"status": "error", "message": _short_error(exc)}
+            return {
+                "status": "error",
+                "message": _error_message(_short_error(exc), language),
+            }
 
     sections = {
         "revenue": await run_section(revenue_section),
@@ -1112,9 +1342,9 @@ async def build_revenue_snapshot(
         **sections,
         "flags": [],
         "sources": sources,
-        "caveat": CAVEAT,
+        "caveat": CAVEAT_EN if _is_english(language) else CAVEAT,
     }
-    payload["flags"] = evaluate_flags(payload, today)
+    payload["flags"] = evaluate_flags(payload, today, language)
 
     return {
         "text": render_snapshot_text(payload, language),
@@ -1125,39 +1355,70 @@ async def build_revenue_snapshot(
 # -- rendering ----------------------------------------------------------------
 
 
-def _render_kiosk_line(kiosk: Mapping[str, Any] | None) -> str:
+def _render_kiosk_line(
+    kiosk: Mapping[str, Any] | None, language: str = "vi"
+) -> str:
     if not isinstance(kiosk, Mapping) or kiosk.get("status") == "error":
-        return "Điểm bán: không đọc được dữ liệu"
+        return (
+            "Outlets: could not read data"
+            if _is_english(language)
+            else "Điểm bán: không đọc được dữ liệu"
+        )
     reported = int(_number(kiosk.get("reported_yesterday")))
     active = int(_number(kiosk.get("active_count")))
+    if _is_english(language):
+        return f"Outlets that submitted yesterday's report: {reported}/{active}"
     return f"Điểm bán nộp báo cáo hôm qua: {reported}/{active}"
 
 
-def _render_dealer_line(dealer: Mapping[str, Any] | None) -> str:
+def _render_dealer_line(
+    dealer: Mapping[str, Any] | None, language: str = "vi"
+) -> str:
     if not isinstance(dealer, Mapping) or dealer.get("status") == "error":
-        return "Đơn đại lý 2 ngày: không đọc được dữ liệu"
+        return (
+            "Dealer orders (2 days): could not read data"
+            if _is_english(language)
+            else "Đơn đại lý 2 ngày: không đọc được dữ liệu"
+        )
     orders = int(_number(dealer.get("orders_last_2_days")))
+    if _is_english(language):
+        return f"Dealer orders (2 days): {orders} orders"
     return f"Đơn đại lý 2 ngày: {orders} đơn"
 
 
-def _render_auto_job_line(auto_job: Mapping[str, Any] | None) -> str:
+def _render_auto_job_line(
+    auto_job: Mapping[str, Any] | None, language: str = "vi"
+) -> str:
+    english = _is_english(language)
     if not isinstance(auto_job, Mapping) or auto_job.get("status") == "error":
-        return "Job 23:59: không đọc được nhật ký"
+        return (
+            "Job 23:59: could not read the log"
+            if english
+            else "Job 23:59: không đọc được nhật ký"
+        )
     last_success = _parse_date(auto_job.get("last_success_date"))
     if last_success is None:
-        line = "Job 23:59: chưa có lần thành công"
+        line = (
+            "Job 23:59: no successful run yet"
+            if english
+            else "Job 23:59: chưa có lần thành công"
+        )
     else:
-        line = f"Job 23:59: thành công gần nhất {_dmy(last_success)}"
+        line = (
+            f"Job 23:59: last success {_dmy(last_success)}"
+            if english
+            else f"Job 23:59: thành công gần nhất {_dmy(last_success)}"
+        )
     failed = len(auto_job.get("failed_dates") or [])
     missing = len(auto_job.get("missing_dates") or [])
     stuck = len(auto_job.get("stuck_dates") or [])
     problems = []
     if failed:
-        problems.append(f"lỗi {failed}")
+        problems.append(f"failed {failed}" if english else f"lỗi {failed}")
     if missing:
-        problems.append(f"thiếu {missing}")
+        problems.append(f"missing {missing}" if english else f"thiếu {missing}")
     if stuck:
-        problems.append(f"treo {stuck}")
+        problems.append(f"stuck {stuck}" if english else f"treo {stuck}")
     if problems:
         line += "; " + ", ".join(problems)
     return line
@@ -1166,8 +1427,9 @@ def _render_auto_job_line(auto_job: Mapping[str, Any] | None) -> str:
 def render_snapshot_text(
     payload: Mapping[str, Any], language: str = "vi"
 ) -> str:
-    """Render a compact Vietnamese summary (about 12 lines)."""
+    """Render a compact summary in the UI language (Vietnamese by default)."""
 
+    english = _is_english(language)
     periods = payload.get("periods")
     end_date: date | None = None
     if isinstance(periods, Mapping):
@@ -1189,46 +1451,86 @@ def render_snapshot_text(
 
     lines = [
         (
-            f"Snapshot doanh thu {_dmy(end_date)} — từ đầu tháng so với "
-            "cùng kỳ tháng trước"
+            f"Revenue snapshot {_dmy(end_date)} — month to date vs. the same "
+            "period last month"
+            if english
+            else (
+                f"Snapshot doanh thu {_dmy(end_date)} — từ đầu tháng so với "
+                "cùng kỳ tháng trước"
+            )
         )
     ]
 
     if isinstance(revenue, Mapping) and revenue.get("status") == "error":
-        lines.append("Tổng doanh thu: không đọc được dữ liệu")
+        lines.append(
+            "Total revenue: could not read data"
+            if english
+            else "Tổng doanh thu: không đọc được dữ liệu"
+        )
     else:
-        total_line = f"Tổng doanh thu: {_money(total.get('current'))}"
+        total_line = (
+            f"Total revenue: {_money(total.get('current'), language)}"
+            if english
+            else f"Tổng doanh thu: {_money(total.get('current'), language)}"
+        )
         delta = total.get("delta_pct")
         if delta is None:
-            total_line += " (chưa có cùng kỳ để so sánh)"
+            total_line += (
+                " (no same-period data to compare)"
+                if english
+                else " (chưa có cùng kỳ để so sánh)"
+            )
         else:
-            total_line += f" ({_pct_text(delta)} so với cùng kỳ)"
+            total_line += (
+                f" ({_pct_text(delta, language)} vs. same period)"
+                if english
+                else f" ({_pct_text(delta, language)} so với cùng kỳ)"
+            )
         lines.append(total_line)
 
     for group in groups:
         if not isinstance(group, Mapping):
             continue
-        label = str(group.get("label") or channel_label("other"))
+        label = _dynamic_text(
+            group.get("label") or channel_label("other", language), language
+        )
         delta = group.get("delta_pct")
-        suffix = "" if delta is None else f" ({_pct_text(delta)})"
-        lines.append(f"• {label}: {_money(group.get('current'))}{suffix}")
+        suffix = "" if delta is None else f" ({_pct_text(delta, language)})"
+        lines.append(
+            f"• {label}: {_money(group.get('current'), language)}{suffix}"
+        )
 
-    lines.append(_render_kiosk_line(payload.get("kiosk")))
-    lines.append(_render_dealer_line(payload.get("dealer_orders")))
-    lines.append(_render_auto_job_line(payload.get("auto_job")))
+    lines.append(_render_kiosk_line(payload.get("kiosk"), language))
+    lines.append(_render_dealer_line(payload.get("dealer_orders"), language))
+    lines.append(_render_auto_job_line(payload.get("auto_job"), language))
 
     flags = payload.get("flags")
     flags_list = [flag for flag in flags if isinstance(flag, Mapping)] if isinstance(
         flags, list
     ) else []
-    lines.append(f"Bất thường ({len(flags_list)}):")
+    lines.append(
+        f"Anomalies ({len(flags_list)}):"
+        if english
+        else f"Bất thường ({len(flags_list)}):"
+    )
     for flag in flags_list:
         title = str(flag.get("title") or "").strip()
         action = str(flag.get("action") or "").strip()
+        if english:
+            title = _strip_accents(title)
+            action = _strip_accents(action)
         if title and action:
             lines.append(f"• {title} → {action}")
         elif title:
             lines.append(f"• {title}")
 
-    lines.append(str(payload.get("caveat") or CAVEAT))
+    caveat = str(payload.get("caveat") or "")
+    if english:
+        if not caveat or caveat == CAVEAT:
+            caveat = CAVEAT_EN
+        else:
+            caveat = _strip_accents(caveat)
+    else:
+        caveat = caveat or CAVEAT
+    lines.append(caveat)
     return "\n".join(lines)
