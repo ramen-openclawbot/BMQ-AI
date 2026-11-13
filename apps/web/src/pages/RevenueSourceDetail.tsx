@@ -15,6 +15,8 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { LoadingState } from "@/components/ui/loading";
+import { fetchAllRevenueLines } from "@/lib/revenue-ledger";
+import { buildHistoricalParentMap, previousRevenuePeriod, resolveCustomerRollup } from "@/lib/revenue-customer-rollup";
 
 const vnd = (v: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
 const numberFmt = (v: number) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(v || 0);
@@ -400,6 +402,15 @@ export default function RevenueSourceDetail() {
     },
   });
 
+  // A customer row of the dashboard can be a child outlet that only has its parent from last month, so the
+  // same previous-period lookup the dashboard uses decides which lines belong to the opened customer.
+  const { data: previousLines = [] } = useQuery({
+    queryKey: ["revenue-ledger-lines", previousRevenuePeriod(period)],
+    queryFn: async () => fetchAllRevenueLines(previousRevenuePeriod(period), true),
+    enabled: Boolean(customerKey),
+  });
+  const historicalParents = useMemo(() => buildHistoricalParentMap(previousLines), [previousLines]);
+
   const { data: channelOptions = [] } = useQuery<string[]>({
     queryKey: ["revenue-source-channels", period, review, scope, focus, sourceDocumentId, revenueDate, dateFrom, dateTo],
     queryFn: async () => {
@@ -426,8 +437,7 @@ export default function RevenueSourceDetail() {
     const needle = q.trim().toLowerCase();
     return lines.filter((row) => {
       if (customerKey) {
-        const key = row.parent_customer_id || row.customer_id || row.customer_name;
-        if (key !== customerKey) return false;
+        if (resolveCustomerRollup(row, historicalParents).key !== customerKey) return false;
       }
       if (!needle) return true;
       const raw = asRecord(row.raw_payload);
@@ -438,7 +448,7 @@ export default function RevenueSourceDetail() {
         .toLowerCase()
         .includes(needle);
     });
-  }, [customerKey, lines, q]);
+  }, [customerKey, historicalParents, lines, q]);
 
   const stats = useMemo(() => ({
     rows: filtered.length,
@@ -806,10 +816,16 @@ export default function RevenueSourceDetail() {
             {isControlledLedgerScope ? <Badge variant="outline">Controlled ledger</Badge> : null}
             {focusLabel ? <Badge variant="outline">{focusLabel}</Badge> : null}
             {reviewLabel ? <Badge variant="outline">{reviewLabel}</Badge> : null}
+            {customerKey ? <Badge variant="outline" data-revenue-customer-filter>Khách: {customerKey}</Badge> : null}
             {channel ? <Badge variant="outline">{channel}</Badge> : null}
             {sourceDocumentId ? <Badge variant="outline">Auto daily source</Badge> : null}
             {dateFrom || dateTo ? <Badge variant="outline">{dateFrom || "…"} → {dateTo || "…"}</Badge> : revenueDate ? <Badge variant="outline">{revenueDate}</Badge> : null}
           </div>
+          {customerKey && !isLoading && filtered.length === 0 ? (
+            <p className="max-w-xl text-sm text-muted-foreground" data-revenue-customer-empty>
+              Khách này chưa có dòng doanh thu đã duyệt trong kỳ {period} (có thể chỉ có doanh thu ở kỳ trước).
+            </p>
+          ) : null}
           <h1 className="text-3xl font-display font-bold">{isVi ? "Chi tiết nguồn doanh thu" : "Revenue source detail"}</h1>
           <p className="max-w-3xl text-muted-foreground">
             {isVi

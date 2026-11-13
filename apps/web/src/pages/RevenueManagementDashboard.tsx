@@ -23,6 +23,7 @@ import {
 } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRevenueLines, type RevenueLine } from "@/lib/revenue-ledger";
+import { buildHistoricalParentMap, resolveCustomerRollup, type CustomerRollup } from "@/lib/revenue-customer-rollup";
 import { channelGroup } from "@/lib/overview/overview-summary";
 import { CHANNEL_META, CHANNEL_ORDER } from "@/components/overview/RevenueChannelChart";
 import { Button } from "@/components/ui/button";
@@ -102,7 +103,6 @@ const normalizedCustomerName = (value: string) =>
     .replace(/\s+/g, " ")
     .toLocaleUpperCase("vi-VN");
 
-type CustomerRollup = { key: string; name: string };
 
 const previousMonth = (period: string) => {
   const [year, month] = period.split("-").map(Number);
@@ -867,42 +867,8 @@ export default function RevenueManagementDashboard() {
   ]);
 
   const byCustomer = useMemo(() => {
-    const historicalParentByCustomerName = new Map<string, CustomerRollup>();
-
-    for (const row of previousLines) {
-      const raw = asRecord(row.raw_payload);
-      const parentName = String(raw.parent_customer_name || "").trim();
-      if (row.parent_customer_id || parentName) {
-        historicalParentByCustomerName.set(
-          normalizedCustomerName(row.customer_name),
-          {
-            key: row.parent_customer_id || parentName,
-            name: parentName || row.customer_name || "Chưa rõ khách hàng",
-          },
-        );
-      }
-    }
-
-    const resolveRollup = (row: RevenueLine): CustomerRollup => {
-      const raw = asRecord(row.raw_payload);
-      const parentName = String(raw.parent_customer_name || "").trim();
-      if (row.parent_customer_id || parentName) {
-        return {
-          key: row.parent_customer_id || parentName,
-          name: parentName || row.customer_name || "Chưa rõ khách hàng",
-        };
-      }
-
-      const historicalParent = historicalParentByCustomerName.get(
-        normalizedCustomerName(row.customer_name),
-      );
-      if (historicalParent) return historicalParent;
-
-      return {
-        key: row.customer_id || row.customer_name,
-        name: row.customer_name || "Chưa rõ khách hàng",
-      };
-    };
+    const historicalParentByCustomerName = buildHistoricalParentMap(previousLines);
+    const resolveRollup = (row: RevenueLine): CustomerRollup => resolveCustomerRollup(row, historicalParentByCustomerName);
 
     const previousMap = new Map<string, { revenue: number; name: string }>();
     for (const row of previousLines) {
@@ -1348,7 +1314,7 @@ export default function RevenueManagementDashboard() {
                       type="button"
                       className="d3-rv-trow"
                       style={{ ["--dl" as string]: `${200 + Math.min(index, 10) * 60}ms` }}
-                      onClick={() => openSources({ customer_key: row.key })}
+                      onClick={() => openSources({ scope: "controlled_ledger", customer_key: row.key })}
                       aria-label={`${row.name}: Chi tiết`}
                     >
                       <span className="d3-rv-trow-name">

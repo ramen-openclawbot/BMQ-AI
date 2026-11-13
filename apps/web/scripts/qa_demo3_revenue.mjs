@@ -114,7 +114,9 @@ function fixtureRows(st) {
       rows.push(line("ĐẠI LÝ", "Đại lý Quận 7", (6 + wave) * 1e6, 900));
       rows.push(line("BÁNH NGỌT", "Bánh ngọt Q7", (9 + 2 * Math.cos(back)) * 1e6, 600));
       rows.push(line("Retail Kiosk", "Kiosk Bình Thạnh", (3 + wave) * 1e6, 220));
-      if (back % 3 === 0) rows.push(line("B2B BMQ", "Siêu thị Co.op", 4.5e6, 300));
+      // The parent lives only in raw_payload (like Kingfoodmart in production): the customer row and the
+      // source detail it opens must agree on the key.
+      if (back % 3 === 0) rows.push({ ...line("B2B BMQ", "Siêu thị Co.op", 4.5e6, 300), raw_payload: { parent_customer_name: "Co.op Mart" } });
     }
     return rows;
   }
@@ -289,7 +291,7 @@ const prRows = (page) => page.locator("table tbody tr[role='button']");
 
 
 
-const PERIOD = "2026-09";
+const PERIOD = process.env.QA_PERIOD || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date()).slice(0, 7);
 const ROUTE = `/finance-control/revenue?period=${PERIOD}`;
 // Same formula as the fixture ledger (rows for days 2..19 back that fall in PERIOD).
 const vnDayNode = (offsetDays) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(Date.now() - offsetDays * 86400000));
@@ -364,6 +366,20 @@ try {
     assert.deepEqual(await page.evaluate(() => window.__qaWrites), [], "nothing written");
     assert.deepEqual(errors, []);
     record(`click-through ${label}`);
+    await context.close();
+  }
+  // A customer row whose parent only exists in raw_payload must open its own lines, not an empty page.
+  {
+    const { context, page, errors } = await open({ role: "owner", data: "populated" }, ROUTE, { width: 1440, height: 900 });
+    await page.waitForSelector(".d3-rv-trow");
+    await page.locator(".d3-rv-trow", { hasText: "Co.op Mart" }).click();
+    await page.waitForURL((url) => url.pathname === "/finance-control/revenue/sources" && url.search.includes("customer_key=Co.op+Mart") && url.search.includes("scope=controlled_ledger"), { timeout: 5000 });
+    await page.waitForSelector("[data-revenue-customer-filter]");
+    await page.waitForSelector("table tbody tr", { timeout: 10000 });
+    assert.equal(await page.locator("[data-revenue-customer-empty]").count(), 0, "customer detail is not empty");
+    assert.ok((await page.locator("table tbody tr").count()) >= 1, "customer detail lists its lines");
+    assert.deepEqual(errors, []);
+    record("customer row opens its lines (parent only in raw_payload)");
     await context.close();
   }
   for (const width of [1440, 390]) {
