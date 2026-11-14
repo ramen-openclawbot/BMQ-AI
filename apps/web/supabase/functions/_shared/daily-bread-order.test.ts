@@ -557,6 +557,26 @@ test("extracts only explicit auditable kiosk bread-order requests from free-text
   assert.equal(extractKioskBreadOrderNoteProposal("Đặt bánh 160 và 180"), null);
 });
 
+test("reads the order quantity when staff also write stock figures beside it (Bùi Viện notes)", () => {
+  const quantity = (note: string) => extractKioskBreadOrderNoteProposal(note)?.quantity ?? null;
+  assert.equal(quantity("Hôm nay  tồn cuối còn 35   Mai  nhập  100 que"), 100);
+  assert.equal(quantity("Tồn cuối của hôm nay còn 10  trên ap  bi sai  mai  nhập 100"), 100);
+  assert.equal(quantity("Mai nhập 100 que"), 100);
+  assert.equal(quantity("Bán 80 que, tồn 20, đặt 120"), 120);
+});
+
+test("does not turn receipts on a past date or an explicit 'mai không' into an order", () => {
+  const quantity = (note: string) => extractKioskBreadOrderNoteProposal(note)?.quantity ?? null;
+  assert.equal(
+    quantity("Tồn của ngày 11  là không  que   Ngày 12  nhập  120 que   Bán  còn  tồn  90 que  mai không"),
+    null,
+  );
+  assert.equal(quantity("Mai  ko  nhập  bánh"), null);
+  assert.equal(quantity("Nhập 120 que mai không"), null);
+  assert.equal(quantity("Đặt bánh 160 và 180"), null);
+  assert.equal(quantity("Tồn 35, bán 80 và 90"), null);
+});
+
 test("accepts DAT, Đặt, Order and Nhập bread-note forms case and diacritic insensitively", () => {
   const accepted: Array<[string, number]> = [
     ["DAT 30", 30],

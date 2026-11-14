@@ -304,6 +304,9 @@ export const resolveDynamicVehicleBreadOrderPolicy = (
 const KIOSK_DAT_ORDER_NOTE_PATTERN =
   /\b(?:dat|order|nhap)\s*\(?\s*(?:banh(?:\s*\(?\s*mi\s*\)?)?(?:\s*\))?)?(?:\s+[a-z]+){0,3}?\s*:?\s*(\d{1,4}(?:[.,]\d+)?)\s*(?:\(?\s*(?:que|cay|banh)(?:\s*\))?)?\b/g;
 
+const KIOSK_NOTE_STOCK_CONTEXT_PATTERN =
+  /(?:^|\s)(?:ton|con|ban|du|ngay|thang|luc|gio|hien co|dang co)(?:\s+(?:cuoi|dau|kho|lai|thuc te|that|ngay))*\s*:?\s*$/;
+
 export function extractKioskBreadOrderNoteProposal(note: string): KioskBreadOrderNoteProposal | null {
   const rawText = String(note || "").trim();
   if (!rawText) return null;
@@ -315,8 +318,14 @@ export function extractKioskBreadOrderNoteProposal(note: string): KioskBreadOrde
   }
   // A negated request ("chưa đặt 60", "không đặt") is not an order.
   if (/\b(?:chua|khong|ko|k|dung|huy)\s+(?:dat|order|nhap)\b/.test(normalized)) return null;
-  const matches = [...normalized.matchAll(KIOSK_DAT_ORDER_NOTE_PATTERN)];
+  // "Ngày 12 nhập 120 que" names a receipt on a past date, not an order for tomorrow.
+  const matches = [...normalized.matchAll(KIOSK_DAT_ORDER_NOTE_PATTERN)]
+    .filter((match) => !/(?:^|\s)ngay\s+\d{1,2}\s*$/.test(normalized.slice(0, match.index || 0)));
   if (matches.length === 0) return null;
+  // An explicit closing "mai không" (nothing tomorrow) after the last request cancels it.
+  const lastMatch = matches[matches.length - 1];
+  const afterLastMatch = normalized.slice((lastMatch.index || 0) + lastMatch[0].length);
+  if (/\bmai\s+(?:khong|ko|k)\b(?!\s+(?:dat|order|nhap))/.test(afterLastMatch)) return null;
   const quantities = new Set(matches.map((match) => {
     const value = Number(match[1].replace(",", "."));
     return Number.isInteger(value) && value > 0 && value <= 1000 ? value : Number.NaN;
@@ -334,7 +343,12 @@ export function extractKioskBreadOrderNoteProposal(note: string): KioskBreadOrde
     const start = token.index || 0;
     const end = start + token[0].length;
     const insideDatMatch = matchSpans.some((span) => start >= span.start && end <= span.end);
-    if (!insideDatMatch) return null;
+    if (insideDatMatch) continue;
+    // Stock and date figures staff write beside the request ("tồn cuối còn 35",
+    // "ngày 12", "bán 80") describe the day, not the order quantity.
+    const before = normalized.slice(Math.max(0, start - 30), start);
+    if (KIOSK_NOTE_STOCK_CONTEXT_PATTERN.test(before)) continue;
+    return null;
   }
   const firstMatch = matches[0];
   return {
