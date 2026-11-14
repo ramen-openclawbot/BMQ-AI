@@ -528,13 +528,14 @@ const enqueueDailyBreadOrder = async (
   );
   if (vietjetError) throw new Error(`Unable to read VietJet parsed orders: ${vietjetError.message}`);
   const vietjetRow = ((vietjetData || []) as DailyBreadVietjetQuantityRow[])[0] || null;
-  if (!vietjetRow?.inbox_id || !vietjetRow?.received_at) {
-    throw new Error("VietJet order parser is not ready for target service date");
-  }
+  // Owner decision 2026-11-14: a missing VietJet mail must never block the supplier order.
+  // Without evidence for the target date the VietJet quantity is 0 and the snapshot says so.
+  const vietjetMissing = !vietjetRow?.inbox_id || !vietjetRow?.received_at;
   const vietjet = {
-    quantity: quantity(vietjetRow.quantity),
-    inboxId: vietjetRow.inbox_id,
-    receivedAt: vietjetRow.received_at,
+    quantity: vietjetMissing ? 0 : quantity(vietjetRow!.quantity),
+    inboxId: vietjetMissing ? null : vietjetRow!.inbox_id,
+    receivedAt: vietjetMissing ? null : vietjetRow!.received_at,
+    missing: vietjetMissing,
   };
 
   const { data: mamNonData, error: mamNonError } = await supabase
@@ -645,6 +646,7 @@ const enqueueDailyBreadOrder = async (
       quantity: vietjet.quantity,
       inbox_id: vietjet.inboxId,
       received_at: vietjet.receivedAt,
+      missing_for_service_date: vietjet.missing,
     },
     coop: { included: false },
     supplier: {

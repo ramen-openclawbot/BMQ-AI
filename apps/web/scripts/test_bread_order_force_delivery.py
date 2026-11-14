@@ -27,8 +27,12 @@ def test_vietjet_order_parser_has_a_separate_22_vietnam_cron():
     assert '"x-vietjet-order-secret": poSyncSecret' in cron
 
 
-def test_order_creation_requires_vietjet_parser_readiness_not_zero_default():
+def test_missing_vietjet_mail_never_blocks_supplier_order_and_records_zero():
+    # Owner decision 2026-11-14: no VietJet mail for the service date means quantity 0, not a blocked order.
     source = WORKER.read_text(encoding="utf-8")
-    assert 'throw new Error("VietJet order parser is not ready for target service date")' in source
+    assert 'throw new Error("VietJet order parser is not ready for target service date")' not in source
     assert "vietjetRow?.inbox_id" in source
     assert "vietjetRow?.received_at" in source
+    assert "const vietjetMissing" in source
+    assert "quantity: vietjetMissing ? 0" in source
+    assert "missing_for_service_date: vietjet.missing" in source
