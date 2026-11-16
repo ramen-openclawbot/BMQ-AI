@@ -123,6 +123,8 @@ export function usePaymentUncApproval() {
       idempotency_key?: string;
       note?: string | null;
       payment_method?: "bank_transfer" | "cash";
+      /** Bỏ qua kiểm tra ảnh phiếu giao hàng cho đúng lần duyệt này. */
+      skipDeliveryImage?: boolean;
     }) => {
       // Fail fast on the same guards the RPC enforces; the server re-validates.
       const shared = {
@@ -135,6 +137,7 @@ export function usePaymentUncApproval() {
         idempotency_key: payload.idempotency_key,
         note: payload.note ?? null,
         payment_method: payload.payment_method,
+        ...(payload.skipDeliveryImage === true ? { skip_delivery_image: true } : {}),
       };
 
       if (payload.allocations && payload.allocations.length > 0) {
@@ -188,6 +191,8 @@ export function usePaymentUncApproval() {
       }[];
       overrideReason?: string | null;
       payment_method?: "bank_transfer" | "cash";
+      /** Bỏ qua kiểm tra ảnh phiếu giao hàng cho lần duyệt này (đơn trả trước). */
+      skipDeliveryImage?: boolean;
       onSlipDone?: (index: number, result: UncConfirmResponse) => void;
     }) => {
       // Slips are written one at a time: each call settles the requests in its
@@ -220,6 +225,7 @@ export function usePaymentUncApproval() {
             override_reason: slip.manualOverride ? payload.overrideReason ?? null : null,
             idempotency_key: slip.idempotencyKey,
             payment_method: payload.payment_method,
+            ...(payload.skipDeliveryImage === true ? { skip_delivery_image: true } : {}),
           });
           payload.onSlipDone?.(index, result);
         } catch (error) {

@@ -155,6 +155,7 @@ html .d3-unc { background: var(--d3-white, #fdfdfc); }
 .d3-unc-toggle { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: var(--d3-ink-2, #4a4a4a); cursor: pointer; }
 .d3-unc-toggle input { width: 18px; height: 18px; flex: none; margin-top: 1px; accent-color: var(--d3-ink, #272727); }
 .d3-unc-manual { display: grid; gap: 8px; }
+.d3-unc-hint[data-bmq-unc-skip-delivery-hint] { text-align: left; padding-left: 28px; }
 
 .d3-unc-actions {
   position: sticky;

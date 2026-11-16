@@ -446,6 +446,11 @@ const handleConfirm = async (
       note: asTrimmed(body.note) || null,
       ...(paymentMethod ? { payment_method: paymentMethod } : {}),
       ...(allocations ? { allocations } : {}),
+      // Owner ticked "Đơn này trả trước, chưa có phiếu giao hàng": the RPC records who/when and
+      // the delivery-image guard is skipped for this approval only.
+      ...(body.skip_delivery_image === true || body.skipDeliveryImage === true
+        ? { skip_delivery_image: true }
+        : {}),
     },
     p_idempotency_key: idempotencyKey,
   });

@@ -280,6 +280,38 @@ try {
     await context.close();
   }
 
+  // 1b. "Đơn này trả trước, chưa có phiếu giao hàng": off by default (key not sent), ticking sends skip_delivery_image.
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    for (const ticked of [false, true]) {
+      const { context, page, errors } = await open({ role: "owner", ocrAmount: 13500000 }, "/payment-requests", viewport);
+      await openDetail(page, "DC-0101");
+      await page.locator("[data-bmq-unc-open]").click();
+      await page.waitForSelector("[data-bmq-unc-dialog='approve']");
+      assert.equal(await page.locator("[data-bmq-unc-skip-delivery]").count(), 0, "skip-delivery option hidden before an image");
+      await upload(page);
+      await page.waitForSelector("[data-bmq-unc-ocr]");
+      const skip = page.locator("[data-bmq-unc-skip-delivery]");
+      assert.equal(await skip.count(), 1, "skip-delivery option shows after the image");
+      assert.equal(await skip.isChecked(), false, "skip-delivery off by default");
+      assert.ok((await dialogOverflow(page)) <= 0, `dialog no overflow skip-delivery ${viewport.width}`);
+      if (ticked) {
+        await skip.check();
+        await page.waitForSelector("[data-bmq-unc-skip-delivery-hint]");
+        assert.ok((await dialogOverflow(page)) <= 0, `dialog no overflow skip-delivery ticked ${viewport.width}`);
+        assert.ok(await page.locator("[data-bmq-unc-submit]").isEnabled(), "submit still enabled after ticking");
+      }
+      await page.locator("[data-bmq-unc-dialog]").screenshot({ path: `${EVIDENCE}/unc-skip-delivery-${ticked ? "on" : "off"}-${viewport.width}.png` });
+      await page.locator("[data-bmq-unc-submit]").click();
+      await page.locator("[data-bmq-unc-dialog]").waitFor({ state: "detached" });
+      const confirm = (await bodies(page)).find((b) => b.mode === "confirm");
+      if (ticked) assert.equal(confirm.skip_delivery_image, true, "tick sends skip_delivery_image");
+      else assert.equal("skip_delivery_image" in confirm, false, "no tick, key not sent");
+      assert.deepEqual(errors, []);
+      record(`skip delivery image ${ticked ? "ticked" : "default"} ${viewport.width}`);
+      await context.close();
+    }
+  }
+
   // 2. Mismatch blocks; manual override needs amount + reason; low-confidence warning shows.
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     const { context, page, errors } = await open({ role: "owner", ocrAmount: 13480000, confidence: 0.6 }, "/payment-requests", viewport);

@@ -166,6 +166,8 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
   const [sent, setSent] = useState<SentSlip[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [manual, setManual] = useState(false);
+  // Owner ticks this when the supplier is paid before delivering: the delivery-image check is skipped for this approval only.
+  const [skipDeliveryImage, setSkipDeliveryImage] = useState(false);
   // One pending phiếu paid only partly here (the rest by the other method, e.g. UNC + tiền mặt).
   const [partial, setPartial] = useState(false);
   // Duyệt tay below the need: the owner says the gap is a bank fee and the phiếu is settled in full.
@@ -199,6 +201,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     setSent(null);
     setError(null);
     setManual(false);
+    setSkipDeliveryImage(false);
     setPartial(false);
     setFeeFull(false);
     setReason("");
@@ -450,6 +453,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
         slips: pending,
         overrideReason: manual ? reason.trim() : null,
         payment_method: paymentMethod,
+        ...(skipDeliveryImage ? { skipDeliveryImage: true } : {}),
         onSlipDone: (index) => updateSlip(pending[index].slipId, { done: true }),
       });
       toast.success(
@@ -490,6 +494,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           override_reason: manual ? reason.trim() : null,
           idempotency_key: draft.suggested_idempotency_key,
           payment_method: paymentMethod,
+          ...(skipDeliveryImage ? { skipDeliveryImage: true } : {}),
         });
         toast.success(isCash
           ? `Đã ghi chi ${paidRequests.length > 1 ? `${paidRequests.length} phiếu ` : ""}bằng tiền mặt`
@@ -851,6 +856,26 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
                   maxLength={300}
                 />
               </div>
+            )}
+          </div>
+        )}
+
+        {hasEvidence && approve && !isCash && (
+          <div className="d3-unc-field">
+            <label className="d3-unc-toggle">
+              <input
+                type="checkbox"
+                checked={skipDeliveryImage}
+                onChange={(e) => setSkipDeliveryImage(e.target.checked)}
+                disabled={locked}
+                data-bmq-unc-skip-delivery
+              />
+              <span>Đơn này trả trước, chưa có phiếu giao hàng</span>
+            </label>
+            {skipDeliveryImage && (
+              <p className="d3-unc-hint" data-bmq-unc-skip-delivery-hint>
+                Bỏ qua việc kiểm tra ảnh phiếu giao hàng cho lần duyệt này. Phiếu nhập kho vẫn cần ảnh khi hàng về.
+              </p>
             )}
           </div>
         )}
