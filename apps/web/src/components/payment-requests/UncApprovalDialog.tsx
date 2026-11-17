@@ -176,6 +176,8 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
   const [category, setCategory] = useState<UncStandaloneCategory | null>(null);
   const [note, setNote] = useState("");
   const [allocInputs, setAllocInputs] = useState<Record<string, string>>({});
+  // The owner typed an amount by hand: stop following the UNC amount.
+  const [allocTouched, setAllocTouched] = useState(false);
 
   // Default: every selected request is paid in full. The CEO edits a row only when the transfer differs.
   // Filled during render (not in an effect) so the first frame never shows empty amounts.
@@ -203,6 +205,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     setManual(false);
     setSkipDeliveryImage(false);
     setPartial(false);
+    setAllocTouched(false);
     setFeeFull(false);
     setReason("");
     setCategory(null);
@@ -262,6 +265,17 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     }
     setAllocInputs(next);
   };
+  // One pending phiếu paid partly: the amount follows the UNC read, whether the toggle was ticked
+  // before or after the image (owner 17/11: ticked first, the full need stayed and showed a mismatch).
+  const singlePartial = canPartial && partial && !autoPartial;
+  const partialTarget = singlePartial && evidenceAmount && evidenceAmount > 0 ? Math.min(Math.round(evidenceAmount), singleNeed) : null;
+  useEffect(() => {
+    if (!singlePartial || allocTouched || partialTarget === null) return;
+    const id = requests[0]?.id;
+    if (!id || allocInputs[id] === String(partialTarget)) return;
+    setAllocInputs((prev) => ({ ...prev, [id]: String(partialTarget) }));
+  }, [singlePartial, allocTouched, partialTarget, requests, allocInputs]);
+
   const paidRequests = allocMode ? requests.filter((r) => allocAmount(r.id) > 0) : requests;
   const allocations: UncAllocationInput[] = paidRequests.map((r) => ({ paymentRequestId: r.id, amount: allocAmount(r.id) }));
   const allocatedTotal = allocations.reduce((sum, a) => sum + a.amount, 0);
@@ -543,7 +557,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           </DialogTitle>
           <DialogDescription className="d3-unc-sub">
             {approve
-              ? `${requests.length} phiếu · ${supplierNames.join(", ") || "Chưa rõ nhà cung cấp"}${allocMode ? ` · gán số tiền ${docName} cho từng phiếu` : ""}${isCash && mixedSuppliers ? " · nhiều nhà cung cấp, chi chung một chứng từ" : ""}`
+              ? `${requests.length} phiếu · ${supplierNames.join(", ") || "Chưa rõ nhà cung cấp"}${allocMode && !canPartial ? ` · gán số tiền ${docName} cho từng phiếu` : allocMode ? " · trả một phần" : ""}${isCash && mixedSuppliers ? " · nhiều nhà cung cấp, chi chung một chứng từ" : ""}`
               : "Lương, thuế, thuê nhà hoặc khoản chuyển khoản khác. Số này cộng vào UNC trong ngày."}
           </DialogDescription>
         </DialogHeader>
@@ -568,6 +582,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
               onChange={(e) => {
                 const on = e.target.checked;
                 setPartial(on);
+                setAllocTouched(false);
                 // Start from the amount on the slip(s) already read; the owner can still edit it.
                 if (on && evidenceAmount && evidenceAmount > 0) autoAllocate(evidenceAmount);
                 if (!on) autoAllocate(Number.MAX_SAFE_INTEGER);
@@ -579,13 +594,37 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
               <small>
                 {autoPartial
                   ? "Tự bật vì số duyệt tay nhỏ hơn số cần chi"
-                  : `Phần còn lại chi sau bằng ${isCash ? "UNC" : "tiền mặt"} ở Trình chi gấp`}
+                  : "Phần còn lại trả lần sau bằng UNC hoặc tiền mặt ở Trình chi gấp"}
               </small>
             </span>
           </label>
         )}
 
-        {allocMode && (
+        {allocMode && canPartial && requests[0] && (
+          <div className="d3-unc-alloc d3-unc-alloc-single" data-bmq-unc-alloc data-bmq-unc-alloc-single>
+            <label className="d3-unc-pay-now" data-bmq-unc-alloc-row={requests[0].requestNumber}>
+              <span>Trả lần này</span>
+              <Input
+                inputMode="numeric"
+                aria-label={`Số tiền gán cho ${requests[0].requestNumber}`}
+                placeholder="0"
+                value={autoPartial || allocInputs[requests[0].id] ? new Intl.NumberFormat("vi-VN").format(allocAmount(requests[0].id)) : ""}
+                readOnly={autoPartial}
+                onChange={(e) => {
+                  setAllocTouched(true);
+                  setAllocInputs((prev) => ({ ...prev, [requests[0].id]: e.target.value.replace(/[^\d]/g, "") }));
+                }}
+              />
+            </label>
+            <p className={allocAmount(requests[0].id) > singleNeed ? "d3-unc-left is-over" : "d3-unc-left"} data-bmq-unc-left>
+              {allocAmount(requests[0].id) > singleNeed
+                ? <>Vượt số còn nợ <b>{vnd(allocAmount(requests[0].id) - singleNeed)}</b></>
+                : <>Còn nợ sau lần này <b>{vnd(singleNeed - allocAmount(requests[0].id))}</b></>}
+            </p>
+          </div>
+        )}
+
+        {allocMode && !canPartial && (
           <div className="d3-unc-alloc" data-bmq-unc-alloc>
             <div className="d3-unc-alloc-head">
               <span>Gán số tiền cho từng phiếu</span>
@@ -785,16 +824,31 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           <p className={amountMatches ? "d3-unc-verdict is-ok" : "d3-unc-verdict is-bad"} data-bmq-unc-verdict={amountMatches ? "match" : "mismatch"}>
             {amountMatches ? (
               <>
-                <Check className="h-4 w-4" /> {allocMode ? `Tổng gán khớp số tiền trên ${docName}` : "Khớp số tiền cần chi"}
+                <Check className="h-4 w-4" /> {allocMode && canPartial ? `Số trả lần này khớp ${docName}` : allocMode ? `Tổng gán khớp số tiền trên ${docName}` : "Khớp số tiền cần chi"}
               </>
             ) : (
               <>
                 <TriangleAlert className="h-4 w-4" />
                 {ocrAmount === null
                   ? "Không đọc được số tiền"
-                  : allocMode
-                    ? `Tổng gán lệch ${vnd(Math.abs((ocrAmount ?? 0) - compareTotal))} so với ${docName}`
-                    : `Lệch ${vnd(Math.abs((ocrAmount ?? 0) - compareTotal))} so với số cần chi`}
+                  : allocMode && canPartial
+                    ? <>
+                        Số trả lần này {compareTotal > (ocrAmount ?? 0) ? "lớn" : "nhỏ"} hơn {docName} {vnd(Math.abs((ocrAmount ?? 0) - compareTotal))}.{" "}
+                        {!autoPartial && (ocrAmount ?? 0) <= singleNeed && (
+                          <button
+                            type="button"
+                            className="d3-unc-link d3-unc-inline"
+                            onClick={() => { setAllocTouched(false); autoAllocate(ocrAmount); }}
+                            disabled={locked}
+                            data-bmq-unc-use-slip-amount
+                          >
+                            Trả đúng số trên {docName}
+                          </button>
+                        )}
+                      </>
+                    : allocMode
+                      ? `Tổng gán lệch ${vnd(Math.abs((ocrAmount ?? 0) - compareTotal))} so với ${docName}`
+                      : `Lệch ${vnd(Math.abs((ocrAmount ?? 0) - compareTotal))} so với số cần chi`}
               </>
             )}
           </p>

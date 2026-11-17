@@ -694,6 +694,41 @@ try {
     record(`partial UNC on one pending phiếu ${viewport.width}`);
     await context.close();
   }
+  // 11b. Owner 17/11: tick "Chỉ trả một phần" BEFORE choosing the image. The amount follows the UNC once
+  // read, shows what is still owed, and a hand-typed wrong amount is fixed with one tap.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    const { context, page, errors } = await open({ role: "owner", ocrAmount: 8000000 }, "/payment-requests", viewport);
+    await openDetail(page, "DC-0101");
+    await page.locator("[data-bmq-unc-open]").click();
+    await page.waitForSelector("[data-bmq-unc-dialog='approve']");
+    await page.locator("[data-bmq-unc-partial]").check();
+    await page.waitForSelector("[data-bmq-unc-alloc-single]");
+    assert.equal(await page.locator("[data-bmq-unc-alloc-auto]").count(), 0, "no per-phiếu tools for one phiếu");
+    await upload(page);
+    await page.waitForSelector("[data-bmq-unc-ocr]");
+    await page.waitForFunction(() => document.querySelector("[aria-label='Số tiền gán cho DC-0101']")?.value === "8.000.000");
+    assert.equal(await page.locator("[data-bmq-unc-verdict='match']").count(), 1, "ticked first, still matches the slip");
+    assert.match(await page.locator("[data-bmq-unc-left]").textContent(), /5\.500\.000/, "shows what is still owed");
+    assert.equal(await page.locator("[data-bmq-unc-manual]").isChecked(), false, "no Duyệt tay needed");
+    await page.locator("[data-bmq-unc-dialog]").screenshot({ path: `${EVIDENCE}/unc-partial-first-${viewport.width}.png` });
+    await page.getByLabel("Số tiền gán cho DC-0101").fill("9000000");
+    await page.waitForSelector("[data-bmq-unc-use-slip-amount]");
+    assert.match(await page.locator("[data-bmq-unc-verdict='mismatch']").textContent(), /lớn hơn UNC 1\.000\.000/, "plain mismatch text");
+    assert.ok(await page.locator("[data-bmq-unc-submit]").isDisabled(), "mismatch blocks submit");
+    await page.locator("[data-bmq-unc-dialog]").screenshot({ path: `${EVIDENCE}/unc-partial-mismatch-${viewport.width}.png` });
+    await page.locator("[data-bmq-unc-use-slip-amount]").click();
+    assert.equal(await page.getByLabel("Số tiền gán cho DC-0101").inputValue(), "8.000.000", "one tap restores the slip amount");
+    assert.ok((await dialogOverflow(page)) <= 0, `dialog no overflow partial-first ${viewport.width}`);
+    await page.locator("[data-bmq-unc-submit]").click();
+    await page.locator("[data-bmq-unc-dialog]").waitFor({ state: "detached" });
+    const confirm = (await bodies(page)).find((b) => b.mode === "confirm");
+    assert.deepEqual(confirm.allocations, [{ payment_request_id: "11111111-1111-4111-8111-111111111111", amount: 8000000 }], "pays the slip amount");
+    assert.equal(confirm.manual_override, false);
+    assert.deepEqual(errors, []);
+    record(`partial ticked before image ${viewport.width}`);
+    await context.close();
+  }
+
   // 12. Unticking returns to "pay in full"; the toggle is not offered for several phiếu.
   {
     const { context, page, errors } = await open({ role: "owner", ocrAmount: 13500000 }, "/payment-requests", { width: 390, height: 844 });

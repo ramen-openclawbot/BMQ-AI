@@ -218,6 +218,11 @@ html .d3-unc { background: var(--d3-white, #fdfdfc); }
 .d3-unc-alloc li input { min-height: 42px; text-align: right; font-variant-numeric: tabular-nums; }
 .d3-unc-alloc li.is-over input { border-color: #d6301f; color: #a32314; }
 .d3-unc-alloc li.is-over small { color: #a32314; }
+.d3-unc-pay-now { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 55%); align-items: center; gap: 10px; font-size: 14px; font-weight: 500; color: var(--d3-ink, #272727); }
+.d3-unc-pay-now input { min-height: 46px; text-align: right; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.d3-unc-left { margin: 0; font-size: 13px; color: var(--d3-dim, #6b6b69); text-align: right; }
+.d3-unc-left b { color: var(--d3-ink, #272727); font-weight: 600; font-variant-numeric: tabular-nums; }
+.d3-unc-left.is-over, .d3-unc-left.is-over b { color: #a32314; }
 .d3-unc-alloc-sum { margin: 0; font-size: 13px; color: var(--d3-ink-2, #4a4a4a); }
 .d3-unc-alloc-tools { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; }
 .d3-unc-alloc-sum b { font-weight: 600; font-variant-numeric: tabular-nums; }
