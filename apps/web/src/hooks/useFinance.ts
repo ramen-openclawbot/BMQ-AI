@@ -8,6 +8,7 @@ import type {
   FinanceCloseChecklist,
   FinanceFxMonth,
   FinancePnl,
+  FinancePnlAccrual,
   FinanceVariance,
 } from "@/lib/finance/types";
 
@@ -94,6 +95,19 @@ export function useFxMonthly(from: string | null | undefined, to: string | null 
       const { data, error } = await rpc("finance_fx_monthly", { p_from: from, p_to: to });
       if (error) throw error;
       return parseFxMonthly(data);
+    },
+  });
+}
+
+export function usePnlAccrual(month: string | null | undefined) {
+  return useQuery({
+    queryKey: [FINANCE_QUERY_KEY, "pnl-accrual", month],
+    enabled: Boolean(month),
+    queryFn: async (): Promise<FinancePnlAccrual> => {
+      if (!month) throw new Error("finance_pnl_accrual requires a month");
+      const { data, error } = await rpc("finance_pnl_accrual", { p_month: month });
+      if (error) throw error;
+      return data as FinancePnlAccrual;
     },
   });
 }

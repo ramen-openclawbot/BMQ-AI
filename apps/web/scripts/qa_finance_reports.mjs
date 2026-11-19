@@ -50,7 +50,7 @@ function settle(st) {
 const vnDay = (offsetDays) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(Date.now() - offsetDays * 86400000));
 const FINANCE = ${JSON.stringify(JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/fixtures/finance-qa.json"), "utf8"))).replace(/\\/g, "\\\\")};
 function fixtureRows(st) {
-  const fin = { "rpc:finance_pnl": "pnl", "rpc:finance_variance": "variance", "rpc:finance_ap_rollforward": "ap", "rpc:finance_accrual_schedule": "accruals", "rpc:finance_close_checklist": "close" }[st.table];
+  const fin = { "rpc:finance_pnl": "pnl", "rpc:finance_pnl_accrual": "pnl_accrual", "rpc:finance_variance": "variance", "rpc:finance_ap_rollforward": "ap", "rpc:finance_accrual_schedule": "accruals", "rpc:finance_close_checklist": "close" }[st.table];
   if (st.table === "rpc:finance_fx_monthly") {
     // Flat 25,000 VND per USD keeps the expected USD figures easy to read.
     return ["2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"].map((month) => ({ month, vnd_per_usd: 25000, days: 20, source: "vietcombank_transfer" }));
@@ -319,6 +319,17 @@ const CHECKS = {
     // September has no classified history yet: no drafts, and each row says why.
     assert.equal(await page.getByRole("button", { name: "Show draft journal entry" }).count(), 0);
     assert.match(await text(page, ".fin-acc"), /No classified history yet/);
+  },
+  async accrual(page) {
+    await page.waitForSelector("[data-bmq-accrual-table]");
+    assert.match(await text(page, "[data-bmq-accrual-notice]"), /Accrual basis/);
+    const table = await text(page, "[data-bmq-accrual-table]");
+    for (const label of ["Revenue", "Cost of goods sold", "Gross profit", "Operating expenses", "EBITDA"]) assert.match(table, new RegExp(label), `accrual table shows ${label}`);
+    assert.match(await text(page, "[data-bmq-accrual-table] [data-estimate]"), /Payroll[\s\S]*Estimate/, "estimated payroll is marked");
+    assert.match(await text(page, "[data-bmq-accrual-bread]"), /77,861/);
+    assert.match(await text(page, ".fin-kpis"), /on approved requests/);
+    assert.equal(await page.locator("[data-bmq-pnl-basis] [aria-pressed=true]").innerText(), "Accrual");
+    assert.equal(await page.locator(".fin-tab[aria-selected=true]").innerText(), "P&L", "accrual stays under the P&L tab");
   },
   async close(page) {
     await page.waitForSelector(".fin-check");

@@ -205,3 +205,54 @@ export interface FinanceFxMonth {
   days: number;
   source: string | null;
 }
+
+export type FinanceAccrualSource =
+  | "revenue_ledger"
+  | "goods_receipt"
+  | "approved_request_without_receipt"
+  | "supplier_bread_order"
+  | "payroll_period"
+  | "accrual_policy";
+
+export interface FinancePnlAccrualLine {
+  section: FinancePnlSection;
+  line_code: string;
+  label: string;
+  amount: number;
+  source: FinanceAccrualSource | string;
+  is_estimate: boolean;
+  counterparty?: string;
+  note?: string;
+}
+
+export interface FinancePnlAccrualTotals {
+  revenue: number;
+  cogs: number;
+  gross_profit: number;
+  gross_margin: number | null;
+  selling: number;
+  operating: number;
+  unclassified: number;
+  ebitda: number;
+  ebitda_margin: number | null;
+  estimate_total: number;
+  estimate_lines: number;
+}
+
+export interface FinancePnlAccrual {
+  month: FinanceMonthKey;
+  lines: FinancePnlAccrualLine[];
+  totals: FinancePnlAccrualTotals;
+  goods_receipts?: { count: number; amount: number; rejected_excluded: number; without_payment_request: number };
+  bread_supplier?: {
+    accrued_amount: number;
+    paid_amount: number;
+    variance_vs_paid: number;
+    que_quantity: number;
+    que_unit_price: number | null;
+    vietjet_quantity: number;
+    vietjet_unit_price: number | null;
+  };
+  inventory?: { status: string; note: string };
+  flags: { code: string; detail_en: string; amount?: number }[];
+}

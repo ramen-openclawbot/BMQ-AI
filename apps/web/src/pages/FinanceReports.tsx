@@ -2,7 +2,7 @@ import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useMem
 import { useSearchParams } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Info, RotateCw, XCircle } from "lucide-react";
 
-import { useAccrualSchedule, useApRollforward, useCloseChecklist, useFxMonthly, usePnl, useVariance } from "@/hooks/useFinance";
+import { useAccrualSchedule, useApRollforward, useCloseChecklist, useFxMonthly, usePnl, usePnlAccrual, useVariance } from "@/hooks/useFinance";
 import { addMonths, formatPct, isMonthKey, monthEnd, monthStart, toMonthKey } from "@/lib/finance/format";
 import { formatUsd, formatUsdRate, rateByMonth, signedUsd, vndToUsd } from "@/lib/finance/fx";
 import {
@@ -19,6 +19,9 @@ import type {
   FinanceAccrualPolicy,
   FinanceCloseCheck,
   FinancePnl,
+  FinancePnlAccrual,
+  FinancePnlAccrualLine,
+  FinancePnlTotals,
   FinanceVarianceLine,
 } from "@/lib/finance/types";
 import { cn } from "@/lib/utils";
@@ -31,9 +34,9 @@ import "@/styles/bmq-finance.css";
  * Vietcombank transfer rate (finance_fx_monthly, migration 20261102630000).
  */
 
-type View = "pnl" | "variance" | "payables" | "accruals" | "close";
+type View = "pnl" | "accrual" | "variance" | "payables" | "accruals" | "close";
 
-const VIEWS: { id: View; label: string }[] = [
+const VIEWS: { id: Exclude<View, "accrual">; label: string }[] = [
   { id: "pnl", label: "P&L" },
   { id: "variance", label: "Variance" },
   { id: "payables", label: "Payables" },
@@ -106,7 +109,7 @@ export default function FinanceReports() {
   const [params, setParams] = useSearchParams();
   const maxMonth = currentMonthVN();
   const rawView = params.get("view");
-  const view: View = VIEWS.some((item) => item.id === rawView) ? (rawView as View) : "pnl";
+  const view: View = rawView === "accrual" || VIEWS.some((item) => item.id === rawView) ? (rawView as View) : "pnl";
   const rawMonth = params.get("month") ?? "";
   const month = isMonthKey(rawMonth) && rawMonth >= FIRST_MONTH && rawMonth <= maxMonth ? rawMonth : addMonths(maxMonth, -1);
 
@@ -150,7 +153,7 @@ export default function FinanceReports() {
       </header>
 
       <Tabs
-        value={view}
+        value={view === "accrual" ? "pnl" : view}
         onChange={(next) => set({ view: next })}
         badges={{ close: progress?.attention ? String(progress.attention) : undefined }}
       />
@@ -158,7 +161,9 @@ export default function FinanceReports() {
       <FxContext.Provider value={fx}>
         <div className="fin-view" key={`${view}-${month}`}>
           <QueryState query={fxQuery}>
+            {view === "pnl" || view === "accrual" ? <PnlBasis value={view} onChange={(next) => set({ view: next })} /> : null}
             {view === "pnl" && <PnlView month={month} query={pnl} />}
+            {view === "accrual" && <AccrualPnlView month={month} basis={totals} />}
             {view === "variance" && <VarianceView month={month} />}
             {view === "payables" && <PayablesView month={month} />}
             {view === "accruals" && <AccrualsView month={month} />}
@@ -188,7 +193,7 @@ function MonthStepper({ month, min, max, onChange }: { month: string; min: strin
   );
 }
 
-function Tabs({ value, onChange, badges }: { value: View; onChange: (v: View) => void; badges: Partial<Record<View, string>> }) {
+function Tabs({ value, onChange, badges }: { value: Exclude<View, "accrual">; onChange: (v: View) => void; badges: Partial<Record<View, string>> }) {
   const listRef = useRef<HTMLDivElement>(null);
   const [bar, setBar] = useState<{ x: number; w: number } | null>(null);
 
@@ -491,6 +496,202 @@ function StatementTable({ rows, months, month, totals }: { rows: ReturnType<type
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** P&L basis switch: approved payment requests (management view) or accrual (goods received, payroll period). */
+function PnlBasis({ value, onChange }: { value: "pnl" | "accrual"; onChange: (v: View) => void }) {
+  return (
+    <div className="fin-basis" role="group" aria-label="P&L basis" data-bmq-pnl-basis>
+      {([
+        ["pnl", "Approved requests"],
+        ["accrual", "Accrual"],
+      ] as const).map(([id, label]) => (
+        <button key={id} type="button" className={cn("fin-basis-opt fin-press", value === id && "is-on")} aria-pressed={value === id} onClick={() => onChange(id)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ Accrual P&L */
+
+const ACCRUAL_SOURCE: Record<string, string> = {
+  revenue_ledger: "Revenue ledger",
+  goods_receipt: "On goods receipt",
+  approved_request_without_receipt: "Approved request, no receipt",
+  supplier_bread_order: "Daily bread orders",
+  payroll_period: "Payroll period",
+  accrual_policy: "Accrual policy",
+};
+
+const ACCRUAL_FLAG_NOTES: Record<string, string | null> = {
+  inventory_not_counted: "Stock on hand is not counted yet, so purchases made for stock count fully as cost of goods sold this month.",
+  goods_receipts_counted_once: null,
+  estimate_included: null,
+  payroll_last_month_estimate: "Payroll that has not been entered for this month is estimated at last month's amount.",
+  accrual_policy_estimated: null,
+  accrual_policy_no_history: null,
+  rejected_receipts_excluded: "Goods receipts whose payment request was rejected are left out.",
+  receipt_without_payment_request: "Some goods receipts have no payment request; they are valued at received quantity × unit price.",
+  bread_supplier_payment_variance: null,
+  unclassified_present: "Part of the spend is still unclassified.",
+};
+
+const ACCRUAL_SECTIONS: { key: FinancePnlAccrualLine["section"]; title: string }[] = [
+  { key: "revenue", title: "Revenue" },
+  { key: "cogs", title: "Cost of goods sold" },
+  { key: "selling", title: "Selling expenses" },
+  { key: "operating", title: "Operating expenses" },
+  { key: "unclassified", title: "Unclassified" },
+];
+
+type AccrualRow = { key: string; label: string; amount: number; estimate: boolean; sources: string[] };
+
+function groupAccrualLines(lines: FinancePnlAccrualLine[], section: string): AccrualRow[] {
+  const rows = new Map<string, AccrualRow>();
+  for (const line of lines) {
+    if (line.section !== section) continue;
+    const estimate = Boolean(line.is_estimate);
+    const key = `${line.line_code}:${estimate ? "est" : "act"}`;
+    const row = rows.get(key) ?? { key, label: lineLabel(line.section, line.line_code, line.label), amount: 0, estimate, sources: [] };
+    row.amount += Number(line.amount) || 0;
+    const source = ACCRUAL_SOURCE[line.source] ?? line.source;
+    if (!row.sources.includes(source)) row.sources.push(source);
+    rows.set(key, row);
+  }
+  return [...rows.values()].sort((a, b) => b.amount - a.amount);
+}
+
+function AccrualPnlView({ month, basis }: { month: string; basis: FinancePnlTotals | undefined }) {
+  const query = usePnlAccrual(monthStart(month));
+  const { usd } = useFx();
+  const U = useMonthUsd(month);
+  const data: FinancePnlAccrual | undefined = query.data;
+  const totals = data?.totals;
+  const pct = (value: number) => (totals?.revenue ? formatPct(value / totals.revenue) : "—");
+  const notes = (data?.flags ?? [])
+    .filter((flag, index, all) => ACCRUAL_FLAG_NOTES[flag.code] !== null && all.findIndex((f) => f.code === flag.code) === index)
+    .map((flag) => ({ code: flag.code, text: ACCRUAL_FLAG_NOTES[flag.code] ?? flag.detail_en }));
+  const bread = data?.bread_supplier;
+  const subtotal = (label: string, value: number) => (
+    <tr className="is-subtotal">
+      <th scope="row">{label}</th>
+      <td className="fin-num fin-acc-src" />
+      <td className={cn("fin-num is-on", value < 0 && "is-neg")}>{U(value)}</td>
+      <td className="fin-num">{pct(value)}</td>
+    </tr>
+  );
+
+  return (
+    <QueryState query={query} empty={!data || !totals || totals.revenue == null}>
+      {data && totals ? (
+        <>
+          <div className="fin-notice" role="note" data-bmq-accrual-notice>
+            <Info aria-hidden />
+            <p>
+              <b>Accrual basis.</b> Costs are booked when goods arrive, bread when it is delivered and payroll by its pay period,
+              whether or not they are approved or paid yet. Estimates are marked; stock on hand is not deducted yet.
+            </p>
+          </div>
+
+          <div className="fin-kpis" aria-label={`${monthName(month)} accrual headline figures`}>
+            <AccrualKpi label="Revenue" value={usd(totals.revenue, month)} />
+            <AccrualKpi label="Gross profit" value={usd(totals.gross_profit, month)} sub={totals.gross_margin != null ? `${formatPct(totals.gross_margin)} margin` : undefined} />
+            <AccrualKpi
+              label="EBITDA (accrual)"
+              value={usd(totals.ebitda, month)}
+              lead
+              sub={`${totals.ebitda_margin != null ? `${formatPct(totals.ebitda_margin)} margin · ` : ""}${basis?.ebitda != null ? `${U(basis.ebitda)} on approved requests` : ""}`}
+            />
+            <AccrualKpi label="Estimated in this view" value={usd(totals.estimate_total, month)} sub={`${totals.estimate_lines} estimated line${totals.estimate_lines === 1 ? "" : "s"}`} />
+          </div>
+
+          <Panel title="Income statement · accrual basis" note={`${monthName(month)} in USD at the month's average Vietcombank rate. Lines marked Estimate are not yet backed by a document.`}>
+            <div className="fin-table-wrap" tabIndex={0} role="region" aria-label="Accrual income statement">
+              <table className="fin-table" data-bmq-accrual-table>
+                <thead>
+                  <tr>
+                    <th scope="col">Line</th>
+                    <th scope="col" className="fin-acc-src">Basis</th>
+                    <th scope="col" className="is-on">{monthName(month, true)} {month.slice(2, 4)}</th>
+                    <th scope="col">% of revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ACCRUAL_SECTIONS.map((section) => {
+                    const rows = groupAccrualLines(data.lines, section.key);
+                    const total = section.key === "revenue" ? totals.revenue : (totals[section.key as "cogs" | "selling" | "operating" | "unclassified"] ?? 0);
+                    if (!rows.length && !total) return null;
+                    return (
+                      <Fragment key={section.key}>
+                        <tr className="is-section">
+                          <th scope="row">{section.title}</th>
+                          <td className="fin-acc-src" />
+                          <td className="fin-num is-on">{U(total)}</td>
+                          <td className="fin-num">{pct(total)}</td>
+                        </tr>
+                        {rows.map((row) => (
+                          <tr key={row.key} className="is-line" data-estimate={row.estimate || undefined}>
+                            <th scope="row">
+                              {row.label}
+                              {row.estimate ? <span className="fin-chip is-est">Estimate</span> : null}
+                            </th>
+                            <td className="fin-acc-src">{row.sources.join(" · ")}</td>
+                            <td className={cn("fin-num is-on", row.amount < 0 && "is-neg")}>{U(row.amount)}</td>
+                            <td className="fin-num">{pct(row.amount)}</td>
+                          </tr>
+                        ))}
+                        {section.key === "cogs" ? (
+                          <>
+                            {subtotal("Gross profit", totals.gross_profit)}
+                            <tr className="is-margin"><th scope="row">Gross margin</th><td className="fin-acc-src" /><td className="fin-num is-on">{formatPct(totals.gross_margin) ?? "—"}</td><td /></tr>
+                          </>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
+                  {subtotal("EBITDA", totals.ebitda)}
+                  <tr className="is-margin"><th scope="row">EBITDA margin</th><td className="fin-acc-src" /><td className="fin-num is-on">{formatPct(totals.ebitda_margin) ?? "—"}</td><td /></tr>
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+
+          <div className="fin-grid">
+            {bread && bread.accrued_amount ? (
+              <Panel title="Bread from Tuyết Anh" note="Valued from the daily bread orders sent to the supplier.">
+                <dl className="fin-acc-facts" data-bmq-accrual-bread>
+                  <div><dt>Bread sticks</dt><dd className="fin-num">{bread.que_quantity.toLocaleString("en-US")} × {bread.que_unit_price?.toLocaleString("en-US") ?? "—"} ₫</dd></div>
+                  <div><dt>VietJet bread</dt><dd className="fin-num">{bread.vietjet_quantity.toLocaleString("en-US")} × {bread.vietjet_unit_price?.toLocaleString("en-US") ?? "—"} ₫</dd></div>
+                  <div><dt>Cost this month</dt><dd className="fin-num is-strong">{U(bread.accrued_amount)}</dd></div>
+                  <div><dt>Paid so far</dt><dd className="fin-num">{U(bread.paid_amount)}</dd></div>
+                  <div><dt>Still owed</dt><dd className="fin-num">{U(bread.variance_vs_paid)}</dd></div>
+                </dl>
+              </Panel>
+            ) : null}
+            {notes.length ? (
+              <Panel title="Data notes" className="is-quiet">
+                <ul className="fin-notes">
+                  {notes.map((note) => <li key={note.code}>{note.text}</li>)}
+                </ul>
+              </Panel>
+            ) : null}
+          </div>
+        </>
+      ) : null}
+    </QueryState>
+  );
+}
+
+function AccrualKpi({ label, value, sub, lead }: { label: string; value: number | null; sub?: string; lead?: boolean }) {
+  return (
+    <div className={cn("fin-kpi", lead && "is-lead")}>
+      <span className="fin-kpi-label">{label}</span>
+      <strong className="fin-num"><CountUp value={value} format={D} /></strong>
+      {sub ? <span className="fin-kpi-sub">{sub}</span> : null}
     </div>
   );
 }
