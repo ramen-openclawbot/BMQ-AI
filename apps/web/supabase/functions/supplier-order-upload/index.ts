@@ -143,6 +143,14 @@ Deno.serve(async (req) => {
         unit: data.unit ?? null,
         sent_at: data.sent_at ?? null,
         upload_count: data.upload_count ?? 0,
+        items: Array.isArray(data.items)
+          ? (data.items as Record<string, unknown>[]).map((item) => ({
+            product_name: item?.product_name ?? null,
+            quantity: item?.quantity ?? null,
+            unit: item?.unit ?? null,
+          }))
+          : [],
+        total_amount: data.total_amount ?? null,
       },
       200,
       cors,

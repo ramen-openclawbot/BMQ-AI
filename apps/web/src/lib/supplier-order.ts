@@ -479,6 +479,9 @@ export type SupplierOrderUploadSummary = {
   unit: string | null;
   sentAt: string | null;
   uploadCount: number;
+  /** Every line of the PO; empty for links resolved by an older server. */
+  items: { productName: string; quantity: number | null; unit: string | null }[];
+  totalAmount: number | null;
 };
 
 export type UploadDeliveryResult = {
@@ -652,6 +655,17 @@ export function parseSupplierOrderUploadSummary(value: unknown): SupplierOrderUp
     unit: asNullableText(root.unit),
     sentAt: asNullableText(root.sent_at),
     uploadCount: asNumber(root.upload_count) ?? 0,
+    items: (Array.isArray(root.items) ? root.items : [])
+      .map((raw) => {
+        const item = asRecord(raw);
+        return {
+          productName: asNullableText(item.product_name) ?? "",
+          quantity: asNumber(item.quantity),
+          unit: asNullableText(item.unit),
+        };
+      })
+      .filter((item) => item.productName),
+    totalAmount: asNumber(root.total_amount),
   };
 }
 

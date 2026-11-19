@@ -115,11 +115,36 @@ export default function SupplierUploadPortal({ token }: { token: string }) {
                 <dd className="mt-0.5 font-semibold">{order.poNumber}{order.supplierName ? ` · ${order.supplierName}` : ""}</dd>
               </div>
               <div className="col-span-2">
-                <dt className="text-[12px] text-[#6b6466]">Hàng</dt>
-                <dd className="mt-0.5 font-semibold [overflow-wrap:anywhere]">
-                  {order.productName} · {formatQuantity(order.quantity)} {order.unit}
-                </dd>
+                <dt className="text-[12px] text-[#6b6466]">
+                  Hàng{order.items.length > 1 ? ` · ${order.items.length} mặt hàng` : ""}
+                </dt>
+                {order.items.length > 0 ? (
+                  <dd className="mt-1">
+                    <ul className="divide-y divide-[#f1ebe8]" data-bmq-supplier-upload-items>
+                      {order.items.map((item, index) => (
+                        <li key={`${item.productName}-${index}`} className="flex items-baseline justify-between gap-3 py-1.5 first:pt-0 last:pb-0">
+                          <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{item.productName}</span>
+                          <span className="shrink-0 font-semibold tabular-nums">
+                            {formatQuantity(item.quantity)} {item.unit ?? ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </dd>
+                ) : (
+                  <dd className="mt-0.5 font-semibold [overflow-wrap:anywhere]">
+                    {order.productName}{order.quantity !== null ? ` · ${formatQuantity(order.quantity)} ${order.unit ?? ""}` : ""}
+                  </dd>
+                )}
               </div>
+              {order.totalAmount !== null && order.totalAmount > 0 ? (
+                <div className="col-span-2 flex items-baseline justify-between border-t border-[#eee8e5] pt-3">
+                  <dt className="text-[12px] text-[#6b6466]">Tổng tiền</dt>
+                  <dd className="font-semibold tabular-nums" data-bmq-supplier-upload-total>
+                    {new Intl.NumberFormat("vi-VN").format(Math.round(order.totalAmount))} đ
+                  </dd>
+                </div>
+              ) : null}
               <div>
                 <dt className="text-[12px] text-[#6b6466]">Ngày đặt</dt>
                 <dd className="mt-0.5 tabular-nums">{sentDate(order.sentAt)}</dd>

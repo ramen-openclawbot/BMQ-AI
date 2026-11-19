@@ -137,6 +137,27 @@ test("parses the public upload summary", () => {
   assert.equal(summary.poNumber, "PO-1");
   assert.equal(summary.quantity, 25);
   assert.equal(summary.uploadCount, 2);
+  assert.deepEqual(summary.items, []);
+  assert.equal(summary.totalAmount, null);
+});
+
+test("upload summary lists every PO line and the total (PO-000916, 7 lines)", () => {
+  const summary = parseSupplierOrderUploadSummary({
+    po_number: "PO-000916",
+    supplier_name: "Kamereo",
+    product_name: "Nước lau nhà Power",
+    quantity: null,
+    unit: null,
+    items: [
+      { product_name: "Nước lau nhà Power", quantity: 3, unit: "chai" },
+      { product_name: "Nước rửa tay lifebuoy", quantity: "1", unit: "can" },
+      { product_name: "", quantity: 9, unit: "x" },
+    ],
+    total_amount: "4600260",
+  });
+  assert.equal(summary.items.length, 2, "blank names are dropped");
+  assert.deepEqual(summary.items[1], { productName: "Nước rửa tay lifebuoy", quantity: 1, unit: "can" });
+  assert.equal(summary.totalAmount, 4600260);
 });
 
 test("maps blocker codes to Vietnamese labels", () => {
