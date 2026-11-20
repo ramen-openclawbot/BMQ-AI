@@ -44,6 +44,7 @@ import { useDealerCartAssistant, type DealerCartAssistantHistoryTurn } from "@/h
 import { applyCartProposal, applyRouteProposal, type DealerRouteProposalLine } from "@/lib/dealer-cart-assistant";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { DealerAwaitingSlipNotice } from "@/components/dealer/DealerAwaitingSlipNotice";
+import { DealerReportPanel } from "@/components/dealer/DealerReportPanel";
 import { cn } from "@/lib/utils";
 import "@/styles/dealer-order-history.css";
 import "@/styles/dealer-option-c.css";
@@ -570,6 +571,7 @@ export default function DealerPortal() {
   const [productSearch, setProductSearch] = useState("");
   const [dealerProfileOpen, setDealerProfileOpen] = useState(false);
   const [orderHistoryGranularity, setOrderHistoryGranularity] = useState<DealerOrderHistoryGranularity>("month");
+  const [ordersView, setOrdersView] = useState<"history" | "report">("history");
   const [orderHistoryAnchor, setOrderHistoryAnchor] = useState(() => currentDealerHistoryAnchor("month"));
   const [orderHistoryPage, setOrderHistoryPage] = useState(1);
   const [storedHistoryStatus, setOrderHistoryStatus] = useState<DealerOrderHistoryStatus>("idle");
@@ -645,6 +647,15 @@ export default function DealerPortal() {
     setAuthError("");
     setOrderLockedMessage(message || DEALER_ORDER_LOCKED_MESSAGE);
   }, [clearDealerSession]);
+
+  const handleDealerReportSessionExpired = useCallback(() => {
+    localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
+    localStorage.removeItem(DEALER_PROFILE_CACHE_KEY);
+    localStorage.removeItem(DEALER_CATALOG_CACHE_KEY);
+    setSessionToken("");
+    setLoginStep("phone");
+    setActiveNav("messages");
+  }, [setSessionToken]);
 
   const handlePhoneChange = useCallback((value: string) => {
     setPhone(value);
@@ -2024,6 +2035,18 @@ export default function DealerPortal() {
         <DealerAwaitingSlipNotice status={onboardingStatus} sessionToken={sessionToken} onActivated={() => setOnboardingStatus("slip_submitted")} />
 
         <main className="mx-auto w-full max-w-3xl px-4 pb-28 pt-5 sm:pt-7">
+          <div className="dealer-orders-view-tabs" role="tablist" aria-label="Xem đơn hàng">
+            <button type="button" role="tab" aria-selected={ordersView === "history"} onClick={() => setOrdersView("history")}>Lịch sử</button>
+            <button type="button" role="tab" aria-selected={ordersView === "report"} onClick={() => setOrdersView("report")} data-dealer-report-tab>Báo cáo</button>
+          </div>
+          {ordersView === "report" ? (
+            <DealerReportPanel
+              sessionToken={sessionToken}
+              onLocked={handleDealerOrderLocked}
+              onSessionExpired={handleDealerReportSessionExpired}
+              isLockedPayload={isDealerOrderLockedPayload}
+            />
+          ) : (<>
           <section className="space-y-4" data-dealer-order-history-filter>
             <div className="dealer-history-period-tabs" role="tablist" aria-label="Lọc lịch sử theo thời gian">
               {([
@@ -2195,6 +2218,7 @@ export default function DealerPortal() {
               </button>
             </nav>
           ) : null}
+          </>)}
         </main>
 
         <nav className="dealer-history-bottom-nav" data-dealer-agent-nav="messages-orders-account">
