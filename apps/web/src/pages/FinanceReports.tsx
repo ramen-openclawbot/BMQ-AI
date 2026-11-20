@@ -2,7 +2,7 @@ import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useMem
 import { useSearchParams } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Info, RotateCw, XCircle } from "lucide-react";
 
-import { useAccrualSchedule, useApRollforward, useCloseChecklist, useFxMonthly, usePnl, usePnlAccrual, useVariance } from "@/hooks/useFinance";
+import { useAccrualSchedule, useApRollforward, useCloseChecklist, useFxMonthly, useManualAdjustments, usePnl, usePnlAccrual, useSaveManualAdjustment, useVariance, useVoidManualAdjustment } from "@/hooks/useFinance";
 import { addMonths, formatPct, isMonthKey, monthEnd, monthStart, toMonthKey } from "@/lib/finance/format";
 import { formatUsd, formatUsdRate, rateByMonth, signedUsd, vndToUsd } from "@/lib/finance/fx";
 import {
@@ -18,6 +18,8 @@ import { buildPnlStatement } from "@/lib/finance/statement";
 import type {
   FinanceAccrualPolicy,
   FinanceCloseCheck,
+  FinanceManualAdjustment,
+  FinanceManualAdjustmentKind,
   FinancePnl,
   FinancePnlAccrual,
   FinancePnlAccrualLine,
@@ -525,6 +527,7 @@ const ACCRUAL_SOURCE: Record<string, string> = {
   supplier_bread_order: "Daily bread orders",
   payroll_period: "Payroll period",
   accrual_policy: "Accrual policy",
+  manual_adjustment: "Manual adjustment",
 };
 
 const ACCRUAL_FLAG_NOTES: Record<string, string | null> = {
@@ -584,6 +587,19 @@ function AccrualPnlView({ month, basis }: { month: string; basis: FinancePnlTota
       <td className="fin-num">{pct(value)}</td>
     </tr>
   );
+  const belowSources = (code: string) =>
+    (data?.below_ebitda ?? []).filter((line) => line.line_code === code).map((line) => (line.source === "manual_adjustment" ? line.label : "20% of profit before tax")).join(" · ");
+  const belowLine = (label: string, value: number | undefined, code: string, estimate = false) => (
+    <tr className="is-line" data-estimate={estimate || undefined}>
+      <th scope="row">
+        {label}
+        {estimate ? <span className="fin-chip is-est">Estimate</span> : null}
+      </th>
+      <td className="fin-acc-src">{belowSources(code) || (value ? "" : "Not entered yet")}</td>
+      <td className="fin-num is-on">{value ? U(-value) : <span className="fin-dim">—</span>}</td>
+      <td className="fin-num">{value ? pct(-value) : ""}</td>
+    </tr>
+  );
 
   return (
     <QueryState query={query} empty={!data || !totals || totals.revenue == null}>
@@ -606,7 +622,11 @@ function AccrualPnlView({ month, basis }: { month: string; basis: FinancePnlTota
               lead
               sub={`${totals.ebitda_margin != null ? `${formatPct(totals.ebitda_margin)} margin · ` : ""}${basis?.ebitda != null ? `${U(basis.ebitda)} on approved requests` : ""}`}
             />
-            <AccrualKpi label="Estimated in this view" value={usd(totals.estimate_total, month)} sub={`${totals.estimate_lines} estimated line${totals.estimate_lines === 1 ? "" : "s"}`} />
+            <AccrualKpi
+              label="Net profit"
+              value={usd(totals.net_profit ?? null, month)}
+              sub={`${totals.net_margin != null ? `${formatPct(totals.net_margin)} margin · ` : ""}${U(totals.estimate_total)} estimated`}
+            />
           </div>
 
           <Panel title="Income statement · accrual basis" note={`${monthName(month)} in USD at the month's average Vietcombank rate. Lines marked Estimate are not yet backed by a document.`}>
@@ -655,6 +675,22 @@ function AccrualPnlView({ month, basis }: { month: string; basis: FinancePnlTota
                   })}
                   {subtotal("EBITDA", totals.ebitda)}
                   <tr className="is-margin"><th scope="row">EBITDA margin</th><td className="fin-acc-src" /><td className="fin-num is-on">{formatPct(totals.ebitda_margin) ?? "—"}</td><td /></tr>
+                  {totals.net_profit != null ? (
+                    <>
+                      {belowLine("Depreciation", totals.depreciation, "DEPRECIATION")}
+                      {belowLine("Interest", totals.interest, "INTEREST")}
+                      {totals.other_below_ebitda ? belowLine("Other income and expense", totals.other_below_ebitda, "OTHER_BELOW") : null}
+                      {subtotal("Profit before tax", totals.ebt)}
+                      {belowLine("Corporate income tax", totals.cit, "CIT", totals.cit_is_estimate)}
+                      <tr className="is-subtotal is-net" data-bmq-net-profit>
+                        <th scope="row">Net profit</th>
+                        <td className="fin-num fin-acc-src" />
+                        <td className={cn("fin-num is-on", totals.net_profit < 0 && "is-neg")}>{U(totals.net_profit)}</td>
+                        <td className="fin-num">{pct(totals.net_profit)}</td>
+                      </tr>
+                      <tr className="is-margin"><th scope="row">Net margin</th><td className="fin-acc-src" /><td className="fin-num is-on">{formatPct(totals.net_margin) ?? "—"}</td><td /></tr>
+                    </>
+                  ) : null}
                 </tbody>
               </table>
             </div>
@@ -680,6 +716,8 @@ function AccrualPnlView({ month, basis }: { month: string; basis: FinancePnlTota
               </Panel>
             ) : null}
           </div>
+
+          <ManualAdjustments month={month} />
         </>
       ) : null}
     </QueryState>
@@ -693,6 +731,139 @@ function AccrualKpi({ label, value, sub, lead }: { label: string; value: number 
       <strong className="fin-num"><CountUp value={value} format={D} /></strong>
       {sub ? <span className="fin-kpi-sub">{sub}</span> : null}
     </div>
+  );
+}
+
+const ADJ_KINDS: { id: FinanceManualAdjustmentKind; label: string }[] = [
+  { id: "opex", label: "Operating cost" },
+  { id: "depreciation", label: "Depreciation" },
+  { id: "interest", label: "Interest" },
+  { id: "cit", label: "Corporate income tax" },
+  { id: "other_below_ebitda", label: "Other below EBITDA" },
+  { id: "revenue_deduction", label: "Revenue deduction (e.g. VAT)" },
+];
+
+const ADJ_CATEGORIES: { code: string; label: string }[] = [
+  { code: "C7_SOCIAL_INSURANCE", label: "Social insurance" },
+  { code: "C6_PAYROLL", label: "Payroll" },
+  { code: "C1_WAREHOUSE_RENT", label: "Warehouse & kitchen rent" },
+  { code: "C2_ELECTRICITY", label: "Electricity" },
+  { code: "C4_GAS", label: "Gas" },
+  { code: "C5_TELECOM", label: "Internet & phone" },
+  { code: "C3_WATER_WASTE", label: "Water & waste" },
+  { code: "C8_REPAIR", label: "Repairs & maintenance" },
+  { code: "C11_BANK_TAX_OTHER", label: "Bank fees, tax & other" },
+];
+
+const monthsBetween = (from: string, to: string) =>
+  (Number(to.slice(0, 4)) - Number(from.slice(0, 4))) * 12 + Number(to.slice(5, 7)) - Number(from.slice(5, 7)) + 1;
+const vnd = (value: number) => `${Math.round(value).toLocaleString("en-US")} ₫`;
+
+function ManualAdjustments({ month }: { month: string }) {
+  const list = useManualAdjustments();
+  const save = useSaveManualAdjustment();
+  const voidAdj = useVoidManualAdjustment();
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<FinanceManualAdjustmentKind>("opex");
+  const [category, setCategory] = useState("C7_SOCIAL_INSURANCE");
+  const [label, setLabel] = useState("");
+  const [from, setFrom] = useState(month);
+  const [to, setTo] = useState(month);
+  const [amount, setAmount] = useState("");
+  const [sourceRef, setSourceRef] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const rows = list.data ?? [];
+  const amountNumber = Number(amount.replace(/[^\d]/g, ""));
+  const months = from && to && from <= to ? monthsBetween(from, to) : 0;
+  const errorText = (err: unknown) => {
+    const message = (err as { message?: string })?.message ?? "";
+    if (/insufficient_privilege/.test(message)) return "Only the owner or finance editors can record adjustments.";
+    return message || "Could not save.";
+  };
+  const submit = () => {
+    setError(null);
+    if (!label.trim() || !amountNumber || !months) {
+      setError("Enter a label, a positive amount and a month range.");
+      return;
+    }
+    save.mutate(
+      {
+        kind,
+        categoryCode: kind === "opex" ? category : null,
+        label: label.trim(),
+        periodFrom: `${from}-01`,
+        periodTo: `${to}-01`,
+        totalAmount: amountNumber,
+        sourceRef: sourceRef.trim() || null,
+        note: null,
+      },
+      {
+        onSuccess: () => { setOpen(false); setLabel(""); setAmount(""); setSourceRef(""); },
+        onError: (err) => setError(errorText(err)),
+      },
+    );
+  };
+  const kindLabel = (row: FinanceManualAdjustment) =>
+    row.kind === "opex" ? ADJ_CATEGORIES.find((c) => c.code === row.category_code)?.label ?? row.category_code ?? "Operating cost" : ADJ_KINDS.find((k) => k.id === row.kind)?.label ?? row.kind;
+
+  return (
+    <Panel
+      title="Manual adjustments"
+      note="Costs without a payment request, spread evenly over their months: social insurance, depreciation, interest, income tax. Amounts are in VND."
+      aside={<button type="button" className="fin-btn fin-press" aria-expanded={open} onClick={() => setOpen((v) => !v)}>{open ? "Cancel" : "Add adjustment"}</button>}
+    >
+      {open ? (
+        <form className="fin-adj-form" data-bmq-adj-form onSubmit={(event) => { event.preventDefault(); submit(); }}>
+          <label>Type
+            <select value={kind} onChange={(event) => setKind(event.target.value as FinanceManualAdjustmentKind)}>
+              {ADJ_KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+            </select>
+          </label>
+          {kind === "opex" ? (
+            <label>Cost line
+              <select value={category} onChange={(event) => setCategory(event.target.value)}>
+                {ADJ_CATEGORIES.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+              </select>
+            </label>
+          ) : null}
+          <label className="is-wide">Label<input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="e.g. Social insurance Apr–Oct 2026" /></label>
+          <label>From<input type="month" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
+          <label>To<input type="month" value={to} onChange={(event) => setTo(event.target.value)} /></label>
+          <label>Total (VND)<input inputMode="numeric" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="96,955,830" /></label>
+          <label>Reference<input value={sourceRef} onChange={(event) => setSourceRef(event.target.value)} placeholder="Bank slip, invoice no." /></label>
+          <div className="fin-adj-foot is-wide">
+            <span className="fin-dim">{amountNumber && months ? `${vnd(amountNumber / months)} per month over ${months} month${months === 1 ? "" : "s"}` : ""}</span>
+            <button type="submit" className="fin-btn fin-press is-primary" disabled={save.isPending}>{save.isPending ? "Saving…" : "Save adjustment"}</button>
+          </div>
+          {error ? <p className="fin-adj-error is-wide" role="alert">{error}</p> : null}
+        </form>
+      ) : null}
+      {list.isLoading ? <p className="fin-dim">Loading…</p> : rows.length === 0 ? <p className="fin-empty">No manual adjustments yet.</p> : (
+        <ul className="fin-adj-list" data-bmq-adj-list>
+          {rows.map((row) => {
+            const span = monthsBetween(row.period_from.slice(0, 7), row.period_to.slice(0, 7));
+            return (
+              <li key={row.id}>
+                <div>
+                  <b>{row.label}</b>
+                  <small>{kindLabel(row)} · {monthName(row.period_from.slice(0, 7), true)} {row.period_from.slice(2, 4)}–{monthName(row.period_to.slice(0, 7), true)} {row.period_to.slice(2, 4)}{row.source_ref ? ` · ${row.source_ref}` : ""}</small>
+                </div>
+                <span className="fin-num">{vnd(Number(row.total_amount))}<small>{vnd(Number(row.total_amount) / span)} / month</small></span>
+                <button
+                  type="button"
+                  className="fin-link fin-press"
+                  disabled={voidAdj.isPending}
+                  onClick={() => { if (window.confirm(`Remove "${row.label}" from every month?`)) voidAdj.mutate(row.id, { onError: (err) => setError(errorText(err)) }); }}
+                >
+                  Remove
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {!open && error ? <p className="fin-adj-error" role="alert">{error}</p> : null}
+    </Panel>
   );
 }
 

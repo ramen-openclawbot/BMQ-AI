@@ -237,6 +237,39 @@ export interface FinancePnlAccrualTotals {
   ebitda_margin: number | null;
   estimate_total: number;
   estimate_lines: number;
+  depreciation: number;
+  ebit: number;
+  interest: number;
+  other_below_ebitda: number;
+  ebt: number;
+  cit: number;
+  cit_is_estimate: boolean;
+  net_profit: number;
+  net_margin: number | null;
+}
+
+export type FinanceManualAdjustmentKind =
+  | "opex"
+  | "depreciation"
+  | "interest"
+  | "other_below_ebitda"
+  | "cit"
+  | "revenue_deduction";
+
+export interface FinanceManualAdjustment {
+  id: string;
+  kind: FinanceManualAdjustmentKind;
+  category_code: string | null;
+  label: string;
+  period_from: string;
+  period_to: string;
+  total_amount: number;
+  source_ref: string | null;
+  note: string | null;
+  status: "active" | "void";
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface FinancePnlAccrual {
@@ -254,5 +287,6 @@ export interface FinancePnlAccrual {
     vietjet_unit_price: number | null;
   };
   inventory?: { status: string; note: string };
+  below_ebitda?: { line_code: string; label: string; amount: number; source: string; is_estimate: boolean; note?: string }[];
   flags: { code: string; detail_en: string; amount?: number }[];
 }

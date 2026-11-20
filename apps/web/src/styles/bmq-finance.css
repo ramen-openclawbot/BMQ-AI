@@ -724,3 +724,24 @@ html.bmq-d3 .fin-panel-h h2 { font-weight: 400; }
 .fin-basis-opt { height: 32px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--d3-ink-2, #4a4a4a); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: background-color 160ms ease, color 160ms ease; }
 .fin-basis-opt.is-on { background: #16181c; color: #fff; }
 .fin-basis-opt:focus-visible { outline: 2px solid var(--fin-hue, #0b5bd7); outline-offset: 2px; }
+
+.fin-table tr.is-net th, .fin-table tr.is-net td { font-size: 14px; border-top: 2px solid var(--d3-ink, #272727); }
+.fin-adj-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; padding: 14px; border-radius: 14px; background: var(--d3-panel, #ececea); }
+.fin-adj-form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--d3-dim, #6b6b69); }
+.fin-adj-form .is-wide { grid-column: span 2; }
+.fin-adj-form input, .fin-adj-form select { height: 36px; padding: 0 10px; border: 1px solid var(--d3-line-2, #d6d6d3); border-radius: 10px; background: var(--d3-white, #fdfdfc); color: var(--d3-ink, #272727); font: inherit; font-size: 14px; }
+.fin-adj-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; grid-column: 1 / -1; }
+.fin-btn.is-primary { background: var(--fin-hue, #0b5bd7); color: #fff; }
+.fin-btn:disabled { opacity: .6; cursor: default; }
+.fin-adj-error { margin: 0; color: var(--fin-bad); font-size: 13px; grid-column: 1 / -1; }
+.fin-adj-list { margin: 0; padding: 0; list-style: none; }
+.fin-adj-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 14px; align-items: center; padding: 11px 0; border-top: 1px solid var(--d3-line, #e2e2df); font-size: 13px; }
+.fin-adj-list li:first-child { border-top: 0; }
+.fin-adj-list small { display: block; color: var(--d3-dim, #6b6b69); font-size: 12px; }
+.fin-adj-list .fin-num { text-align: right; }
+@media (max-width: 760px) {
+  .fin-adj-form { grid-template-columns: 1fr 1fr; }
+  .fin-adj-form .is-wide { grid-column: 1 / -1; }
+  .fin-adj-list li { grid-template-columns: minmax(0, 1fr) auto; }
+  .fin-adj-list li button { grid-column: 1 / -1; justify-self: start; }
+}

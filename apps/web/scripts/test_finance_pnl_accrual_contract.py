@@ -14,6 +14,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_GLOB = "*_finance_pnl_accrual.sql"
 MIGRATIONS = sorted((ROOT / "supabase" / "migrations").glob(MIGRATION_GLOB))
+NET_PROFIT_MIGRATION_GLOB = "*_finance_net_profit_adjustments.sql"
+NET_PROFIT_MIGRATIONS = sorted(
+    (ROOT / "supabase" / "migrations").glob(NET_PROFIT_MIGRATION_GLOB)
+)
 DRYRUN = ROOT / "supabase" / "tests" / "finance_pnl_accrual_dryrun.sql"
 PRINT_SCRIPT = ROOT / "scripts" / "print_finance_pnl_accrual.mjs"
 VERIFY_SCRIPT = ROOT / "scripts" / "verify_finance_pnl_accrual_live.sh"
@@ -31,6 +35,14 @@ def assert_true(condition: bool, message: str) -> None:
 def migration_sql() -> str:
     assert_true(len(MIGRATIONS) == 1, f"expected one {MIGRATION_GLOB}, found {len(MIGRATIONS)}")
     return read(MIGRATIONS[0])
+
+
+def net_profit_migration_sql() -> str:
+    assert_true(
+        len(NET_PROFIT_MIGRATIONS) == 1,
+        f"expected one {NET_PROFIT_MIGRATION_GLOB}, found {len(NET_PROFIT_MIGRATIONS)}",
+    )
+    return read(NET_PROFIT_MIGRATIONS[0])
 
 
 def function_block(sql: str, name: str, args: str) -> tuple[str, str]:
@@ -362,16 +374,24 @@ def test_verify_script_is_transaction_wrapped_and_cleans_up() -> None:
     assert_true("commit;" not in lower, "verify script must never commit")
     assert_true(
         "20261119085657_finance_pnl_accrual.sql" in source
+        and "finance_net_profit_adjustments.sql" in source
         and "finance_pnl_accrual_dryrun.sql" in source,
-        "verify script must combine the migration and the body-only check",
+        "verify script must combine both migrations and the body-only check",
     )
     assert_true(
         "supabase db query" in source and "--linked" in source,
         "verify script must run through the linked Supabase project",
     )
     assert_true(
-        "pg_proc where proname like 'finance_pnl_accrual%'" in source,
-        "verify script must assert no finance_pnl_accrual function remains",
+        "finance_manual_adjustments" in source
+        and "finance_manual_adjustment_save" in source
+        and "finance_manual_adjustment_void" in source
+        and "finance_manual_adjustment_month_lines" in source,
+        "verify script must assert the new table/functions are gone",
+    )
+    assert_true(
+        "proname like 'finance_pnl_accrual%'" not in source,
+        "verify script must not require the pre-existing finance_pnl_accrual* functions to be absent",
     )
 
 
@@ -388,3 +408,257 @@ def test_print_script_is_read_only_and_calls_the_rpc() -> None:
             write_method not in source,
             f"print script must not call {write_method}",
         )
+
+
+def test_manual_adjustment_table_rls_and_no_direct_write_policy() -> None:
+    lower = net_profit_migration_sql().lower()
+
+    assert_true(
+        "create table if not exists public.finance_manual_adjustments" in lower,
+        "new migration must create finance_manual_adjustments",
+    )
+    for fragment in (
+        "id uuid primary key default gen_random_uuid()",
+        "kind text not null",
+        "'opex',",
+        "'depreciation',",
+        "'interest',",
+        "'other_below_ebitda',",
+        "'cit',",
+        "'revenue_deduction'",
+        "category_code text",
+        "label text not null",
+        "period_from date not null",
+        "period_to date not null",
+        "total_amount numeric not null check (total_amount > 0)",
+        "source_ref text",
+        "note text",
+        "status text not null default 'active'",
+        "created_by uuid",
+        "created_at timestamptz not null default now()",
+        "updated_at timestamptz not null default now()",
+        "period_from <= period_to",
+        "extract(day from period_from) = 1",
+        "extract(day from period_to) = 1",
+    ):
+        assert_true(fragment in lower, f"missing finance_manual_adjustments fragment: {fragment}")
+
+    assert_true(
+        "alter table public.finance_manual_adjustments enable row level security" in lower,
+        "finance_manual_adjustments must enable RLS",
+    )
+    assert_true(
+        "using (public.finance_can_view_self())" in lower,
+        "manual adjustment SELECT must use the self-only finance_can_view_self()",
+    )
+    assert_true(
+        "grant execute on function public.finance_can_view(uuid) to authenticated" not in lower
+        and "grant execute on function public.finance_can_view_self() to authenticated" in lower,
+        "only the self-only wrapper may be opened to authenticated",
+    )
+
+    policies = re.findall(r"create policy.*?;", lower, re.S)
+    assert_true(bool(policies), "finance_manual_adjustments needs a SELECT policy")
+    assert_true(
+        any("for select" in policy and "finance_can_view_self()" in policy for policy in policies),
+        "finance_manual_adjustments needs the finance_can_view SELECT policy",
+    )
+    assert_true(
+        not any(
+            re.search(r"\bfor\s+(insert|update|delete|all)\b", policy)
+            for policy in policies
+        ),
+        "finance_manual_adjustments must not have direct INSERT/UPDATE/DELETE policies",
+    )
+    assert_true(
+        re.search(
+            r"grant\s+(insert|update|delete|all)\s+on\s+public\.finance_manual_adjustments\s+to\s+authenticated",
+            lower,
+        )
+        is None,
+        "authenticated must not receive direct write grants on finance_manual_adjustments",
+    )
+
+
+def test_manual_adjustment_rpc_permission_contract() -> None:
+    sql = net_profit_migration_sql()
+    lower = sql.lower()
+
+    save_header, save_body = function_block(
+        sql,
+        "finance_manual_adjustment_save",
+        "p_id uuid, p_kind text, p_category_code text, p_label text, p_period_from date, p_period_to date, p_total_amount numeric, p_source_ref text, p_note text",
+    )
+    save_lower = save_body.lower()
+    assert_true("returns jsonb" in save_header.lower(), "save RPC must return jsonb")
+    assert_true("security definer" in save_header.lower(), "save RPC must be SECURITY DEFINER")
+    assert_true(
+        "set search_path = public, pg_temp" in save_header.lower(),
+        "save RPC must pin search_path",
+    )
+    for fragment in (
+        "public.has_role",
+        "'owner'",
+        "public.has_module_permission",
+        "'finance_cost'",
+        "'finance_revenue'",
+        "'edit'",
+        "insufficient_privilege",
+        "created_by",
+        "auth.uid()",
+        "insert into public.finance_manual_adjustments",
+        "update public.finance_manual_adjustments",
+        "period_from",
+        "total_amount",
+        "cost_categories",
+    ):
+        assert_true(fragment in save_lower, f"save RPC is missing {fragment}")
+
+    void_header, void_body = function_block(
+        sql, "finance_manual_adjustment_void", "p_id uuid"
+    )
+    void_lower = void_body.lower()
+    assert_true("returns jsonb" in void_header.lower(), "void RPC must return jsonb")
+    assert_true("security definer" in void_header.lower(), "void RPC must be SECURITY DEFINER")
+    assert_true(
+        "set search_path = public, pg_temp" in void_header.lower(),
+        "void RPC must pin search_path",
+    )
+    for fragment in (
+        "public.has_role",
+        "'owner'",
+        "public.has_module_permission",
+        "'finance_cost'",
+        "'finance_revenue'",
+        "'edit'",
+        "insufficient_privilege",
+        "update public.finance_manual_adjustments",
+        "status = 'void'",
+    ):
+        assert_true(fragment in void_lower, f"void RPC is missing {fragment}")
+
+    assert_true(
+        "grant execute on function public.finance_manual_adjustment_save(uuid, text, text, text, date, date, numeric, text, text) to authenticated, service_role"
+        in lower,
+        "save RPC must be executable by authenticated",
+    )
+    assert_true(
+        "grant execute on function public.finance_manual_adjustment_void(uuid) to authenticated, service_role"
+        in lower,
+        "void RPC must be executable by authenticated",
+    )
+
+
+def test_manual_adjustment_month_allocation_contract() -> None:
+    sql = net_profit_migration_sql()
+    header, body = function_block(
+        sql, "finance_manual_adjustment_month_lines", "p_month date"
+    )
+    lower = body.lower()
+    assert_true("returns table" in header.lower(), "month helper must return a table")
+    assert_true("stable" in header.lower(), "month helper must be STABLE")
+    assert_true("security definer" in header.lower(), "month helper must be SECURITY DEFINER")
+    for fragment in (
+        "from public.finance_manual_adjustments a",
+        "a.status = 'active'",
+        "a.period_from <=",
+        "a.period_to >=",
+        "month_count",
+        "month_index",
+        "round(a.total_amount / a.month_count, 0)",
+        "a.month_index = a.month_count",
+        "a.total_amount",
+        "order by a.period_from",
+    ):
+        assert_true(fragment in lower, f"month helper is missing {fragment}")
+
+
+def test_net_profit_totals_and_below_ebitda_contract() -> None:
+    lower = net_profit_migration_sql().lower()
+    for total_key in (
+        "depreciation",
+        "ebit",
+        "interest",
+        "other_below_ebitda",
+        "ebt",
+        "cit",
+        "cit_is_estimate",
+        "net_profit",
+        "net_margin",
+    ):
+        assert_true(f"'{total_key}'" in lower, f"missing new totals key {total_key}")
+
+    for fragment in (
+        "v_ebit := v_ebitda - v_depreciation",
+        "v_ebt := v_ebit - v_interest - v_other_below",
+        "v_net_profit := v_ebt - v_cit",
+        "greatest(v_ebt, 0) * v_cit_rate",
+        "from public.finance_report_settings",
+        "0.20",
+        "below_ebitda",
+        "then 'depreciation'",
+        "then 'interest'",
+        "then 'other_below'",
+        "then 'cit'",
+        "'source', 'manual_adjustment'",
+        "'is_estimate', false",
+        "a.kind = 'opex'",
+        "a.category_code = v_policy.category_code",
+    ):
+        assert_true(fragment in lower, f"P&L extension is missing {fragment}")
+
+
+def test_new_migration_writes_only_manual_adjustments() -> None:
+    sql = net_profit_migration_sql()
+    clean = re.sub(r"/\*.*?\*/", "", sql, flags=re.S)
+    clean = re.sub(r"--[^\n]*", "", clean)
+    clean = re.sub(r"\bfor\s+update\b", "", clean, flags=re.I)
+
+    dml = re.compile(
+        r"\b(insert\s+into|update|delete\s+from)\s+([a-z_][a-z0-9_.\"]*)",
+        re.I,
+    )
+    targets = [match.group(2).strip('"').lower() for match in dml.finditer(clean)]
+    assert_true(bool(targets), "new migration should write through its RPCs")
+    assert_true(
+        all(
+            target in ("public.finance_manual_adjustments", "finance_manual_adjustments")
+            for target in targets
+        ),
+        f"new migration may only write finance_manual_adjustments, found {targets}",
+    )
+
+    blocks = re.findall(r"as \$\$(.*?)\$\$;", clean, re.S)
+    body_text = "\n".join(blocks)
+    body_targets = [
+        match.group(2).strip('"').lower() for match in dml.finditer(body_text)
+    ]
+    assert_true(
+        targets == body_targets,
+        "new migration must perform its writes inside RPC bodies",
+    )
+    assert_true(
+        re.search(r"grant\s+(insert|update|delete|all)\s+on\s+table", clean) is None,
+        "new migration must not grant direct table writes",
+    )
+
+
+def test_dryrun_covers_manual_bhxh_and_net_profit() -> None:
+    sql = read(DRYRUN)
+    lower = sql.lower()
+    for fragment in (
+        "finance_manual_adjustment_save",
+        "finance_manual_adjustment_void",
+        "c7_social_insurance",
+        "96955830",
+        "13850832",
+        "13850833",
+        "2026-04-01",
+        "2026-10-01",
+        "cit_is_estimate",
+        "net_profit",
+        "ebit",
+        "ebt",
+        "below_ebitda",
+    ):
+        assert_true(fragment in lower, f"dry run is missing manual-adjustment fragment {fragment}")

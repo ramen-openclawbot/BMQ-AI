@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { supabase } from "@/integrations/supabase/client";
 import { parseFxMonthly } from "@/lib/finance/fx";
@@ -8,6 +8,8 @@ import type {
   FinanceCloseChecklist,
   FinanceFxMonth,
   FinancePnl,
+  FinanceManualAdjustment,
+  FinanceManualAdjustmentKind,
   FinancePnlAccrual,
   FinanceVariance,
 } from "@/lib/finance/types";
@@ -109,5 +111,75 @@ export function usePnlAccrual(month: string | null | undefined) {
       if (error) throw error;
       return data as FinancePnlAccrual;
     },
+  });
+}
+
+type TableClient = {
+  from: (table: string) => {
+    select: (columns: string) => {
+      eq: (column: string, value: string) => {
+        order: (column: string, opts: { ascending: boolean }) => Promise<{ data: unknown; error: unknown }>;
+      };
+    };
+  };
+};
+
+export function useManualAdjustments() {
+  return useQuery({
+    queryKey: [FINANCE_QUERY_KEY, "manual-adjustments"],
+    queryFn: async (): Promise<FinanceManualAdjustment[]> => {
+      const { data, error } = await (supabase as unknown as TableClient)
+        .from("finance_manual_adjustments")
+        .select("id,kind,category_code,label,period_from,period_to,total_amount,source_ref,note,status,created_by,created_at,updated_at")
+        .eq("status", "active")
+        .order("period_from", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as FinanceManualAdjustment[];
+    },
+  });
+}
+
+export type ManualAdjustmentInput = {
+  kind: FinanceManualAdjustmentKind;
+  categoryCode: string | null;
+  label: string;
+  periodFrom: string;
+  periodTo: string;
+  totalAmount: number;
+  sourceRef: string | null;
+  note: string | null;
+};
+
+export function useSaveManualAdjustment() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ManualAdjustmentInput) => {
+      const { data, error } = await rpc("finance_manual_adjustment_save", {
+        p_id: null,
+        p_kind: input.kind,
+        p_category_code: input.categoryCode,
+        p_label: input.label,
+        p_period_from: input.periodFrom,
+        p_period_to: input.periodTo,
+        p_total_amount: input.totalAmount,
+        p_source_ref: input.sourceRef,
+        p_note: input.note,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: [FINANCE_QUERY_KEY] }),
+  });
+}
+
+export function useVoidManualAdjustment() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data, error } = await rpc("finance_manual_adjustment_void", { p_id: id });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: [FINANCE_QUERY_KEY] }),
   });
 }

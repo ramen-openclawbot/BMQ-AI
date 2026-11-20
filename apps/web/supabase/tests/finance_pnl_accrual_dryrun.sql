@@ -36,6 +36,31 @@ begin
   );
 end $$;
 
+-- Owner enters the real T4–T10 social-insurance amount. The save RPC is the
+-- only write path; the verify script rolls the row back with the transaction.
+do $$
+declare
+  v_saved jsonb;
+begin
+  v_saved := public.finance_manual_adjustment_save(
+    p_id => null,
+    p_kind => 'opex',
+    p_category_code => 'C7_SOCIAL_INSURANCE',
+    p_label => 'BHXH T4–T10/2026 (dry run)',
+    p_period_from => '2026-04-01',
+    p_period_to => '2026-10-01',
+    p_total_amount => 96955830,
+    p_source_ref => 'DRYRUN-BHXH-2026',
+    p_note => 'Rollback-only dry run adjustment'
+  );
+
+  if v_saved is null or (v_saved->>'id') is null then
+    raise exception 'CHECK FAIL: finance_manual_adjustment_save did not return an id';
+  end if;
+
+  perform set_config('app.finance_dryrun_adjustment_id', v_saved->>'id', true);
+end $$;
+
 do $$
 declare
   v_result jsonb;
@@ -207,12 +232,198 @@ begin
   end if;
 end $$;
 
+-- Manual adjustment checks: T10 is the last month of the T4–T10 window, so it
+-- receives the rounding remainder; the seven monthly amounts must sum exactly.
+do $$
+declare
+  v_result jsonb;
+  v_amount numeric;
+  v_total numeric;
+  v_months integer;
+  v_min_month numeric;
+  v_max_month numeric;
+  v_ebitda numeric;
+  v_depreciation numeric;
+  v_ebit numeric;
+  v_interest numeric;
+  v_other_below numeric;
+  v_ebt numeric;
+  v_cit numeric;
+  v_net_profit numeric;
+  v_cit_is_estimate boolean;
+begin
+  v_result := public.finance_pnl_accrual('2026-10-01');
+
+  select (x->>'amount')::numeric
+  into v_amount
+  from jsonb_array_elements(v_result->'lines') x
+  where x->>'line_code' = 'C7_SOCIAL_INSURANCE'
+    and x->>'source' = 'manual_adjustment';
+
+  if v_amount is null then
+    raise exception 'CHECK FAIL: missing manual BHXH line in 2026-10';
+  end if;
+
+  if v_amount not in (13850832, 13850833) then
+    raise exception 'CHECK FAIL: manual BHXH T10 amount % is not 13850832/13850833', v_amount;
+  end if;
+
+  if exists (
+    select 1
+    from jsonb_array_elements(v_result->'lines') x
+    where x->>'line_code' = 'C7_SOCIAL_INSURANCE'
+      and x->>'source' = 'accrual_policy'
+      and coalesce((x->>'is_estimate')::boolean, false)
+  ) then
+    raise exception 'CHECK FAIL: estimated SOCIAL_INS still present when a manual BHXH line exists';
+  end if;
+
+  select
+    coalesce(sum((x->>'amount')::numeric), 0),
+    count(*)::integer,
+    min((x->>'amount')::numeric),
+    max((x->>'amount')::numeric)
+  into v_total, v_months, v_min_month, v_max_month
+  from generate_series('2026-04-01'::date, '2026-10-01'::date, interval '1 month') g(month_start)
+  cross join lateral public.finance_pnl_accrual(g.month_start::date) pnl
+  cross join lateral jsonb_array_elements(pnl->'lines') x
+  where x->>'line_code' = 'C7_SOCIAL_INSURANCE'
+    and x->>'source' = 'manual_adjustment';
+
+  if v_months <> 7 then
+    raise exception 'CHECK FAIL: expected 7 manual BHXH months, found %', v_months;
+  end if;
+
+  if v_min_month < 13850832 or v_max_month > 13850833 then
+    raise exception 'CHECK FAIL: monthly manual BHXH range %..% is outside 13850832..13850833',
+      v_min_month, v_max_month;
+  end if;
+
+  if v_total <> 96955830 then
+    raise exception 'CHECK FAIL: manual BHXH T4–T10 total % != 96955830', v_total;
+  end if;
+
+  v_ebitda := (v_result->'totals'->>'ebitda')::numeric;
+  v_depreciation := (v_result->'totals'->>'depreciation')::numeric;
+  v_ebit := (v_result->'totals'->>'ebit')::numeric;
+  v_interest := (v_result->'totals'->>'interest')::numeric;
+  v_other_below := (v_result->'totals'->>'other_below_ebitda')::numeric;
+  v_ebt := (v_result->'totals'->>'ebt')::numeric;
+  v_cit := (v_result->'totals'->>'cit')::numeric;
+  v_net_profit := (v_result->'totals'->>'net_profit')::numeric;
+  v_cit_is_estimate := coalesce((v_result->'totals'->>'cit_is_estimate')::boolean, false);
+
+  if v_ebit <> v_ebitda - v_depreciation then
+    raise exception 'CHECK FAIL: ebit % != ebitda % - depreciation %', v_ebit, v_ebitda, v_depreciation;
+  end if;
+
+  if v_ebt <> v_ebit - v_interest - v_other_below then
+    raise exception 'CHECK FAIL: ebt % != ebit % - interest % - other_below %',
+      v_ebt, v_ebit, v_interest, v_other_below;
+  end if;
+
+  if v_net_profit <> v_ebt - v_cit then
+    raise exception 'CHECK FAIL: net_profit % != ebt % - cit %', v_net_profit, v_ebt, v_cit;
+  end if;
+
+  if v_cit_is_estimate is not true then
+    raise exception 'CHECK FAIL: cit_is_estimate must be true without an actual CIT adjustment';
+  end if;
+
+  if v_cit <> round(greatest(v_ebt, 0) * 0.2, 0) then
+    raise exception 'CHECK FAIL: estimated cit % != round(greatest(ebt %,0) * 0.2)', v_cit, v_ebt;
+  end if;
+
+  if not exists (
+    select 1
+    from jsonb_array_elements(v_result->'below_ebitda') x
+    where x->>'line_code' = 'CIT'
+      and coalesce((x->>'is_estimate')::boolean, false)
+  ) then
+    raise exception 'CHECK FAIL: below_ebitda must contain an estimated CIT line';
+  end if;
+end $$;
+
+-- A stranger without owner/finance edit rights must be rejected by both write
+-- RPCs. The owner claim is restored afterwards for the summary query.
+do $$
+declare
+  v_owner uuid;
+  v_adjustment_id uuid := current_setting('app.finance_dryrun_adjustment_id', true)::uuid;
+  v_stranger uuid := gen_random_uuid();
+  v_denied boolean := false;
+begin
+  perform set_config('request.jwt.claim.sub', v_stranger::text, true);
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', v_stranger, 'role', 'authenticated')::text,
+    true
+  );
+
+  begin
+    perform public.finance_manual_adjustment_save(
+      p_id => null,
+      p_kind => 'opex',
+      p_category_code => 'C7_SOCIAL_INSURANCE',
+      p_label => 'Unauthorized adjustment',
+      p_period_from => '2026-01-01',
+      p_period_to => '2026-01-01',
+      p_total_amount => 1,
+      p_source_ref => 'DRYRUN-DENIED',
+      p_note => 'must be rejected'
+    );
+  exception when insufficient_privilege then
+    v_denied := true;
+  end;
+
+  if not v_denied then
+    raise exception 'CHECK FAIL: a stranger was allowed to save a manual adjustment';
+  end if;
+
+  v_denied := false;
+  begin
+    perform public.finance_manual_adjustment_void(v_adjustment_id);
+  exception when insufficient_privilege then
+    v_denied := true;
+  end;
+
+  if not v_denied then
+    raise exception 'CHECK FAIL: a stranger was allowed to void a manual adjustment';
+  end if;
+
+  select ur.user_id
+  into v_owner
+  from public.user_roles ur
+  where ur.role = 'owner'
+  order by ur.user_id
+  limit 1;
+
+  if v_owner is null then
+    raise exception 'CHECK FAIL: no owner user_roles row after denial checks';
+  end if;
+
+  perform set_config('request.jwt.claim.sub', v_owner::text, true);
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', v_owner, 'role', 'authenticated')::text,
+    true
+  );
+end $$;
+
 with x as (
   select public.finance_pnl_accrual('2026-10-01') as pnl
 )
 select jsonb_pretty(
   jsonb_build_object(
     'totals', pnl->'totals',
+    'manual_bhxh', coalesce((
+      select line
+      from jsonb_array_elements(pnl->'lines') line
+      where line->>'line_code' = 'C7_SOCIAL_INSURANCE'
+        and line->>'source' = 'manual_adjustment'
+      limit 1
+    ), '{}'::jsonb),
+    'below_ebitda', pnl->'below_ebitda',
     'bread_supplier', pnl->'bread_supplier',
     'goods_receipts', pnl->'goods_receipts',
     'flags', pnl->'flags'

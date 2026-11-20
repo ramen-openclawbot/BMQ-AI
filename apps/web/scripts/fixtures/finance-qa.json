@@ -1784,14 +1784,6 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 3318540,
-        "source": "supplier_bread_order",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A1_BREAD_BOUGHT",
-        "label": "Bread purchased (finished)",
         "amount": 377200,
         "source": "supplier_bread_order",
         "is_estimate": false
@@ -1800,7 +1792,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 2899110,
+        "amount": 3318540,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -1809,6 +1801,14 @@
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
         "amount": 363400,
+        "source": "supplier_bread_order",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A1_BREAD_BOUGHT",
+        "label": "Bread purchased (finished)",
+        "amount": 2899110,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -1896,7 +1896,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 4628490,
+        "amount": 386400,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -1904,7 +1904,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 386400,
+        "amount": 4628490,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -1928,14 +1928,6 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 326600,
-        "source": "supplier_bread_order",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A1_BREAD_BOUGHT",
-        "label": "Bread purchased (finished)",
         "amount": 3827760,
         "source": "supplier_bread_order",
         "is_estimate": false
@@ -1944,7 +1936,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 430100,
+        "amount": 326600,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -1953,6 +1945,14 @@
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
         "amount": 4889250,
+        "source": "supplier_bread_order",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A1_BREAD_BOUGHT",
+        "label": "Bread purchased (finished)",
+        "amount": 430100,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -2024,7 +2024,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 2079930,
+        "amount": 368000,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -2032,7 +2032,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 368000,
+        "amount": 2079930,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -2072,7 +2072,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 338100,
+        "amount": 3552240,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -2080,7 +2080,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 3552240,
+        "amount": 338100,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -2168,7 +2168,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 2719530,
+        "amount": 368000,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -2176,7 +2176,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 368000,
+        "amount": 2719530,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -2216,7 +2216,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 3038100,
+        "amount": 345000,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -2224,7 +2224,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 345000,
+        "amount": 3038100,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -2248,7 +2248,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 3516570,
+        "amount": 372600,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -2256,7 +2256,7 @@
         "section": "cogs",
         "line_code": "A1_BREAD_BOUGHT",
         "label": "Bread purchased (finished)",
-        "amount": 372600,
+        "amount": 3516570,
         "source": "supplier_bread_order",
         "is_estimate": false
       },
@@ -2272,71 +2272,71 @@
         "section": "cogs",
         "line_code": "A2_MEAT_OFFAL",
         "label": "Meat & offal",
+        "amount": 1674000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A2_MEAT_OFFAL",
+        "label": "Meat & offal",
+        "amount": 1674000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A2_MEAT_OFFAL",
+        "label": "Meat & offal",
+        "amount": 1674000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A2_MEAT_OFFAL",
+        "label": "Meat & offal",
+        "amount": 1674000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A2_MEAT_OFFAL",
+        "label": "Meat & offal",
+        "amount": 1674000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A2_MEAT_OFFAL",
+        "label": "Meat & offal",
+        "amount": 1674000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A2_MEAT_OFFAL",
+        "label": "Meat & offal",
+        "amount": 1674000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A2_MEAT_OFFAL",
+        "label": "Meat & offal",
+        "amount": 1674000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A2_MEAT_OFFAL",
+        "label": "Meat & offal",
         "amount": 930000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A2_MEAT_OFFAL",
-        "label": "Meat & offal",
-        "amount": 1674000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A2_MEAT_OFFAL",
-        "label": "Meat & offal",
-        "amount": 1674000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A2_MEAT_OFFAL",
-        "label": "Meat & offal",
-        "amount": 1674000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A2_MEAT_OFFAL",
-        "label": "Meat & offal",
-        "amount": 1674000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A2_MEAT_OFFAL",
-        "label": "Meat & offal",
-        "amount": 1674000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A2_MEAT_OFFAL",
-        "label": "Meat & offal",
-        "amount": 1674000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A2_MEAT_OFFAL",
-        "label": "Meat & offal",
-        "amount": 1674000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A2_MEAT_OFFAL",
-        "label": "Meat & offal",
-        "amount": 1674000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2480,14 +2480,6 @@
         "section": "cogs",
         "line_code": "A2_MEAT_OFFAL",
         "label": "Meat & offal",
-        "amount": 2646000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A2_MEAT_OFFAL",
-        "label": "Meat & offal",
         "amount": 2592000,
         "source": "goods_receipt",
         "is_estimate": false
@@ -2496,7 +2488,7 @@
         "section": "cogs",
         "line_code": "A2_MEAT_OFFAL",
         "label": "Meat & offal",
-        "amount": 27600000,
+        "amount": 2646000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2505,6 +2497,14 @@
         "line_code": "A2_MEAT_OFFAL",
         "label": "Meat & offal",
         "amount": 18616800,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A2_MEAT_OFFAL",
+        "label": "Meat & offal",
+        "amount": 27600000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2552,14 +2552,6 @@
         "section": "cogs",
         "line_code": "A3_FLOSS_FILLING",
         "label": "Pork floss & fillings",
-        "amount": 1197000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A3_FLOSS_FILLING",
-        "label": "Pork floss & fillings",
         "amount": 5940000,
         "source": "goods_receipt",
         "is_estimate": false
@@ -2569,6 +2561,22 @@
         "line_code": "A3_FLOSS_FILLING",
         "label": "Pork floss & fillings",
         "amount": 1197000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A3_FLOSS_FILLING",
+        "label": "Pork floss & fillings",
+        "amount": 1197000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A3_FLOSS_FILLING",
+        "label": "Pork floss & fillings",
+        "amount": 5940000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2577,14 +2585,6 @@
         "line_code": "A3_FLOSS_FILLING",
         "label": "Pork floss & fillings",
         "amount": 3795000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A3_FLOSS_FILLING",
-        "label": "Pork floss & fillings",
-        "amount": 5940000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2648,14 +2648,6 @@
         "section": "cogs",
         "line_code": "A4_DAIRY_EGG",
         "label": "Dairy, butter & eggs",
-        "amount": 1386000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A4_DAIRY_EGG",
-        "label": "Dairy, butter & eggs",
         "amount": 2500000,
         "source": "goods_receipt",
         "is_estimate": false
@@ -2664,7 +2656,23 @@
         "section": "cogs",
         "line_code": "A4_DAIRY_EGG",
         "label": "Dairy, butter & eggs",
+        "amount": 1386000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A4_DAIRY_EGG",
+        "label": "Dairy, butter & eggs",
         "amount": 3250000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A4_DAIRY_EGG",
+        "label": "Dairy, butter & eggs",
+        "amount": 462000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2688,14 +2696,6 @@
         "section": "cogs",
         "line_code": "A4_DAIRY_EGG",
         "label": "Dairy, butter & eggs",
-        "amount": 462000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A4_DAIRY_EGG",
-        "label": "Dairy, butter & eggs",
         "amount": 9000000,
         "source": "goods_receipt",
         "is_estimate": false
@@ -2705,6 +2705,14 @@
         "line_code": "A4_DAIRY_EGG",
         "label": "Dairy, butter & eggs",
         "amount": 3518519,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A4_DAIRY_EGG",
+        "label": "Dairy, butter & eggs",
+        "amount": 1000000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2736,14 +2744,6 @@
         "section": "cogs",
         "line_code": "A4_DAIRY_EGG",
         "label": "Dairy, butter & eggs",
-        "amount": 1000000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A4_DAIRY_EGG",
-        "label": "Dairy, butter & eggs",
         "amount": 9000000,
         "source": "goods_receipt",
         "is_estimate": false
@@ -2768,7 +2768,7 @@
         "section": "cogs",
         "line_code": "A4_DAIRY_EGG",
         "label": "Dairy, butter & eggs",
-        "amount": 2500000.0,
+        "amount": 2310000.0,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2776,7 +2776,7 @@
         "section": "cogs",
         "line_code": "A4_DAIRY_EGG",
         "label": "Dairy, butter & eggs",
-        "amount": 2310000.0,
+        "amount": 2500000.0,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2840,7 +2840,7 @@
         "section": "cogs",
         "line_code": "A5_DRY_SPICE",
         "label": "Dry goods & spices",
-        "amount": 4981500,
+        "amount": 4574000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2848,7 +2848,7 @@
         "section": "cogs",
         "line_code": "A5_DRY_SPICE",
         "label": "Dry goods & spices",
-        "amount": 4574000,
+        "amount": 4981500,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2904,7 +2904,7 @@
         "section": "cogs",
         "line_code": "A5_DRY_SPICE",
         "label": "Dry goods & spices",
-        "amount": 4825000,
+        "amount": 4725000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2912,7 +2912,7 @@
         "section": "cogs",
         "line_code": "A5_DRY_SPICE",
         "label": "Dry goods & spices",
-        "amount": 4725000,
+        "amount": 4825000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2952,7 +2952,7 @@
         "section": "cogs",
         "line_code": "A6_FRESH_PRODUCE",
         "label": "Fresh produce",
-        "amount": 180000,
+        "amount": 90000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -2961,14 +2961,6 @@
         "line_code": "A6_FRESH_PRODUCE",
         "label": "Fresh produce",
         "amount": 40000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A6_FRESH_PRODUCE",
-        "label": "Fresh produce",
-        "amount": 90000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -3264,6 +3256,14 @@
         "section": "cogs",
         "line_code": "A6_FRESH_PRODUCE",
         "label": "Fresh produce",
+        "amount": 180000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A6_FRESH_PRODUCE",
+        "label": "Fresh produce",
         "amount": 160000,
         "source": "goods_receipt",
         "is_estimate": false
@@ -3296,6 +3296,14 @@
         "section": "cogs",
         "line_code": "A6_FRESH_PRODUCE",
         "label": "Fresh produce",
+        "amount": 71234,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A6_FRESH_PRODUCE",
+        "label": "Fresh produce",
         "amount": 32728.5,
         "source": "goods_receipt",
         "is_estimate": false
@@ -3312,15 +3320,7 @@
         "section": "cogs",
         "line_code": "A6_FRESH_PRODUCE",
         "label": "Fresh produce",
-        "amount": 71234,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A6_FRESH_PRODUCE",
-        "label": "Fresh produce",
-        "amount": 41396,
+        "amount": 39559.29,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -3336,7 +3336,7 @@
         "section": "cogs",
         "line_code": "A6_FRESH_PRODUCE",
         "label": "Fresh produce",
-        "amount": 42716.96,
+        "amount": 41396,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -3344,7 +3344,7 @@
         "section": "cogs",
         "line_code": "A6_FRESH_PRODUCE",
         "label": "Fresh produce",
-        "amount": 39559.29,
+        "amount": 42716.96,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -3424,7 +3424,7 @@
         "section": "cogs",
         "line_code": "A7_PACKAGING",
         "label": "Packaging & labels",
-        "amount": 1600000,
+        "amount": 1800000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -3432,7 +3432,7 @@
         "section": "cogs",
         "line_code": "A7_PACKAGING",
         "label": "Packaging & labels",
-        "amount": 1800000,
+        "amount": 1600000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -3480,23 +3480,23 @@
         "section": "cogs",
         "line_code": "A7_PACKAGING",
         "label": "Packaging & labels",
-        "amount": 240000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A7_PACKAGING",
-        "label": "Packaging & labels",
-        "amount": 240000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "cogs",
-        "line_code": "A7_PACKAGING",
-        "label": "Packaging & labels",
         "amount": 480000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A7_PACKAGING",
+        "label": "Packaging & labels",
+        "amount": 240000,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "cogs",
+        "line_code": "A7_PACKAGING",
+        "label": "Packaging & labels",
+        "amount": 240000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -3728,31 +3728,15 @@
         "section": "operating",
         "line_code": "C5_TELECOM",
         "label": "Internet & phone",
-        "amount": 220000,
-        "source": "approved_request_without_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "operating",
-        "line_code": "C5_TELECOM",
-        "label": "Internet & phone",
-        "amount": 84000,
-        "source": "approved_request_without_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "operating",
-        "line_code": "C5_TELECOM",
-        "label": "Internet & phone",
-        "amount": 149000,
-        "source": "approved_request_without_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "operating",
-        "line_code": "C5_TELECOM",
-        "label": "Internet & phone",
         "amount": 500000,
+        "source": "approved_request_without_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "operating",
+        "line_code": "C5_TELECOM",
+        "label": "Internet & phone",
+        "amount": 1160500,
         "source": "approved_request_without_receipt",
         "is_estimate": false
       },
@@ -3776,7 +3760,23 @@
         "section": "operating",
         "line_code": "C5_TELECOM",
         "label": "Internet & phone",
-        "amount": 1160500,
+        "amount": 220000,
+        "source": "approved_request_without_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "operating",
+        "line_code": "C5_TELECOM",
+        "label": "Internet & phone",
+        "amount": 84000,
+        "source": "approved_request_without_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "operating",
+        "line_code": "C5_TELECOM",
+        "label": "Internet & phone",
+        "amount": 149000,
         "source": "approved_request_without_receipt",
         "is_estimate": false
       },
@@ -3864,7 +3864,7 @@
         "section": "operating",
         "line_code": "C8_REPAIR",
         "label": "Repairs & maintenance",
-        "amount": 2800000,
+        "amount": 850000,
         "source": "approved_request_without_receipt",
         "is_estimate": false
       },
@@ -3872,7 +3872,7 @@
         "section": "operating",
         "line_code": "C8_REPAIR",
         "label": "Repairs & maintenance",
-        "amount": 850000,
+        "amount": 2800000,
         "source": "approved_request_without_receipt",
         "is_estimate": false
       },
@@ -3968,7 +3968,7 @@
         "section": "unclassified",
         "line_code": "UNMAPPED_REVIEW",
         "label": "Unclassified — review required",
-        "amount": 320000,
+        "amount": 49000,
         "source": "approved_request_without_receipt",
         "is_estimate": false
       },
@@ -3976,7 +3976,7 @@
         "section": "unclassified",
         "line_code": "UNMAPPED_REVIEW",
         "label": "Unclassified — review required",
-        "amount": 49000,
+        "amount": 320000,
         "source": "approved_request_without_receipt",
         "is_estimate": false
       },
@@ -4048,7 +4048,7 @@
         "section": "unclassified",
         "line_code": "UNMAPPED_REVIEW",
         "label": "Unclassified — review required",
-        "amount": 20811,
+        "amount": 55700,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -4056,7 +4056,7 @@
         "section": "unclassified",
         "line_code": "UNMAPPED_REVIEW",
         "label": "Unclassified — review required",
-        "amount": 55700,
+        "amount": 20811,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -4080,7 +4080,23 @@
         "section": "unclassified",
         "line_code": "UNMAPPED_REVIEW",
         "label": "Unclassified — review required",
+        "amount": 33305,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "unclassified",
+        "line_code": "UNMAPPED_REVIEW",
+        "label": "Unclassified — review required",
         "amount": 31500.1,
+        "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "unclassified",
+        "line_code": "UNMAPPED_REVIEW",
+        "label": "Unclassified — review required",
+        "amount": 41400,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -4096,15 +4112,7 @@
         "section": "unclassified",
         "line_code": "UNMAPPED_REVIEW",
         "label": "Unclassified — review required",
-        "amount": 33305,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "unclassified",
-        "line_code": "UNMAPPED_REVIEW",
-        "label": "Unclassified — review required",
-        "amount": 41400,
+        "amount": 112000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -4121,14 +4129,6 @@
         "line_code": "UNMAPPED_REVIEW",
         "label": "Unclassified — review required",
         "amount": 110000,
-        "source": "goods_receipt",
-        "is_estimate": false
-      },
-      {
-        "section": "unclassified",
-        "line_code": "UNMAPPED_REVIEW",
-        "label": "Unclassified — review required",
-        "amount": 112000,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -4160,7 +4160,7 @@
         "section": "unclassified",
         "line_code": "UNMAPPED_REVIEW",
         "label": "Unclassified — review required",
-        "amount": 74800,
+        "amount": 34001.76,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -4184,7 +4184,7 @@
         "section": "unclassified",
         "line_code": "UNMAPPED_REVIEW",
         "label": "Unclassified — review required",
-        "amount": 55700,
+        "amount": 19800,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -4200,7 +4200,7 @@
         "section": "unclassified",
         "line_code": "UNMAPPED_REVIEW",
         "label": "Unclassified — review required",
-        "amount": 19800,
+        "amount": 55700,
         "source": "goods_receipt",
         "is_estimate": false
       },
@@ -4208,25 +4208,42 @@
         "section": "unclassified",
         "line_code": "UNMAPPED_REVIEW",
         "label": "Unclassified — review required",
-        "amount": 34001.76,
+        "amount": 74800,
         "source": "goods_receipt",
+        "is_estimate": false
+      },
+      {
+        "section": "operating",
+        "line_code": "C7_SOCIAL_INSURANCE",
+        "label": "Bảo hiểm xã hội T4–T10/2026",
+        "amount": 13850832,
+        "source": "manual_adjustment",
         "is_estimate": false
       }
     ],
     "totals": {
+      "cit": 35171247,
+      "ebt": 175856236.82,
       "cogs": 563349104.62,
+      "ebit": 175856236.82,
       "capex": 0,
-      "ebitda": 189707068.82,
+      "ebitda": 175856236.82,
       "revenue": 1118826070.0,
       "selling": 35077672,
-      "operating": 295217411.0,
-      "line_count": 310,
+      "interest": 0,
+      "operating": 309068243.0,
+      "line_count": 311,
+      "net_margin": 0.1257,
+      "net_profit": 140684989.82,
+      "depreciation": 0,
       "gross_margin": 0.4965,
       "gross_profit": 555476965.38,
       "unclassified": 35474813.56,
-      "ebitda_margin": 0.1696,
-      "estimate_lines": 3,
-      "estimate_total": 103708000.0
+      "ebitda_margin": 0.1572,
+      "estimate_lines": 4,
+      "estimate_total": 138879247.0,
+      "cit_is_estimate": true,
+      "other_below_ebitda": 0
     },
     "goods_receipts": {
       "note": "One accrual row per goods receipt; approved or pending linked payment requests are used and rejected ones are excluded.",
@@ -4262,17 +4279,18 @@
         "detail_en": "GAS has no actual booking in the month and no trailing history."
       },
       {
-        "code": "accrual_policy_no_history",
-        "detail_en": "SOCIAL_INS has no actual booking in the month and no trailing history."
-      },
-      {
         "code": "bread_supplier_payment_variance",
         "amount": 77494630,
         "detail_en": "Bread accrual differs from the amount paid in the month; see bread_supplier.variance_vs_paid."
       },
       {
+        "code": "cit_estimated",
+        "amount": 35171247,
+        "detail_en": "Corporate income tax is estimated at 20.00% of positive EBT."
+      },
+      {
         "code": "estimate_included",
-        "amount": 103708000.0,
+        "amount": 138879247.0,
         "detail_en": "Estimated lines are included in the P&L; see totals.estimate_total."
       },
       {
@@ -4301,6 +4319,34 @@
         "code": "unclassified_present",
         "detail_en": "Unclassified expense lines are present."
       }
+    ],
+    "below_ebitda": [
+      {
+        "note": "Estimated at 20.00% of positive EBT",
+        "label": "Corporate income tax (estimated)",
+        "amount": 35171247,
+        "source": "cit_estimate",
+        "line_code": "CIT",
+        "source_ref": "CIT_ESTIMATE",
+        "is_estimate": true
+      }
     ]
-  }
+  },
+  "manual_adjustments": [
+    {
+      "id": "qa-adj-1",
+      "kind": "opex",
+      "category_code": "C7_SOCIAL_INSURANCE",
+      "label": "Bảo hiểm xã hội T4–T10/2026",
+      "period_from": "2026-04-01",
+      "period_to": "2026-10-01",
+      "total_amount": 96955830,
+      "source_ref": "Owner chat 20/11/2026",
+      "note": null,
+      "status": "active",
+      "created_by": null,
+      "created_at": "2026-11-20T12:00:00Z",
+      "updated_at": "2026-11-20T12:00:00Z"
+    }
+  ]
 }

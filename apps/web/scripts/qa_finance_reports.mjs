@@ -57,6 +57,7 @@ function fixtureRows(st) {
   }
   if (fin === "accruals" && cfg().accrualsDraft) return FINANCE.accruals_draft;
   if (fin) return FINANCE[fin];
+  if (st.table === "finance_manual_adjustments") return FINANCE.manual_adjustments;
   if (st.table === "revenue_ledger_lines") {
     const rows = [];
     // The ledger lags: no figures for today and yesterday.
@@ -328,6 +329,14 @@ const CHECKS = {
     assert.match(await text(page, "[data-bmq-accrual-table] [data-estimate]"), /Payroll[\s\S]*Estimate/, "estimated payroll is marked");
     assert.match(await text(page, "[data-bmq-accrual-bread]"), /77,861/);
     assert.match(await text(page, ".fin-kpis"), /on approved requests/);
+    assert.match(await text(page, "[data-bmq-net-profit]"), /Net profit/);
+    assert.match(await text(page, "[data-bmq-accrual-table]"), /Corporate income tax[\s\S]*Estimate/, "estimated income tax is marked");
+    assert.match(await text(page, "[data-bmq-adj-list]"), /96,955,830 ₫[\s\S]*13,850,83\d ₫ \/ month/);
+    await page.getByRole("button", { name: "Add adjustment" }).click();
+    await page.waitForSelector("[data-bmq-adj-form]");
+    await page.locator("[data-bmq-adj-form] input[inputmode=numeric]").fill("1200000");
+    assert.match(await text(page, "[data-bmq-adj-form]"), /1,200,000 ₫ per month over 1 month/);
+    await page.getByRole("button", { name: "Cancel" }).click();
     assert.equal(await page.locator("[data-bmq-pnl-basis] [aria-pressed=true]").innerText(), "Accrual");
     assert.equal(await page.locator(".fin-tab[aria-selected=true]").innerText(), "P&L", "accrual stays under the P&L tab");
   },
