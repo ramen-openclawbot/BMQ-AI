@@ -129,7 +129,10 @@ export default function PaymentSubmission() {
   const cashIds = useMemo(() => new Set((receipts ?? []).filter((r) => r.payment_method === "cash").map((r) => r.id)), [receipts]);
   const pickedHasCash = Array.from(picked).some((id) => cashIds.has(id));
 
-  const bulkRequests: UncBulkPaymentRequest[] = open.filter((i) => !cashIds.has(i.payment_request_id)).map((i) => ({
+  // Owner 21/11: "Up UNC" matches only the phiếu he picked (1, several or all, any suppliers);
+  // with nothing picked it covers the whole đợt as before.
+  const bulkScope = picked.size > 0 ? open.filter((i) => picked.has(i.payment_request_id)) : open;
+  const bulkRequests: UncBulkPaymentRequest[] = bulkScope.filter((i) => !cashIds.has(i.payment_request_id)).map((i) => ({
     id: i.payment_request_id,
     requestNumber: i.request_number,
     supplierId: i.supplier_id,
@@ -146,6 +149,13 @@ export default function PaymentSubmission() {
     const poId = receiptById.get(requestId)?.purchase_order_id;
     return sortFlags((flags ?? []).filter((f) => isOpenFlag(f) && (f.entity_id === requestId || (poId && f.entity_id === poId))));
   };
+
+  const openIds = open.map((i) => i.payment_request_id);
+  const allPicked = openIds.length > 0 && openIds.every((rid) => picked.has(rid));
+  const toggleAll = () => setPicked(allPicked ? new Set() : new Set(openIds));
+  // "Chi UNC (n)" pays one slip for one supplier; picks across suppliers go to the multi-UNC upload.
+  const pickedSuppliers = new Set(open.filter((i) => picked.has(i.payment_request_id)).map((i) => i.supplier_id ?? `none:${i.payment_request_id}`));
+  const pickedMixed = pickedSuppliers.size > 1;
 
   const togglePick = (requestId: string) =>
     setPicked((prev) => {
@@ -195,11 +205,18 @@ export default function PaymentSubmission() {
             <button type="button" className="d3-ps-bulk" onClick={() => setBulkOpen(true)} data-bmq-submission-bulk-unc>
               <i><Images className="h-5 w-5" /></i>
               <span>
-                <b>Up nhiều UNC một lần</b>
-                <small>Hệ thống đọc và ghép vào từng phiếu, anh xem lại rồi mới chi</small>
+                <b>{picked.size > 0 ? `Up UNC cho ${picked.size} phiếu đã chọn` : "Up nhiều UNC một lần"}</b>
+                <small>Hệ thống đọc và ghép vào từng phiếu{picked.size > 0 ? " đã chọn" : " của đợt"}, anh xem lại rồi mới chi</small>
               </span>
               <ChevronRight className="h-5 w-5" />
             </button>
+          )}
+
+          {isOwner && open.length > 1 && (
+            <label className="d3-ps-all" data-bmq-submission-select-all>
+              <Checkbox checked={allPicked} onCheckedChange={toggleAll} aria-label="Chọn tất cả phiếu chưa chi" />
+              <span>Chọn tất cả {open.length} phiếu chưa chi</span>
+            </label>
           )}
 
           <ul className="d3-ps-rows">
@@ -301,9 +318,15 @@ export default function PaymentSubmission() {
                 <Button variant="outline" className="d3-ps-cash" onClick={() => setPayWith({ method: "cash", ids: Array.from(picked) })} data-bmq-submission-multi-cash>
                   <Banknote className="h-4 w-4" /> Tiền mặt
                 </Button>
-                <Button className="d3-up-go" disabled={pickedHasCash} title={pickedHasCash ? "Có phiếu Chi tiền mặt — chỉ ghi chi bằng Tiền mặt" : undefined} onClick={() => setPayWith({ method: "bank_transfer", ids: Array.from(picked) })} data-bmq-submission-multi-unc>
-                  <CreditCard className="h-4 w-4" /> Chi UNC ({picked.size})
-                </Button>
+                {pickedMixed ? (
+                  <Button className="d3-up-go" disabled={pickedHasCash} title={pickedHasCash ? "Có phiếu Chi tiền mặt — chỉ ghi chi bằng Tiền mặt" : undefined} onClick={() => setBulkOpen(true)} data-bmq-submission-multi-upload>
+                    <Images className="h-4 w-4" /> Up UNC ({picked.size})
+                  </Button>
+                ) : (
+                  <Button className="d3-up-go" disabled={pickedHasCash} title={pickedHasCash ? "Có phiếu Chi tiền mặt — chỉ ghi chi bằng Tiền mặt" : undefined} onClick={() => setPayWith({ method: "bank_transfer", ids: Array.from(picked) })} data-bmq-submission-multi-unc>
+                    <CreditCard className="h-4 w-4" /> Chi UNC ({picked.size})
+                  </Button>
+                )}
               </div>
             </div>
           )}

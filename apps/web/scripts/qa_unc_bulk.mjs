@@ -284,10 +284,43 @@ try {
     await page.locator("[data-bmq-unc-bulk-dialog]").screenshot({ path: `${EVIDENCE}/done-${w}.png` });
     await page.locator("[data-bmq-unc-bulk-close]").click();
     await page.waitForSelector("[data-bmq-unc-bulk-dialog]", { state: "detached" });
-    const writes = await page.evaluate(() => window.__qaWrites.filter((x) => !x.startsWith("invoke:payment-unc-approve")));
+    // Shell badge counters are reads the fixture does not know; they are not writes.
+    const READ_RPCS = ["rpc:get_auto_payment_request_count", "rpc:get_expense_due_notices"];
+    const writes = await page.evaluate((reads) => window.__qaWrites.filter((x) => !x.startsWith("invoke:payment-unc-approve") && !reads.includes(x)), READ_RPCS);
     assert.deepEqual(writes, [], "no other writes: " + writes.join());
     assert.deepEqual(errors, [], `page errors ${w}`);
     console.log("PASS", `bulk UNC ${w}`);
+    await context.close();
+  }
+
+  // Owner 21/11: select all / pick phiếu of several suppliers, "Up UNC" matches only the picked phiếu.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    const w = viewport.width;
+    const { context, page, errors } = await open({ role: "owner" }, "/payment-requests/submissions/sub-1", viewport);
+    await page.waitForSelector("[data-bmq-submission-row]");
+    const all = page.locator("[data-bmq-submission-select-all] button[role='checkbox']");
+    await all.click();
+    assert.match(await page.locator("[data-bmq-submission-bar]").textContent(), /Đã chọn\s*7/, "select all picks every open phiếu");
+    assert.equal(await page.locator("[data-bmq-submission-multi-upload]").count(), 1, "mixed suppliers -> Up UNC");
+    assert.equal(await page.locator("[data-bmq-submission-multi-unc]").count(), 0, "no single-slip Chi UNC for mixed suppliers");
+    await all.click();
+    assert.equal(await page.locator("[data-bmq-submission-bar]").count(), 0, "second tap clears");
+    // Pick Mỹ Toàn + Tiến Phát only.
+    await page.locator("[data-bmq-submission-row='PR-2D245F45'] button[role='checkbox']").click();
+    await page.locator("[data-bmq-submission-row='PR-C9FC7EF1'] button[role='checkbox']").click();
+    assert.match(await page.locator("[data-bmq-submission-bulk-unc]").textContent(), /Up UNC cho 2 phiếu đã chọn/);
+    assert.ok(await overflowOk(page), `page overflow picked ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/picked-${w}.png` });
+    await page.locator("[data-bmq-submission-multi-upload]").click();
+    await page.waitForSelector("[data-bmq-unc-bulk-dialog='pick']");
+    await page.setInputFiles("[data-bmq-unc-bulk-file]", SLIPS.slice(0, 3));
+    await page.waitForSelector("[data-bmq-unc-bulk-dialog='review']", { timeout: 20000 });
+    const statuses = await page.$$eval("[data-bmq-unc-bulk-row]", (els) => els.map((e) => e.getAttribute("data-bmq-unc-bulk-row")));
+    assert.deepEqual(statuses, ["matched", "matched", "unmatched"], "Bao bì UNC is outside the picked phiếu: " + statuses.join());
+    await page.locator("[data-bmq-unc-bulk-dialog]").screenshot({ path: `${EVIDENCE}/picked-review-${w}.png` });
+    assert.ok((await bodies(page)).every((b) => b.mode !== "confirm"), "nothing paid before review");
+    assert.deepEqual(errors, []);
+    console.log("PASS", `picked scope ${w}`);
     await context.close();
   }
 

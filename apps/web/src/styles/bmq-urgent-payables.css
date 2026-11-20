@@ -103,3 +103,4 @@ html.bmq-d3 .d3-ps-cash { gap: 6px; background: var(--d3-white, #fdfdfc); color:
 .d3-ps-hero small { display: block; margin-top: 2px; font-size: 12px; opacity: .7; }
 .d3-ps-acts > .d3-ps-exclude { grid-column: 1 / -1; }
 html.bmq-d3 .d3-ps-acts button.d3-ps-exclude { min-height: 34px; background: transparent; font-size: 13px; }
+.d3-ps-all { display: flex; align-items: center; gap: 10px; margin: 2px 0 10px; padding: 10px 12px; border-radius: 14px; background: var(--d3-card, #f7f7f5); font-size: 14px; font-weight: 500; cursor: pointer; }
