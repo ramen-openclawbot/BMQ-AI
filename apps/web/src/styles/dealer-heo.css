@@ -89,3 +89,8 @@
 .dealer-heo-orders-card b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; }
 .dealer-heo-orders-card small { display: block; margin-top: 1px; font-size: 12px; opacity: .92; line-height: 1.3; }
 .dealer-heo-orders-card i { font-style: normal; font-size: 22px; }
+
+.dealer-heo-extra { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.dealer-heo-extra div { border-radius: 12px; background: rgba(255,255,255,.18); padding: 8px 10px; }
+.dealer-heo-extra b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
+.dealer-heo-extra span { font-size: 11.5px; opacity: .92; }

@@ -88,7 +88,11 @@ export function DealerHeoBanner() {
           <span>{s.bread_qty > 0 ? `+ ${que(s.bread_qty)} que bánh tặng · ` : ""}đập heo {dm(status.campaign.break_on)}</span>
         </div>
       </div>
-      <p>Đặt vượt {que(baselineOf(status))} que/ngày: mỗi que +{formatHeoVnd(status.campaign.rate)} vào heo.</p>
+      <div className="dealer-heo-extra" data-dealer-heo-extra>
+        <div><b>{que(s.extra_que)} que</b><span>đã bán thêm</span></div>
+        <div><b>{que(baselineOf(status))} que/ngày</b><span>mức của anh/chị (T11)</span></div>
+      </div>
+      <p>Đặt vượt mức mỗi ngày: mỗi que +{formatHeoVnd(status.campaign.rate)} vào heo.</p>
       <button type="button" className="dealer-heo-btn dealer-heo-btn--light" onClick={() => setOpen(true)}>Xem cách nhận</button>
       <HowItWorks open={open} onOpenChange={setOpen} status={status} />
       <DealerHeoWelcome />
@@ -151,7 +155,7 @@ export function DealerHeoPinned() {
       <button type="button" className="dealer-heo-pinned" data-dealer-heo-pinned onClick={() => setOpen(true)}>
         <span aria-hidden="true">🐷</span>
         <b>{formatHeoVnd(status.summary.total_vnd)}</b>
-        <span>· đập heo {dm(status.campaign.break_on)}</span>
+        <span>· bán thêm {que(status.summary.extra_que)} que</span>
         <i aria-hidden="true">›</i>
       </button>
       <HowItWorks open={open} onOpenChange={setOpen} status={status} />
@@ -171,7 +175,7 @@ export function DealerHeoOrdersCard() {
         <span className="dealer-heo-pig" aria-hidden="true">🐷</span>
         <span className="min-w-0 flex-1 text-left">
           <b>Heo Đất Tết · {formatHeoVnd(s.total_vnd)}</b>
-          <small>Còn {s.days_to_break} ngày đập heo · bán thêm mỗi que +{formatHeoVnd(status.campaign.rate)}</small>
+          <small>Đã bán thêm {que(s.extra_que)} que · mức {que(baselineOf(status))} que/ngày · còn {s.days_to_break} ngày đập heo</small>
         </span>
         <i aria-hidden="true">›</i>
       </button>
@@ -291,7 +295,7 @@ export function DealerHeoReportCard({ sessionToken }: { sessionToken: string }) 
         </div>
       </div>
       <div className="dealer-heo-split">
-        <div><b>{formatHeoVnd(s.from_extra_vnd)}</b><span>Từ {que(s.extra_que)} que vượt mức</span></div>
+        <div><b>{formatHeoVnd(s.from_extra_vnd)}</b><span>Từ {que(s.extra_que)} que bán thêm (mức {que(baselineOf(status))}/ngày)</span></div>
         <div><b>{formatHeoVnd(s.from_spins_vnd)}</b><span>Từ {que(s.spin_count)} lượt lắc heo</span></div>
       </div>
       <div className="dealer-heo-count"><span>Đập heo sau</span><b>{s.days_to_break} ngày · {dm(status.campaign.break_on)}</b></div>

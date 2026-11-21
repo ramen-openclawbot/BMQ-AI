@@ -212,6 +212,7 @@ try {
     await banner.waitFor({ timeout: 15000 });
     assert.ok(await page.locator("[data-dealer-heo-pinned]").isVisible(), "pinned heo line");
     assert.match(await banner.textContent(), /186\.500đ/);
+    assert.match(await banner.textContent(), /257 que/);
     assert.match(await banner.textContent(), /123 que\/ngày/);
     await page.screenshot({ path: `${EVIDENCE}/heo-banner-${tag}.png` });
     await banner.getByRole("button", { name: "Xem cách nhận" }).click();
