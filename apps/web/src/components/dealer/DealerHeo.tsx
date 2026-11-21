@@ -91,7 +91,92 @@ export function DealerHeoBanner() {
       <p>Đặt vượt {que(baselineOf(status))} que/ngày: mỗi que +{formatHeoVnd(status.campaign.rate)} vào heo.</p>
       <button type="button" className="dealer-heo-btn dealer-heo-btn--light" onClick={() => setOpen(true)}>Xem cách nhận</button>
       <HowItWorks open={open} onOpenChange={setOpen} status={status} />
+      <DealerHeoWelcome />
     </section>
+  );
+}
+
+const WELCOME_KEY = "bmq_heo_welcome_ack";
+const vnToday = () => new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+
+/** Big notice when the dealer opens dathang: shown once per day until "Đã hiểu" is tapped. */
+export function DealerHeoWelcome() {
+  const { status, token } = useHeo();
+  const [open, setOpen] = useState(false);
+  const [howOpen, setHowOpen] = useState(false);
+  useEffect(() => {
+    if (!status || !token) { setOpen(false); return; }
+    let seen = "";
+    try { seen = localStorage.getItem(WELCOME_KEY) || ""; } catch { /* storage may be blocked */ }
+    if (seen === "done" || seen === vnToday()) return;
+    setOpen(true);
+  }, [status, token]);
+  if (!status) return null;
+  const ack = (final: boolean) => {
+    try { localStorage.setItem(WELCOME_KEY, final ? "done" : vnToday()); } catch { /* ignore */ }
+    setOpen(false);
+  };
+  return (
+    <>
+      <Dialog open={open} onOpenChange={(v) => { if (!v) ack(false); }}>
+        <DialogContent data-dealer-ui="dealer-option-c" className="dealer-heo-welcome max-w-sm rounded-[28px]" data-dealer-heo-welcome>
+          <DialogTitle className="sr-only">Chương trình Heo Đất Tết</DialogTitle>
+          <DialogDescription className="sr-only">Giới thiệu chương trình Heo Đất Tết</DialogDescription>
+          <div className="dealer-heo-welcome-hero">
+            <div className="dealer-heo-bigpig" aria-hidden="true">🐷</div>
+            <div className="dealer-heo-kicker">BMQ TẶNG ANH/CHỊ</div>
+            <strong>Heo Đất Tết</strong>
+          </div>
+          <p className="dealer-heo-welcome-line">
+            Bán thêm mỗi que, heo thêm <b>{formatHeoVnd(status.campaign.rate)}</b>. Mỗi đơn đủ mức còn được <b>lắc heo</b> trúng quà.
+            Đập heo ngày <b>{dm(status.campaign.break_on)}</b> lấy tiền tiêu Tết.
+          </p>
+          <p className="dealer-heo-fine">Không cần đăng ký, không cần mã. Anh/chị đặt hàng như mọi ngày là heo tự lớn.</p>
+          <button type="button" className="dealer-heo-btn dealer-heo-btn--ink" onClick={() => ack(true)}>Đã hiểu</button>
+          <button type="button" className="dealer-heo-btn dealer-heo-btn--ghost" onClick={() => { ack(false); setHowOpen(true); }}>Xem heo của tôi</button>
+        </DialogContent>
+      </Dialog>
+      <HowItWorks open={howOpen} onOpenChange={setHowOpen} status={status} />
+    </>
+  );
+}
+
+/** Thin line that stays pinned at the top of the chat while the dealer scrolls. */
+export function DealerHeoPinned() {
+  const { status } = useHeo();
+  const [open, setOpen] = useState(false);
+  if (!status) return null;
+  return (
+    <>
+      <button type="button" className="dealer-heo-pinned" data-dealer-heo-pinned onClick={() => setOpen(true)}>
+        <span aria-hidden="true">🐷</span>
+        <b>{formatHeoVnd(status.summary.total_vnd)}</b>
+        <span>· đập heo {dm(status.campaign.break_on)}</span>
+        <i aria-hidden="true">›</i>
+      </button>
+      <HowItWorks open={open} onOpenChange={setOpen} status={status} />
+    </>
+  );
+}
+
+/** Compact card at the top of Đơn hàng (all tabs). */
+export function DealerHeoOrdersCard() {
+  const { status } = useHeo();
+  const [open, setOpen] = useState(false);
+  if (!status) return null;
+  const s = status.summary;
+  return (
+    <>
+      <button type="button" className="dealer-heo-orders-card" data-dealer-heo-orders-card onClick={() => setOpen(true)} aria-label="Xem cách nhận heo">
+        <span className="dealer-heo-pig" aria-hidden="true">🐷</span>
+        <span className="min-w-0 flex-1 text-left">
+          <b>Heo Đất Tết · {formatHeoVnd(s.total_vnd)}</b>
+          <small>Còn {s.days_to_break} ngày đập heo · bán thêm mỗi que +{formatHeoVnd(status.campaign.rate)}</small>
+        </span>
+        <i aria-hidden="true">›</i>
+      </button>
+      <HowItWorks open={open} onOpenChange={setOpen} status={status} />
+    </>
   );
 }
 

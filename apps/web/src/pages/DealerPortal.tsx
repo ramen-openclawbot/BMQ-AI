@@ -44,7 +44,7 @@ import { useDealerCartAssistant, type DealerCartAssistantHistoryTurn } from "@/h
 import { applyCartProposal, applyRouteProposal, type DealerRouteProposalLine } from "@/lib/dealer-cart-assistant";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { DealerAwaitingSlipNotice } from "@/components/dealer/DealerAwaitingSlipNotice";
-import { DealerHeoBanner, DealerHeoOrderStrip, DealerHeoSpinPrompt, noteDealerHeoOrder, setDealerHeoSession } from "@/components/dealer/DealerHeo";
+import { DealerHeoBanner, DealerHeoOrderStrip, DealerHeoOrdersCard, DealerHeoPinned, DealerHeoSpinPrompt, noteDealerHeoOrder, setDealerHeoSession } from "@/components/dealer/DealerHeo";
 import { DealerReportPanel } from "@/components/dealer/DealerReportPanel";
 import { cn } from "@/lib/utils";
 import "@/styles/dealer-order-history.css";
@@ -2039,6 +2039,7 @@ export default function DealerPortal() {
         <DealerAwaitingSlipNotice status={onboardingStatus} sessionToken={sessionToken} onActivated={() => setOnboardingStatus("slip_submitted")} />
 
         <main className="mx-auto w-full max-w-3xl px-4 pb-28 pt-5 sm:pt-7">
+          {ordersView === "history" ? <DealerHeoOrdersCard /> : null}
           <div className="dealer-orders-view-tabs" role="tablist" aria-label="Xem đơn hàng">
             <button type="button" role="tab" aria-selected={ordersView === "history"} onClick={() => setOrdersView("history")}>Lịch sử</button>
             <button type="button" role="tab" aria-selected={ordersView === "report"} onClick={() => setOrdersView("report")} data-dealer-report-tab>Báo cáo</button>
@@ -3704,6 +3705,7 @@ function NppQuickOrderPanel({
       <div data-dealer-chat-scroll-content className="contents">
       <div className="py-2 text-center text-[11px] font-medium text-[#a18d96]">Hôm nay</div>
       {!cancellationActive ? <DealerHeoBanner /> : null}
+      <DealerHeoPinned />
 
       {!cancellationActive && !sentOrderText && !successMessage && !errorMessage && parseStatus === "idle" && !parseMessage ? (
         <div className="flex min-w-0 items-start gap-2 py-2">

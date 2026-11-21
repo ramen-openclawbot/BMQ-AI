@@ -202,8 +202,15 @@ try {
   for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1280, height: 860 }]) {
     const tag = viewport.width;
     const { context, page, errors } = await open(viewport);
+    const welcome = page.locator("[data-dealer-heo-welcome]");
+    await welcome.waitFor({ timeout: 15000 });
+    assert.match(await welcome.textContent(), /Heo Đất Tết/);
+    await page.screenshot({ path: `${EVIDENCE}/heo-welcome-${tag}.png` });
+    await welcome.getByRole("button", { name: "Đã hiểu" }).click();
+    await welcome.waitFor({ state: "detached" });
     const banner = page.locator("[data-dealer-heo-banner]");
     await banner.waitFor({ timeout: 15000 });
+    assert.ok(await page.locator("[data-dealer-heo-pinned]").isVisible(), "pinned heo line");
     assert.match(await banner.textContent(), /186\.500đ/);
     assert.match(await banner.textContent(), /123 que\/ngày/);
     await page.screenshot({ path: `${EVIDENCE}/heo-banner-${tag}.png` });
@@ -228,6 +235,13 @@ try {
     assert.ok(heoCalls.some((c) => c.action === "spin" && c.order_number === "DH-QA-0001"), "spin sent with order number");
     await page.screenshot({ path: `${EVIDENCE}/heo-spin-${tag}.png` });
     await page.getByRole("button", { name: "Tuyệt! Quay về" }).click();
+    await page.locator("[data-dealer-agent-nav] button", { hasText: "Đơn hàng" }).first().click();
+    const card = page.locator("[data-dealer-heo-orders-card]");
+    await card.waitFor({ timeout: 10000 });
+    assert.match(await card.textContent(), /Heo Đất Tết/);
+    await page.screenshot({ path: `${EVIDENCE}/heo-orders-${tag}.png` });
+    await page.locator("[data-dealer-report-tab]").click();
+    assert.equal(await page.locator("[data-dealer-heo-orders-card]").count(), 0, "no duplicate card on report tab");
     assert.ok((await overflow(page)) <= 0, "no horizontal overflow");
     const small = await page.evaluate(() => [...document.querySelectorAll(".dealer-heo-btn")].filter((b) => b.offsetParent && b.getBoundingClientRect().height < 44).length);
     assert.equal(small, 0, "heo buttons >= 44px");

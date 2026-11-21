@@ -71,3 +71,21 @@
 .dealer-heo-count b { font-size: 17px; }
 .dealer-heo-hist { margin: 0; padding: 0; list-style: none; font-size: 13px; }
 .dealer-heo-hist li { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid #dedbdd; padding: 8px 2px; }
+
+.dealer-heo-btn--ghost { margin-top: 8px; border: 1.5px solid #231f20; background: #fff; color: #231f20; }
+.dealer-heo-welcome-hero { display: flex; flex-direction: column; align-items: center; gap: 2px; border-radius: 20px; background: linear-gradient(135deg, #c8102e, #e8432f 60%, #f6a623); padding: 18px 12px; color: #fff; text-align: center; }
+.dealer-heo-welcome-hero .dealer-heo-bigpig { font-size: 76px; }
+.dealer-heo-welcome-hero strong { font-size: 28px; font-weight: 900; }
+.dealer-heo-welcome-line { margin: 12px 0 0; font-size: 15px; line-height: 1.5; text-align: center; }
+
+.dealer-heo-pinned { position: sticky; top: 0; z-index: 15; display: flex; width: 100%; min-height: 44px; align-items: center; gap: 6px; margin: 2px 0 4px; border-radius: 999px; background: #c8102e; padding: 6px 14px; color: #fff; font-size: 13px; box-shadow: 0 6px 14px -10px rgba(200,16,46,.8); }
+.dealer-heo-pinned b { font-variant-numeric: tabular-nums; }
+.dealer-heo-pinned span:last-of-type { opacity: .9; }
+.dealer-heo-pinned i { margin-left: auto; font-style: normal; font-size: 18px; }
+.dealer-heo-pinned:focus-visible, .dealer-heo-orders-card:focus-visible { outline: 2px solid #231f20; outline-offset: 2px; }
+
+.dealer-heo-orders-card { display: flex; width: 100%; min-height: 56px; align-items: center; gap: 10px; margin-bottom: 14px; border-radius: 16px; background: linear-gradient(135deg, #c8102e, #e8432f 60%, #f6a623); padding: 10px 14px; color: #fff; }
+.dealer-heo-orders-card .dealer-heo-pig { font-size: 30px; }
+.dealer-heo-orders-card b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; }
+.dealer-heo-orders-card small { display: block; margin-top: 1px; font-size: 12px; opacity: .92; line-height: 1.3; }
+.dealer-heo-orders-card i { font-style: normal; font-size: 22px; }
