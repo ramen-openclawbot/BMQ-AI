@@ -70,6 +70,7 @@ export function buildSupplierPaymentEmail(
     ...detailLines,
     "",
     "Ảnh UNC (ủy nhiệm chi) đính kèm email này.",
+    "Kính đề nghị nhà cung cấp vui lòng gửi hoá đơn VAT về email theo địa chỉ sau: hoadon@bmq.vn",
     "Mọi thắc mắc vui lòng trả lời email này.",
     "",
     "Trân trọng,",
@@ -112,6 +113,7 @@ export function buildSupplierPaymentEmail(
 ${detailRows}
               </table>
               <p style="margin:16px 0 0;">Ảnh UNC (ủy nhiệm chi) đính kèm email này.</p>
+              <p style="margin:12px 0 0;">Kính đề nghị nhà cung cấp vui lòng gửi hoá đơn VAT về email theo địa chỉ sau: <strong><a href="mailto:hoadon@bmq.vn" style="color:#b91c1c;">hoadon@bmq.vn</a></strong></p>
               <p style="margin:12px 0 0;">Mọi thắc mắc vui lòng trả lời email này.</p>
               <p style="margin:20px 0 0;">Trân trọng,<br>Bánh Mì Que</p>
             </td>

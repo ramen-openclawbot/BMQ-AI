@@ -82,3 +82,13 @@ test("escapes every interpolated HTML value", () => {
   assert.ok(email.html.includes("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;"));
   assert.ok(email.html.includes("&lt;img src=x onerror=alert(1)&gt;"));
 });
+
+test("asks for the VAT invoice at hoadon@bmq.vn (owner 21/11)", () => {
+  const email = buildSupplierPaymentEmail({
+    supplierName: "Tiêu Nam Đan", paymentNumber: "PAY-1", amount: 6264000, paymentDate: "2026-11-21",
+    poNumbers: [], requestNumbers: ["PR-MWPRCQIG"], reference: null, test: false,
+  });
+  assert.match(email.text, /gửi hoá đơn VAT về email theo địa chỉ sau: hoadon@bmq\.vn/);
+  assert.match(email.html, /mailto:hoadon@bmq\.vn/);
+  assert.doesNotMatch(email.text + email.html, /ncc\/hoa-don/);
+});
