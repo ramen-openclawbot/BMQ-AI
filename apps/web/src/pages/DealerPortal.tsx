@@ -44,6 +44,7 @@ import { useDealerCartAssistant, type DealerCartAssistantHistoryTurn } from "@/h
 import { applyCartProposal, applyRouteProposal, type DealerRouteProposalLine } from "@/lib/dealer-cart-assistant";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { DealerAwaitingSlipNotice } from "@/components/dealer/DealerAwaitingSlipNotice";
+import { DealerHeoBanner, DealerHeoOrderStrip, DealerHeoSpinPrompt, noteDealerHeoOrder, setDealerHeoSession } from "@/components/dealer/DealerHeo";
 import { DealerReportPanel } from "@/components/dealer/DealerReportPanel";
 import { cn } from "@/lib/utils";
 import "@/styles/dealer-order-history.css";
@@ -641,6 +642,8 @@ export default function DealerPortal() {
     setOnboardingStatus(null);
   }, [setSessionToken]);
 
+  useEffect(() => { setDealerHeoSession(sessionToken); }, [sessionToken]);
+
   const handleDealerOrderLocked = useCallback((message?: string | null) => {
     clearDealerSession();
     setOtp("");
@@ -1167,6 +1170,7 @@ export default function DealerPortal() {
 
       if (historySessionRef.current === sessionToken) invalidateOrderHistory();
       const nextOrderNumber = data.order_number || "";
+      noteDealerHeoOrder(nextOrderNumber, items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0));
       setDuplicateOrderPrompt(null);
       setOrderSuccessNumber(nextOrderNumber);
       setOrderSuccessOpen(!options.chatNative);
@@ -3699,6 +3703,7 @@ function NppQuickOrderPanel({
     <div className="flex min-h-[calc(100dvh-88px)] min-w-0 w-full max-w-full flex-col pb-[max(12px,env(safe-area-inset-bottom))]" data-stitch-dealer-chat-agent="conversation-v1" data-stitch-dealer-chat-overflow="contained-v1">
       <div data-dealer-chat-scroll-content className="contents">
       <div className="py-2 text-center text-[11px] font-medium text-[#a18d96]">Hôm nay</div>
+      {!cancellationActive ? <DealerHeoBanner /> : null}
 
       {!cancellationActive && !sentOrderText && !successMessage && !errorMessage && parseStatus === "idle" && !parseMessage ? (
         <div className="flex min-w-0 items-start gap-2 py-2">
@@ -3864,6 +3869,11 @@ function NppQuickOrderPanel({
                 : "Tổng tiền"}
             </span>
             <span className="whitespace-nowrap text-lg font-extrabold tabular-nums text-[#b33f72]" data-dealer-assistant-total>{formatVnd(assistantTotal)}</span>
+          </div>
+          <div className="mt-2">
+            <DealerHeoOrderStrip
+              quantity={assistantProposal.lines.reduce((sum, line) => sum + ((line.product.skuCode || "") === "BMQ-001" ? line.quantity : 0), 0)}
+            />
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <Button type="button" className="dealer-option-c-primary h-11 rounded-xl bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]" data-dealer-assistant-action="submit" disabled={submitting} onClick={onAssistantSubmit}>
@@ -4042,6 +4052,7 @@ function NppQuickOrderPanel({
                   </div>
                 </div>
               </button>
+              <DealerHeoOrderStrip quantity={totalItems} />
               <div className="mt-1 space-y-1 border-t border-[#f2dfe7] pt-3" data-dealer-chat-choices="order-ready" role="group" aria-label="Chọn thao tác với đơn hàng">
                 <Button type="button" className="dealer-option-c-primary h-11 w-full whitespace-nowrap rounded-xl bg-[#d94f8a] font-extrabold text-white shadow-sm hover:bg-[#c43f79]" data-dealer-chat-choice="quick-submit" disabled={!canSubmit || submitting} onClick={onSubmit}>
                   {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Đặt nhanh
@@ -4071,7 +4082,8 @@ function NppQuickOrderPanel({
               <div className="mt-1">{successMessage}</div>
             </div>
           </div>
-          <div className="ml-11" data-dealer-chat-choices="order-complete">
+          <div className="ml-11 flex flex-wrap items-center gap-2" data-dealer-chat-choices="order-complete">
+            <DealerHeoSpinPrompt />
             <Button type="button" variant="outline" className="h-10 rounded-full border-[#e7b9cd] bg-white font-bold text-[#a73f70] hover:bg-[#fff0f6]" onClick={onStartNewOrder}>
               Đặt đơn khác
             </Button>

@@ -3,6 +3,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
+import { DealerHeoReportCard } from "@/components/dealer/DealerHeo";
 import "@/styles/dealer-report.css";
 
 export type DealerReport = {
@@ -105,6 +106,7 @@ export function DealerReportPanel({ sessionToken, onLocked, onSessionExpired, is
 
   return (
     <section className="dealer-report" data-dealer-report aria-label="Báo cáo đặt hàng">
+      <DealerHeoReportCard sessionToken={sessionToken} />
       <div className="dealer-report-periods" role="group" aria-label="Chọn tháng báo cáo">
         <button type="button" data-active={month === thisMonth} onClick={() => setMonth(thisMonth)}>Tháng này</button>
         <button type="button" data-active={month === lastMonth} onClick={() => setMonth(lastMonth)}>Tháng trước</button>

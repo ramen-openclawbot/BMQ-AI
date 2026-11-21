@@ -38,6 +38,8 @@ const PAYSLIP_PORTAL_FUNCTIONS = new Set([
   "payslip-shifts",
 ]);
 
+const DEALER_PREVIEW_ORIGIN_PATTERN = /^https:\/\/bmq-ai-git-[a-z0-9-]+\.vercel\.app$/;
+
 function pathSegments(req: Request): string[] {
   return new URL(req.url).pathname.split("/").filter(Boolean);
 }
@@ -50,6 +52,21 @@ function isPayslipPortalFunction(req: Request): boolean {
   return pathSegments(req).some((segment) => PAYSLIP_PORTAL_FUNCTIONS.has(segment));
 }
 
+function isDealerFunction(req: Request): boolean {
+  return pathSegments(req).some((segment) => segment.startsWith("dealer-"));
+}
+
+/** Preview origins are opt-in per environment and only valid Vercel git hosts. */
+export function getDealerPreviewOrigins(): string[] {
+  const raw = Deno.env.get("DEALER_PREVIEW_ORIGINS") ?? "";
+  const origins = raw
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => DEALER_PREVIEW_ORIGIN_PATTERN.test(origin));
+
+  return [...new Set(origins)];
+}
+
 export function getCorsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") || "";
   // Each public portal gets its own origin, and only its own functions.
@@ -59,6 +76,13 @@ export function getCorsHeaders(req: Request): Record<string, string> {
   } else if (isPayslipPortalFunction(req)) {
     allowedOrigins = [...ALLOWED_ORIGINS, ...PAYSLIP_PORTAL_ORIGINS];
   }
+
+  // Dealer preview links may call dealer-* functions from Vercel git branches.
+  // The variable is optional, so existing deployments keep their behaviour.
+  if (isDealerFunction(req)) {
+    allowedOrigins = [...allowedOrigins, ...getDealerPreviewOrigins()];
+  }
+
   const allowedOrigin = allowedOrigins.includes(origin)
     ? origin
     : ALLOWED_ORIGINS[0]; // fallback to primary domain

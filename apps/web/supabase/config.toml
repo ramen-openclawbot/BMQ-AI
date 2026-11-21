@@ -141,6 +141,9 @@ verify_jwt = false
 [functions.dealer-report]
 verify_jwt = false
 
+[functions.dealer-heo]
+verify_jwt = false
+
 [functions.dealer-cart-assistant]
 # Dealer portal caller has no Supabase JWT; the dealer session token is checked in code.
 verify_jwt = false

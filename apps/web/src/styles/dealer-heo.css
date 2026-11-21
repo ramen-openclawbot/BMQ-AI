@@ -1,0 +1,73 @@
+/* Heo Đất Tết · dathang Option C. Red/gold Tết accent only on heo surfaces. */
+.dealer-heo-banner {
+  --heo-red: #c8102e;
+  margin: 4px 0 8px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #c8102e, #e8432f 60%, #f6a623);
+  padding: 14px;
+  color: #fff;
+}
+.dealer-heo-banner--flat { margin: 0; }
+.dealer-heo-kicker { font-size: 12px; font-weight: 800; letter-spacing: .06em; opacity: .9; }
+.dealer-heo-pigrow { display: flex; align-items: center; gap: 12px; margin-top: 8px; border-radius: 14px; background: rgba(255,255,255,.18); padding: 10px 12px; }
+.dealer-heo-pig { font-size: 38px; line-height: 1; }
+.dealer-heo-pigrow strong { display: block; font-size: 22px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.dealer-heo-pigrow span:not(.dealer-heo-pig) { display: block; font-size: 12px; opacity: .92; }
+.dealer-heo-banner p { margin: 10px 0 0; font-size: 13px; line-height: 1.45; }
+
+[data-dealer-ui] .dealer-heo-btn,
+.dealer-heo-btn {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 800;
+}
+.dealer-heo-banner .dealer-heo-btn { margin-top: 12px; }
+.dealer-heo-btn--light { background: #fff; color: #231f20; }
+.dealer-heo-btn--ink { background: #231f20; color: #fff; }
+.dealer-heo-btn--ink:disabled { opacity: .55; }
+.dealer-heo-btn--red { width: auto; padding-inline: 20px; background: #c8102e; color: #fff; box-shadow: 0 8px 18px -10px rgba(200,16,46,.7); }
+.dealer-heo-btn:focus-visible { outline: 2px solid #231f20; outline-offset: 2px; }
+
+.dealer-heo-strip { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0 2px; border: 1px solid #f0ccdc; border-radius: 12px; background: #fff0f6; padding: 10px 12px; font-size: 13px; line-height: 1.4; text-align: left; color: #4a343e; }
+.dealer-heo-strip > span { font-size: 18px; line-height: 1.2; }
+.dealer-heo-strip small { display: block; margin-top: 2px; color: #806873; font-size: 12px; }
+
+.dealer-heo-sheet .dealer-heo-steps { display: grid; gap: 12px; margin: 8px 0 0; padding: 0; list-style: none; }
+.dealer-heo-steps li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.45; }
+.dealer-heo-steps i { display: grid; flex: none; width: 26px; height: 26px; place-items: center; border-radius: 999px; background: #f4c1d9; font-size: 13px; font-style: normal; font-weight: 800; }
+.dealer-heo-fine { margin: 10px 0; color: #625d60; font-size: 12.5px; line-height: 1.45; }
+
+.dealer-heo-stage { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 0 0; text-align: center; background: radial-gradient(circle at 50% 30%, #fff4c7, transparent 60%); }
+.dealer-heo-coins { font-size: 26px; letter-spacing: 6px; opacity: 0; transform: translateY(-6px); }
+.dealer-heo-bigpig { font-size: 104px; line-height: 1; transform: rotate(-8deg); filter: drop-shadow(0 10px 12px rgba(200,16,46,.25)); }
+.dealer-heo-stage[data-phase="shaking"] .dealer-heo-bigpig { animation: dealer-heo-shake .32s ease-in-out infinite; }
+.dealer-heo-stage[data-phase="done"] .dealer-heo-coins { animation: dealer-heo-drop .6s ease-out forwards; }
+.dealer-heo-wait { margin: 0; font-weight: 700; color: #625d60; }
+.dealer-heo-win { font-size: 30px; font-weight: 900; color: #c8102e; font-variant-numeric: tabular-nums; }
+.dealer-heo-win[data-kind="none"] { font-size: 22px; color: #625d60; }
+.dealer-heo-winsub { margin: 2px 0 0; font-size: 15px; font-weight: 700; }
+.dealer-heo-err { margin: 0; color: #a3202a; font-weight: 700; }
+.dealer-heo-prizes { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; font-size: 11.5px; }
+.dealer-heo-prizes span { border-radius: 999px; background: #f7f7f7; padding: 3px 8px; color: #625d60; font-weight: 700; }
+@keyframes dealer-heo-shake { 0%,100% { transform: rotate(-10deg) translateX(-3px); } 50% { transform: rotate(10deg) translateX(3px); } }
+@keyframes dealer-heo-drop { to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .dealer-heo-stage[data-phase="shaking"] .dealer-heo-bigpig { animation: none; }
+  .dealer-heo-stage[data-phase="done"] .dealer-heo-coins { animation: none; opacity: 1; transform: none; }
+}
+
+.dealer-heo-report { display: grid; gap: 8px; margin: 16px 0 4px; }
+.dealer-heo-split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dealer-heo-split div { border-radius: 12px; background: #f7f7f7; padding: 10px 12px; }
+.dealer-heo-split b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+.dealer-heo-split span { color: #625d60; font-size: 12px; }
+.dealer-heo-count { display: flex; justify-content: space-between; align-items: center; border-radius: 14px; background: #231f20; padding: 10px 14px; color: #fff; font-size: 13px; }
+.dealer-heo-count b { font-size: 17px; }
+.dealer-heo-hist { margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.dealer-heo-hist li { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid #dedbdd; padding: 8px 2px; }
