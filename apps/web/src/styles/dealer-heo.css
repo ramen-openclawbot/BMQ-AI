@@ -94,3 +94,20 @@
 .dealer-heo-extra div { border-radius: 12px; background: rgba(255,255,255,.18); padding: 8px 10px; }
 .dealer-heo-extra b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
 .dealer-heo-extra span { font-size: 11.5px; opacity: .92; }
+
+.dealer-heo-offer { max-height: 92dvh; overflow-y: auto; }
+.dealer-heo-baseline { margin: 12px 0 4px; border-radius: 14px; background: #fff4c7; padding: 10px 12px; }
+.dealer-heo-baseline b { display: block; font-size: 22px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.dealer-heo-baseline span { font-size: 13px; line-height: 1.4; color: #4a343e; }
+.dealer-heo-offer .dealer-heo-steps { margin-top: 12px; }
+.dealer-heo-offer .dealer-heo-btn { margin-top: 8px; }
+.dealer-heo-btn--red { width: 100%; }
+.dealer-heo-btn:disabled { opacity: .6; }
+.dealer-heo-strip--join { width: 100%; text-align: left; background: #fff4c7; border-color: #f0d98a; }
+.dealer-heo-banner[data-enrollment="none"], .dealer-heo-banner[data-enrollment="declined"] { background: linear-gradient(135deg, #7a1020, #c8102e 60%, #e8432f); }
+
+/* The two choices stay visible while the rules scroll. */
+.dealer-heo-offer-actions { position: sticky; bottom: -1px; z-index: 2; margin: 8px -4px -4px; border-top: 1px solid #e5dfe2; background: #faf6f3; padding: 6px 4px 4px; }
+.dealer-heo-offer .dealer-heo-welcome-hero { padding: 12px; }
+.dealer-heo-offer .dealer-heo-welcome-hero .dealer-heo-bigpig { font-size: 52px; }
+.dealer-heo-offer .dealer-heo-welcome-hero strong { font-size: 24px; }

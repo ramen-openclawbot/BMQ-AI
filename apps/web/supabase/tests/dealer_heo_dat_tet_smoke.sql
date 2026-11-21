@@ -1,11 +1,13 @@
--- Rollback-only smoke checks for 20261121150000_dealer_heo_dat_tet.sql.
+-- Rollback-only smoke checks for 20261121150000_dealer_heo_dat_tet.sql and
+-- 20261121170000_dealer_heo_enrollment.sql.
 --
--- Run after the migration inside one transaction. Every fixture is rolled back
+-- Run after the migrations inside one transaction. Every fixture is rolled back
 -- at the end; no real order, customer or spin is kept. Seeding uses
 -- session_replication_role=replica, like the other superuser-only smoke tests.
 --
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
 --     -f supabase/migrations/20261121150000_dealer_heo_dat_tet.sql \
+--     -f supabase/migrations/20261121170000_dealer_heo_enrollment.sql \
 --     -f supabase/tests/dealer_heo_dat_tet_smoke.sql
 
 begin;
@@ -39,6 +41,8 @@ declare
   v_count integer;
   v_baseline numeric;
   v_week text;
+  v_today date;
+  v_joined_on date;
   v_seed double precision;
   v_next double precision;
   v_i integer;
@@ -232,6 +236,16 @@ begin
   end if;
 
   -- -------------------------------------------------------------------------
+  -- Enrollment fixtures: the main real dealer joined; the test account keeps
+  -- its own joined row, separate from the real dealer.
+  -- -------------------------------------------------------------------------
+  insert into public.dealer_heo_enrollments (
+    campaign_id, customer_id, is_test, status, joined_on
+  ) values
+    (v_campaign, v_customer, false, 'joined', date '2026-12-01'),
+    (v_campaign, v_customer, true, 'joined', date '2026-11-01');
+
+  -- -------------------------------------------------------------------------
   -- Real dealer is blocked while spin_enabled = false.
   -- -------------------------------------------------------------------------
   update public.dealer_heo_campaigns set spin_enabled = false where id = v_campaign;
@@ -257,6 +271,98 @@ begin
   end if;
 
   update public.dealer_heo_campaigns set spin_enabled = true where id = v_campaign;
+
+  -- -------------------------------------------------------------------------
+  -- Enrollment: join/decline is per dealer + test/real mode.
+  -- -------------------------------------------------------------------------
+  v_today := (now() at time zone 'Asia/Ho_Chi_Minh')::date;
+
+  -- The second sample dealer has no row yet: spinning is refused.
+  v_error := null;
+  begin
+    perform public.dealer_heo_spin(
+      v_campaign, v_customer_zero, v_order_zero, false, date '2026-12-01', date '2026-12-31'
+    );
+  exception when others then
+    v_error := sqlerrm;
+  end;
+  if v_error is null or position('heo_not_enrolled' in v_error) = 0 then
+    raise exception 'SMOKE FAIL not-enrolled expected heo_not_enrolled, got %', coalesce(v_error, '<no error>');
+  end if;
+
+  -- Decline first, then join: joined_on is the new join date.
+  v_result := public.dealer_heo_set_enrollment(
+    v_campaign, v_customer_zero, false, 'declined', v_today
+  );
+  if v_result->>'status' <> 'declined' or v_result->>'joined_on' is not null then
+    raise exception 'SMOKE FAIL decline-before-join returned %', v_result;
+  end if;
+  v_result := public.dealer_heo_set_enrollment(
+    v_campaign, v_customer_zero, false, 'joined', v_today
+  );
+  if v_result->>'status' <> 'joined'
+     or (v_result->>'joined_on')::date is distinct from v_today then
+    raise exception 'SMOKE FAIL joined_on expected %, got %', v_today, v_result;
+  end if;
+
+  -- Joining again keeps the first joined_on.
+  v_result := public.dealer_heo_set_enrollment(
+    v_campaign, v_customer_zero, false, 'joined', v_today + 1
+  );
+  if (v_result->>'joined_on')::date is distinct from v_today then
+    raise exception 'SMOKE FAIL repeat join changed joined_on: %', v_result;
+  end if;
+
+  -- Declining after joining is ignored.
+  v_result := public.dealer_heo_set_enrollment(
+    v_campaign, v_customer_zero, false, 'declined', v_today + 1
+  );
+  if v_result->>'status' <> 'joined'
+     or (v_result->>'joined_on')::date is distinct from v_today then
+    raise exception 'SMOKE FAIL decline-after-join should keep joined: %', v_result;
+  end if;
+
+  -- The real dealer's joined row also refuses a later decline.
+  v_result := public.dealer_heo_set_enrollment(
+    v_campaign, v_customer, false, 'declined', v_today
+  );
+  if v_result->>'status' <> 'joined'
+     or (v_result->>'joined_on')::date is distinct from date '2026-12-01' then
+    raise exception 'SMOKE FAIL real decline changed joined row: %', v_result;
+  end if;
+
+  -- A test decision is a separate row and never touches the real dealer row.
+  v_result := public.dealer_heo_set_enrollment(
+    v_campaign, v_customer_zero, true, 'declined', v_today
+  );
+  if v_result->>'status' <> 'declined' or (v_result->>'is_test')::boolean is not true then
+    raise exception 'SMOKE FAIL test decline returned %', v_result;
+  end if;
+  select joined_on into v_joined_on
+  from public.dealer_heo_enrollments
+  where campaign_id = v_campaign and customer_id = v_customer_zero and is_test = false;
+  if v_joined_on is distinct from v_today then
+    raise exception 'SMOKE FAIL test decision changed real joined_on to %', v_joined_on;
+  end if;
+  select count(*) into v_count
+  from public.dealer_heo_enrollments
+  where campaign_id = v_campaign and customer_id = v_customer_zero;
+  if v_count <> 2 then
+    raise exception 'SMOKE FAIL expected separate real/test enrollment rows, got %', v_count;
+  end if;
+
+  -- Unknown status is rejected.
+  v_error := null;
+  begin
+    perform public.dealer_heo_set_enrollment(
+      v_campaign, v_customer, false, 'maybe', v_today
+    );
+  exception when others then
+    v_error := sqlerrm;
+  end;
+  if v_error is null or position('heo_invalid_status' in v_error) = 0 then
+    raise exception 'SMOKE FAIL invalid status expected heo_invalid_status, got %', coalesce(v_error, '<no error>');
+  end if;
 
   -- -------------------------------------------------------------------------
   -- Idempotency, thresholds and windows.

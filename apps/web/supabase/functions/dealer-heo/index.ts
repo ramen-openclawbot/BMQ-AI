@@ -20,6 +20,7 @@ import {
   HEO_NOV_BASELINE_DAYS,
   HEO_NOV_BASELINE_END,
   HEO_NOV_BASELINE_START,
+  heoSpinShortfall,
   previewOrderExtra,
   type HeoDailyQuantity,
   type HeoSpinInput,
@@ -29,6 +30,7 @@ import {
 const ORDER_PAGE_SIZE = 1000;
 const ITEM_BATCH_SIZE = 200;
 const ITEM_PAGE_SIZE = 1000;
+const HEO_BASELINE_MONTH = "2026-11";
 
 const HEO_ERROR_MESSAGES: Record<string, string> = {
   heo_order_not_found: "Không tìm thấy đơn hàng.",
@@ -36,6 +38,8 @@ const HEO_ERROR_MESSAGES: Record<string, string> = {
   heo_outside_window: "Đơn hàng ngoài khung thời gian chương trình.",
   heo_spin_disabled: "Lắc Heo đang tắt.",
   heo_campaign_not_found: "Chương trình Heo Đất Tết chưa được cấu hình.",
+  heo_not_enrolled: "Anh/chị cần bấm Tham gia chương trình trước khi lắc heo.",
+  heo_invalid_status: "Trạng thái tham gia không hợp lệ.",
 };
 
 type CampaignRow = {
@@ -70,6 +74,11 @@ type ItemRow = {
 };
 
 type SpinRow = HeoSpinInput & { id?: string };
+
+type DealerHeoEnrollment = {
+  status: "none" | "joined" | "declined";
+  joined_on: string | null;
+};
 
 type DealerHeoRequest = {
   dealer_token?: unknown;
@@ -125,7 +134,11 @@ serve(async (req) => {
       ? (campaign.test_starts_on ?? campaign.starts_on)
       : campaign.starts_on;
     const windowEnd = campaign.ends_on;
-    const baselineAvgPerDay = await loadBaseline(supabase, campaign.id, customerId);
+    const [baselineAvgPerDay, enrollment] = await Promise.all([
+      loadBaseline(supabase, campaign.id, customerId),
+      loadEnrollment(supabase, campaign.id, customerId, isTest),
+    ]);
+    const spinRequiredQuantity = requiredQueToSpin(baselineAvgPerDay);
 
     const action = typeof body.action === "string" ? body.action.trim() : "status";
 
@@ -138,6 +151,7 @@ serve(async (req) => {
         windowStart,
         windowEnd,
         today,
+        enrollment,
       });
 
       return jsonResponse(req, {
@@ -145,6 +159,9 @@ serve(async (req) => {
         active: true,
         campaign: publicCampaign(campaign, isTest),
         baseline_avg_per_day: baselineAvgPerDay,
+        baseline_month: HEO_BASELINE_MONTH,
+        spin_required_quantity: spinRequiredQuantity,
+        enrollment,
         summary,
       });
     }
@@ -164,8 +181,55 @@ serve(async (req) => {
         orderQuantity: quantity,
         ratePerExtraQue: campaign.rate_per_extra_que_vnd,
       });
+      const shortfall = heoSpinShortfall({
+        baselineAvgPerDay,
+        orderQuantity: quantity,
+      });
 
-      return jsonResponse(req, { success: true, preview });
+      return jsonResponse(req, {
+        success: true,
+        preview: {
+          ...preview,
+          spin_required_quantity: shortfall.required_quantity,
+          spin_missing_quantity: shortfall.missing_quantity,
+        },
+      });
+    }
+
+    if (action === "enroll" || action === "decline") {
+      const { data, error } = await supabase.rpc("dealer_heo_set_enrollment", {
+        p_campaign_id: campaign.id,
+        p_customer_id: customerId,
+        p_is_test: isTest,
+        p_status: action === "enroll" ? "joined" : "declined",
+        p_today: today,
+      });
+
+      if (error) {
+        const code = extractHeoErrorCode(error);
+        if (code) {
+          return errorResponse(req, HEO_ERROR_MESSAGES[code] ?? code, 409, code);
+        }
+        throw error;
+      }
+
+      const nextEnrollment = normalizeEnrollment(data);
+      const summary = await loadSummary(supabase, {
+        campaign,
+        customerId,
+        isTest,
+        baselineAvgPerDay,
+        windowStart,
+        windowEnd,
+        today,
+        enrollment: nextEnrollment,
+      });
+
+      return jsonResponse(req, {
+        success: true,
+        enrollment: nextEnrollment,
+        summary,
+      });
     }
 
     if (action === "spin") {
@@ -213,6 +277,7 @@ serve(async (req) => {
         windowStart,
         windowEnd,
         today,
+        enrollment,
       });
 
       return jsonResponse(req, { success: true, spin: data, summary });
@@ -289,6 +354,38 @@ async function loadBaseline(
   return total / HEO_NOV_BASELINE_DAYS;
 }
 
+async function loadEnrollment(
+  supabase: SupabaseServiceClient,
+  campaignId: string,
+  customerId: string,
+  isTest: boolean,
+): Promise<DealerHeoEnrollment> {
+  const { data, error } = await supabase
+    .from("dealer_heo_enrollments")
+    .select("status, joined_on")
+    .eq("campaign_id", campaignId)
+    .eq("customer_id", customerId)
+    .eq("is_test", isTest)
+    .maybeSingle();
+
+  if (error) throw error;
+  return normalizeEnrollment(data);
+}
+
+function normalizeEnrollment(value: unknown): DealerHeoEnrollment {
+  const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const status = row.status === "joined" || row.status === "declined" ? row.status : "none";
+
+  return {
+    status,
+    joined_on: status === "none" ? null : normalizeDateKey(row.joined_on),
+  };
+}
+
+function requiredQueToSpin(baselineAvgPerDay: number): number {
+  return baselineAvgPerDay > 0 ? Math.ceil(baselineAvgPerDay) : 1;
+}
+
 async function loadSummary(
   supabase: SupabaseServiceClient,
   options: {
@@ -299,22 +396,34 @@ async function loadSummary(
     windowStart: string;
     windowEnd: string;
     today: string;
+    enrollment: DealerHeoEnrollment;
   },
 ): Promise<HeoSummary> {
+  const base = {
+    baselineAvgPerDay: options.baselineAvgPerDay,
+    ratePerExtraQue: options.campaign.rate_per_extra_que_vnd,
+    windowStart: options.windowStart,
+    windowEnd: options.windowEnd,
+    breakOn: options.campaign.break_on ?? options.campaign.ends_on,
+    today: options.today,
+  };
+
+  // Dealers that have not joined (or declined) see no money at all, but still
+  // see the countdown to the day the pig is broken.
+  if (options.enrollment.status !== "joined") {
+    return computeHeoSummary({ ...base, dailyQuantities: [], spins: [] });
+  }
+
   const [dailyQuantities, spins] = await Promise.all([
     loadDailyQuantities(supabase, options.customerId, options.windowStart, options.windowEnd),
     loadSpins(supabase, options.campaign.id, options.customerId, options.isTest),
   ]);
 
   return computeHeoSummary({
-    baselineAvgPerDay: options.baselineAvgPerDay,
+    ...base,
     dailyQuantities,
     spins,
-    ratePerExtraQue: options.campaign.rate_per_extra_que_vnd,
-    windowStart: options.windowStart,
-    windowEnd: options.windowEnd,
-    breakOn: options.campaign.break_on ?? options.campaign.ends_on,
-    today: options.today,
+    joinedOn: options.enrollment.joined_on,
   });
 }
 

@@ -298,6 +298,19 @@ begin
     raise exception 'heo_spin_disabled';
   end if;
 
+  -- The dealer must explicitly join before spinning. The replay branch above
+  -- runs first, so re-spinning the same order still returns the old result.
+  if not exists (
+    select 1
+    from public.dealer_heo_enrollments e
+    where e.campaign_id = p_campaign_id
+      and e.customer_id = p_customer_id
+      and e.is_test = p_is_test
+      and e.status = 'joined'
+  ) then
+    raise exception 'heo_not_enrolled';
+  end if;
+
   v_iso_week := to_char(
     (now() at time zone 'Asia/Ho_Chi_Minh')::date,
     'IYYY-"W"IW'

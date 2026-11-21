@@ -58,6 +58,8 @@ export type ComputeHeoSummaryInput = {
   windowEnd: string;
   breakOn: string;
   today: string | Date;
+  /** When set, no day before the dealer's join date earns extra que. */
+  joinedOn?: string | null;
 };
 
 export type PreviewOrderExtraInput = {
@@ -73,17 +75,46 @@ export type PreviewOrderExtra = {
   spin_eligible: boolean;
 };
 
+export type HeoSpinShortfallInput = {
+  baselineAvgPerDay: number | string | null | undefined;
+  orderQuantity: number | string | null | undefined;
+};
+
+export type HeoSpinShortfall = {
+  required_quantity: number;
+  missing_quantity: number;
+};
+
+/**
+ * Minimum order quantity needed to spin and how many que the order is short.
+ * A positive baseline rounds up (123.4 -> 124); a zero/missing baseline needs 1.
+ */
+export function heoSpinShortfall(input: HeoSpinShortfallInput): HeoSpinShortfall {
+  const baseline = Math.max(0, toNumber(input.baselineAvgPerDay));
+  const orderQuantity = toNumber(input.orderQuantity);
+  const requiredQuantity = baseline > 0 ? Math.ceil(baseline) : 1;
+
+  return {
+    required_quantity: requiredQuantity,
+    missing_quantity: Math.max(0, requiredQuantity - orderQuantity),
+  };
+}
+
 export function computeHeoSummary(input: ComputeHeoSummaryInput): HeoSummary {
   const baseline = Math.max(0, toNumber(input.baselineAvgPerDay));
   const rate = Math.max(0, toNumber(input.ratePerExtraQue));
   const windowStart = dateKey(input.windowStart);
   const windowEnd = dateKey(input.windowEnd);
+  const joinedOn = dateKey(input.joinedOn);
+  // The join date can only narrow the campaign window, never widen it.
+  const effectiveStart =
+    joinedOn && (!windowStart || joinedOn > windowStart) ? joinedOn : windowStart;
 
   const dailyTotals = new Map<string, number>();
   input.dailyQuantities.forEach((row) => {
     const key = dateKey(row.date);
     if (!key) return;
-    if (windowStart && key < windowStart) return;
+    if (effectiveStart && key < effectiveStart) return;
     if (windowEnd && key > windowEnd) return;
     dailyTotals.set(key, (dailyTotals.get(key) ?? 0) + toNumber(row.quantity));
   });

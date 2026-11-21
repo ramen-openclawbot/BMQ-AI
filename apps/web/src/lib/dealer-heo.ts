@@ -24,6 +24,11 @@ export type DealerHeoCampaign = {
   prizes: DealerHeoPrize[];
 };
 
+export type DealerHeoEnrollment = {
+  status: "none" | "joined" | "declined";
+  joined_on: string | null;
+};
+
 export type DealerHeoRecentSpin = {
   amount_vnd: number;
   bread_qty: number;
@@ -51,6 +56,9 @@ export type DealerHeoStatusResponse =
     active: true;
     campaign: DealerHeoCampaign;
     baseline_avg_per_day: number;
+    baseline_month: string;
+    spin_required_quantity: number;
+    enrollment: DealerHeoEnrollment;
     summary: DealerHeoSummary;
   };
 
@@ -58,11 +66,19 @@ export type DealerHeoPreview = {
   extra_que: number;
   extra_vnd: number;
   spin_eligible: boolean;
+  spin_required_quantity?: number;
+  spin_missing_quantity?: number;
 };
 
 export type DealerHeoPreviewResponse = {
   success: true;
   preview: DealerHeoPreview;
+};
+
+export type DealerHeoEnrollResponse = {
+  success: true;
+  enrollment: DealerHeoEnrollment;
+  summary: DealerHeoSummary;
 };
 
 export type DealerHeoSpin = {

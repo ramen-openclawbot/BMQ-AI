@@ -138,17 +138,22 @@ function assistantAnswer(body) {
 }
 
 
+const ZERO = { extra_que: 0, from_extra_vnd: 0, from_spins_vnd: 0, bread_qty: 0, total_vnd: 0, spin_count: 0, days_to_break: 31, recent_spins: [] };
 const HEO_SUMMARY = { extra_que: 257, from_extra_vnd: 128500, from_spins_vnd: 58000, bread_qty: 10, total_vnd: 186500, spin_count: 9, days_to_break: 31,
   recent_spins: [{ amount_vnd: 20000, bread_qty: 0, prize_kind: "coin", is_jackpot: false, created_at: "2026-12-14T03:00:00Z", order_id: "o1" },
     { amount_vnd: 0, bread_qty: 10, prize_kind: "bread", is_jackpot: false, created_at: "2026-12-13T03:00:00Z", order_id: "o2" }] };
-const HEO_STATUS = { success: true, active: true, baseline_avg_per_day: 123,
+let heoEnrollment = "none";
+const heoStatus = () => ({ success: true, active: true, baseline_avg_per_day: 123, baseline_month: "2026-11", spin_required_quantity: 123,
+  enrollment: { status: heoEnrollment, joined_on: heoEnrollment === "joined" ? "2026-12-01" : null },
   campaign: { title: "Heo Đất Tết", starts_on: "2026-12-01", ends_on: "2026-12-31", break_on: "2027-01-15", rate: 500, spin_enabled_for_me: true, is_test: true, prizes: [] },
-  summary: HEO_SUMMARY };
+  summary: heoEnrollment === "joined" ? HEO_SUMMARY : ZERO });
 const heoCalls = [];
 function heoAnswer(body) {
   heoCalls.push(body);
+  if (body.action === "enroll") { heoEnrollment = "joined"; return { success: true, enrollment: { status: "joined", joined_on: "2026-12-01" }, summary: HEO_SUMMARY }; }
+  if (body.action === "decline") { heoEnrollment = "declined"; return { success: true, enrollment: { status: "declined", joined_on: null }, summary: ZERO }; }
   if (body.action === "spin") return { success: true, spin: { prize_kind: "coin", amount_vnd: 20000, bread_qty: 0, is_jackpot: false }, summary: { ...HEO_SUMMARY, total_vnd: 206500 } };
-  return HEO_STATUS;
+  return heoStatus();
 }
 
 async function open(viewport, { npp = false } = {}) {
@@ -201,31 +206,55 @@ const vnd = (n) => new Intl.NumberFormat("vi-VN").format(n);
 try {
   for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1280, height: 860 }]) {
     const tag = viewport.width;
+    heoEnrollment = "none"; heoCalls.length = 0;
     const { context, page, errors } = await open(viewport);
-    const welcome = page.locator("[data-dealer-heo-welcome]");
-    await welcome.waitFor({ timeout: 15000 });
-    assert.match(await welcome.textContent(), /Heo Đất Tết/);
-    await page.screenshot({ path: `${EVIDENCE}/heo-welcome-${tag}.png` });
-    await welcome.getByRole("button", { name: "Đã hiểu" }).click();
-    await welcome.waitFor({ state: "detached" });
+    // 1. Not joined yet: the offer opens by itself with rules, the dealer's own average and both choices.
+    const offer = page.locator("[data-dealer-heo-offer]");
+    await offer.waitFor({ timeout: 15000 });
+    const offerText = await offer.textContent();
+    assert.match(offerText, /123 que\/ngày/);
+    assert.match(offerText, /trung bình tháng 11/);
+    assert.match(offerText, /từ 123 que trở lên/);
+    assert.match(offerText, /Heo tính từ ngày anh\/chị bấm Tham gia/);
+    for (const sel of ["[data-dealer-heo-join]", "[data-dealer-heo-decline]"]) {
+      const box = await offer.locator(sel).boundingBox();
+      assert.ok(box && box.y + box.height <= viewport.height + 1 && box.y >= 0, `${sel} visible without scrolling`);
+      assert.ok(box.height >= 44, `${sel} tap target >= 44px`);
+    }
+    await page.screenshot({ path: `${EVIDENCE}/heo-offer-${tag}.png` });
+    assert.equal(heoCalls.filter((c) => c.action === "enroll").length, 0, "nothing saved before a choice");
+    // 2. Decline: saved, dialog closes, offer card keeps a way back.
+    await offer.locator("[data-dealer-heo-decline]").click();
+    await offer.waitFor({ state: "detached" });
+    assert.ok(heoCalls.some((c) => c.action === "decline"), "decline sent");
     const banner = page.locator("[data-dealer-heo-banner]");
-    await banner.waitFor({ timeout: 15000 });
-    assert.ok(await page.locator("[data-dealer-heo-pinned]").isVisible(), "pinned heo line");
+    await banner.waitFor();
+    assert.equal(await banner.getAttribute("data-enrollment"), "declined");
+    assert.match(await banner.textContent(), /Tham gia lại/);
+    await page.screenshot({ path: `${EVIDENCE}/heo-declined-${tag}.png` });
+    // 3. Join again from the banner.
+    await banner.locator("[data-dealer-heo-open-offer]").click();
+    await page.locator("[data-dealer-heo-join]").click();
+    await page.locator("[data-dealer-heo-offer]").waitFor({ state: "detached" });
+    assert.ok(heoCalls.some((c) => c.action === "enroll"), "enroll sent");
+    await page.locator("[data-dealer-heo-banner][data-enrollment='joined']").waitFor();
     assert.match(await banner.textContent(), /186\.500đ/);
     assert.match(await banner.textContent(), /257 que/);
     assert.match(await banner.textContent(), /123 que\/ngày/);
+    assert.ok(await page.locator("[data-dealer-heo-pinned]").isVisible(), "pinned heo line");
     await page.screenshot({ path: `${EVIDENCE}/heo-banner-${tag}.png` });
-    await banner.getByRole("button", { name: "Xem cách nhận" }).click();
-    await page.getByText("Heo của anh/chị lớn thế nào?").waitFor();
-    await page.waitForTimeout(500);
+    await banner.getByRole("button", { name: "Xem thể lệ" }).click();
+    await page.locator("[data-dealer-heo-offer]").waitFor();
+    assert.equal(await page.locator("[data-dealer-heo-join]").count(), 0, "no join button once joined");
     await page.screenshot({ path: `${EVIDENCE}/heo-howto-${tag}.png` });
-    await page.getByRole("button", { name: "Đã hiểu" }).click();
+    await page.getByRole("button", { name: "Đóng" }).click();
 
     await say(page, "đặt như hôm qua, thêm 18 croissant");
     const strip = page.locator("[data-dealer-assistant-proposal] [data-dealer-heo-strip]");
     await strip.waitFor({ timeout: 15000 });
     await strip.scrollIntoViewIfNeeded();
     assert.match(await strip.textContent(), /Vượt 77 que → \+38\.500đ/);
+    assert.match(await strip.textContent(), /được lắc heo/);
     await page.screenshot({ path: `${EVIDENCE}/heo-strip-${tag}.png` });
     await page.locator("[data-dealer-assistant-action='submit']").click();
     const spinBtn = page.locator("[data-dealer-heo-spin]");

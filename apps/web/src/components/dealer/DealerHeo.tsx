@@ -10,9 +10,9 @@ import "@/styles/dealer-heo.css";
 type ActiveStatus = Extract<DealerHeoStatusResponse, { active: true }>;
 type LastOrder = { orderNumber: string; quantity: number; spun: boolean };
 type SpinResult = { prize_kind: string; amount_vnd: number; bread_qty: number; is_jackpot: boolean };
-type State = { token: string; status: ActiveStatus | null; loading: boolean; lastOrder: LastOrder | null };
+type State = { token: string; status: ActiveStatus | null; loading: boolean; lastOrder: LastOrder | null; offerOpen: boolean; enrolling: boolean; enrollError: string };
 
-let state: State = { token: "", status: null, loading: false, lastOrder: null };
+let state: State = { token: "", status: null, loading: false, lastOrder: null, offerOpen: false, enrolling: false, enrollError: "" };
 const listeners = new Set<() => void>();
 const emit = (next: Partial<State>) => { state = { ...state, ...next }; listeners.forEach((l) => l()); };
 const subscribe = (l: () => void) => { listeners.add(l); return () => listeners.delete(l); };
@@ -28,7 +28,7 @@ export async function refreshDealerHeo(token = state.token) {
 /** Called by the portal when the dealer session changes. */
 export function setDealerHeoSession(token: string) {
   if (state.token === token) return;
-  emit({ token, status: null, lastOrder: null });
+  emit({ token, status: null, lastOrder: null, offerOpen: false, enrollError: "" });
   if (token) void refreshDealerHeo(token);
 }
 
@@ -37,6 +37,24 @@ export function noteDealerHeoOrder(orderNumber: string, quantity: number) {
   if (!orderNumber || !state.status) return;
   emit({ lastOrder: { orderNumber, quantity, spun: false } });
   void refreshDealerHeo();
+}
+
+const OFFER_DISMISS_KEY = "bmq_heo_offer_later";
+
+/** Opens the big offer dialog (from any "Tham gia" / "Xem thể lệ" entry). */
+export function openDealerHeoOffer() { emit({ offerOpen: true, enrollError: "" }); }
+
+export async function enrollDealerHeo(action: "enroll" | "decline") {
+  if (!state.token || state.enrolling) return;
+  emit({ enrolling: true, enrollError: "" });
+  const { data, error } = await callEdgeFunction<{ success?: boolean }>("dealer-heo", { dealer_token: state.token, action }, undefined, 15000);
+  if (error || !data?.success) {
+    emit({ enrolling: false, enrollError: error || "Chưa lưu được lựa chọn. Vui lòng thử lại." });
+    return;
+  }
+  try { sessionStorage.removeItem(OFFER_DISMISS_KEY); } catch { /* ignore */ }
+  emit({ enrolling: false, offerOpen: false });
+  await refreshDealerHeo();
 }
 
 function useHeo() {
@@ -52,135 +70,175 @@ const spinLabel = (s: { prize_kind: string; amount_vnd: number; bread_qty: numbe
       : s.prize_kind === "bread" ? `🍞 +${que(s.bread_qty)} que`
         : "Chúc may mắn lần sau";
 
-function HowItWorks({ open, onOpenChange, status }: { open: boolean; onOpenChange: (v: boolean) => void; status: ActiveStatus }) {
+const enrollOf = (s: ActiveStatus) => s.enrollment?.status ?? "none";
+const requiredOf = (s: ActiveStatus) => Math.max(1, Number(s.spin_required_quantity) || Math.ceil(baselineOf(s)) || 1);
+
+/** Full rules, shown inside the offer dialog and "Thể lệ" sheets. */
+function RulesList({ status }: { status: ActiveStatus }) {
   const base = que(baselineOf(status));
+  const need = que(requiredOf(status));
   const rate = formatHeoVnd(status.campaign.rate);
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-dealer-ui="dealer-option-c" className="dealer-heo-sheet max-w-sm rounded-[28px]">
-        <DialogTitle className="text-xl font-extrabold">Heo của anh/chị lớn thế nào?</DialogTitle>
-        <DialogDescription className="sr-only">Cách nhận thưởng chương trình Heo Đất Tết</DialogDescription>
-        <ol className="dealer-heo-steps">
-          <li><i>1</i><span><b>Đặt vượt {base} que/ngày</b> (mức tháng 11 của anh/chị): mỗi que vượt <b>+{rate}</b> vào heo.</span></li>
-          <li><i>2</i><span><b>Đơn từ {base} que</b>: được <b>lắc heo 1 lần</b> — rơi ra xu, bánh tặng hoặc Heo Vàng.{status.campaign.spin_enabled_for_me ? "" : " (Lắc heo sẽ mở sớm.)"}</span></li>
-          <li><i>3</i><span><b>Ngày {dm(status.campaign.break_on)} đập heo</b>: tiền trong heo trừ công nợ hoặc chuyển khoản, bánh tặng giao kèm đơn.</span></li>
-        </ol>
-        <p className="dealer-heo-fine">Chỉ tính que tính tiền; bánh đổi/bù không tính. Không cần đăng ký, không cần mã.</p>
-        <button type="button" className="dealer-heo-btn dealer-heo-btn--ink" onClick={() => onOpenChange(false)}>Đã hiểu</button>
+    <ol className="dealer-heo-steps">
+      <li><i>1</i><span><b>Mức của anh/chị là {base} que/ngày</b> — trung bình mỗi ngày trong tháng 11 của chính anh/chị.</span></li>
+      <li><i>2</i><span><b>Đặt vượt mức mỗi ngày:</b> mỗi que vượt <b>+{rate}</b> vào heo. Ngày đặt thấp hơn mức thì không bị trừ.</span></li>
+      <li><i>3</i><span><b>Lắc heo:</b> mỗi đơn từ <b>{need} que trở lên</b> được lắc 1 lần, rơi ra xu, bánh tặng hoặc Heo Vàng. Đơn dưới {need} que chưa được lắc.</span></li>
+      <li><i>4</i><span><b>Đập heo ngày {dm(status.campaign.break_on)}:</b> tiền trong heo trừ vào công nợ hoặc chuyển khoản, bánh tặng giao kèm đơn.</span></li>
+    </ol>
+  );
+}
+
+function OfferDialog() {
+  const { status, offerOpen, enrolling, enrollError } = useHeo();
+  if (!status) return null;
+  const close = (v: boolean) => {
+    if (v) return;
+    try { sessionStorage.setItem(OFFER_DISMISS_KEY, "1"); } catch { /* ignore */ }
+    emit({ offerOpen: false });
+  };
+  const joined = enrollOf(status) === "joined";
+  return (
+    <Dialog open={offerOpen} onOpenChange={close}>
+      <DialogContent data-dealer-ui="dealer-option-c" className="dealer-heo-offer max-w-sm rounded-[28px]" data-dealer-heo-offer>
+        <DialogTitle className="sr-only">Chương trình Heo Đất Tết</DialogTitle>
+        <DialogDescription className="sr-only">Nội dung, thể lệ và điều kiện tham gia chương trình Heo Đất Tết</DialogDescription>
+        <div className="dealer-heo-welcome-hero">
+          <div className="dealer-heo-bigpig" aria-hidden="true">🐷</div>
+          <div className="dealer-heo-kicker">BMQ TẶNG ANH/CHỊ</div>
+          <strong>Heo Đất Tết</strong>
+        </div>
+        <p className="dealer-heo-welcome-line">
+          Bán thêm mỗi que, heo thêm <b>{formatHeoVnd(status.campaign.rate)}</b>. Đập heo ngày <b>{dm(status.campaign.break_on)}</b> lấy tiền tiêu Tết.
+        </p>
+        <div className="dealer-heo-baseline" data-dealer-heo-baseline>
+          <b>{que(baselineOf(status))} que/ngày</b>
+          <span>Mức trung bình tháng {Number(status.baseline_month?.slice(5) || 11)} của anh/chị. Đặt trên mức này là có thưởng.</span>
+        </div>
+        <RulesList status={status} />
+        <p className="dealer-heo-fine">
+          Chương trình từ {dm(status.campaign.starts_on)} đến {dm(status.campaign.ends_on)}. Chỉ tính que bánh mì que tính tiền; bánh đổi/bù không tính.
+          Heo tính từ ngày anh/chị bấm Tham gia. {joined ? "" : "Không tham gia thì đặt hàng bình thường, anh/chị vẫn tham gia lại được bất cứ lúc nào."}
+        </p>
+        {enrollError ? <p className="dealer-heo-err" role="alert">{enrollError}</p> : null}
+        <div className="dealer-heo-offer-actions">
+        {joined ? (
+          <button type="button" className="dealer-heo-btn dealer-heo-btn--ink" onClick={() => emit({ offerOpen: false })}>Đóng</button>
+        ) : (
+          <>
+            <button type="button" className="dealer-heo-btn dealer-heo-btn--red" data-dealer-heo-join disabled={enrolling} onClick={() => void enrollDealerHeo("enroll")}>
+              {enrolling ? "Đang lưu…" : "🐷 Tham gia"}
+            </button>
+            <button type="button" className="dealer-heo-btn dealer-heo-btn--ghost" data-dealer-heo-decline disabled={enrolling} onClick={() => void enrollDealerHeo("decline")}>
+              Không tham gia
+            </button>
+          </>
+        )}
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-/** Red card at the top of the chat. */
+/** Opens the offer on entering dathang while the dealer has not chosen yet. */
+function OfferAutoOpen() {
+  const { status, token } = useHeo();
+  useEffect(() => {
+    if (!status || !token || enrollOf(status) !== "none") return;
+    let later = "";
+    try { later = sessionStorage.getItem(OFFER_DISMISS_KEY) || ""; } catch { /* ignore */ }
+    if (!later) openDealerHeoOffer();
+  }, [status, token]);
+  return null;
+}
+
+/** Banner at the top of the chat. Joined = red heo card; otherwise an offer card. */
 export function DealerHeoBanner() {
   const { status } = useHeo();
-  const [open, setOpen] = useState(false);
   if (!status) return null;
+  const mode = enrollOf(status);
   const s = status.summary;
   return (
-    <section className="dealer-heo-banner" data-dealer-heo-banner aria-label="Chương trình Heo Đất Tết">
+    <section className="dealer-heo-banner" data-dealer-heo-banner data-enrollment={mode} aria-label="Chương trình Heo Đất Tết">
+      <OfferAutoOpen />
+      <OfferDialog />
       <div className="dealer-heo-kicker">{status.campaign.title.toUpperCase()}</div>
-      <div className="dealer-heo-pigrow">
-        <span className="dealer-heo-pig" aria-hidden="true">🐷</span>
-        <div className="min-w-0">
-          <strong>{formatHeoVnd(s.total_vnd)}</strong>
-          <span>{s.bread_qty > 0 ? `+ ${que(s.bread_qty)} que bánh tặng · ` : ""}đập heo {dm(status.campaign.break_on)}</span>
-        </div>
-      </div>
-      <div className="dealer-heo-extra" data-dealer-heo-extra>
-        <div><b>{que(s.extra_que)} que</b><span>đã bán thêm</span></div>
-        <div><b>{que(baselineOf(status))} que/ngày</b><span>mức của anh/chị (T11)</span></div>
-      </div>
-      <p>Đặt vượt mức mỗi ngày: mỗi que +{formatHeoVnd(status.campaign.rate)} vào heo.</p>
-      <button type="button" className="dealer-heo-btn dealer-heo-btn--light" onClick={() => setOpen(true)}>Xem cách nhận</button>
-      <HowItWorks open={open} onOpenChange={setOpen} status={status} />
-      <DealerHeoWelcome />
+      {mode === "joined" ? (
+        <>
+          <div className="dealer-heo-pigrow">
+            <span className="dealer-heo-pig" aria-hidden="true">🐷</span>
+            <div className="min-w-0">
+              <strong>{formatHeoVnd(s.total_vnd)}</strong>
+              <span>{s.bread_qty > 0 ? `+ ${que(s.bread_qty)} que bánh tặng · ` : ""}đập heo {dm(status.campaign.break_on)}</span>
+            </div>
+          </div>
+          <div className="dealer-heo-extra" data-dealer-heo-extra>
+            <div><b>{que(s.extra_que)} que</b><span>đã bán thêm</span></div>
+            <div><b>{que(baselineOf(status))} que/ngày</b><span>mức của anh/chị (T{Number(status.baseline_month?.slice(5) || 11)})</span></div>
+          </div>
+          <p>Đặt vượt mức mỗi ngày: mỗi que +{formatHeoVnd(status.campaign.rate)} vào heo. Đơn từ {que(requiredOf(status))} que được lắc heo.</p>
+          <button type="button" className="dealer-heo-btn dealer-heo-btn--light" onClick={openDealerHeoOffer}>Xem thể lệ</button>
+        </>
+      ) : (
+        <>
+          <div className="dealer-heo-pigrow">
+            <span className="dealer-heo-pig" aria-hidden="true">🐷</span>
+            <div className="min-w-0">
+              <strong>Mức của anh/chị: {que(baselineOf(status))} que/ngày</strong>
+              <span>Đặt trên mức này mỗi ngày là có thưởng</span>
+            </div>
+          </div>
+          <p>{mode === "declined" ? "Anh/chị đang không tham gia. Muốn tham gia lại bất cứ lúc nào." : "Bán thêm mỗi que, heo thêm " + formatHeoVnd(status.campaign.rate) + ". Đập heo " + dm(status.campaign.break_on) + " lấy tiền Tết."}</p>
+          <button type="button" className="dealer-heo-btn dealer-heo-btn--light" data-dealer-heo-open-offer onClick={openDealerHeoOffer}>
+            {mode === "declined" ? "Tham gia lại" : "Xem thể lệ & tham gia"}
+          </button>
+        </>
+      )}
     </section>
   );
 }
 
-const WELCOME_KEY = "bmq_heo_welcome_ack";
-const vnToday = () => new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
-
-/** Big notice when the dealer opens dathang: shown once per day until "Đã hiểu" is tapped. */
-export function DealerHeoWelcome() {
-  const { status, token } = useHeo();
-  const [open, setOpen] = useState(false);
-  const [howOpen, setHowOpen] = useState(false);
-  useEffect(() => {
-    if (!status || !token) { setOpen(false); return; }
-    let seen = "";
-    try { seen = localStorage.getItem(WELCOME_KEY) || ""; } catch { /* storage may be blocked */ }
-    if (seen === "done" || seen === vnToday()) return;
-    setOpen(true);
-  }, [status, token]);
-  if (!status) return null;
-  const ack = (final: boolean) => {
-    try { localStorage.setItem(WELCOME_KEY, final ? "done" : vnToday()); } catch { /* ignore */ }
-    setOpen(false);
-  };
-  return (
-    <>
-      <Dialog open={open} onOpenChange={(v) => { if (!v) ack(false); }}>
-        <DialogContent data-dealer-ui="dealer-option-c" className="dealer-heo-welcome max-w-sm rounded-[28px]" data-dealer-heo-welcome>
-          <DialogTitle className="sr-only">Chương trình Heo Đất Tết</DialogTitle>
-          <DialogDescription className="sr-only">Giới thiệu chương trình Heo Đất Tết</DialogDescription>
-          <div className="dealer-heo-welcome-hero">
-            <div className="dealer-heo-bigpig" aria-hidden="true">🐷</div>
-            <div className="dealer-heo-kicker">BMQ TẶNG ANH/CHỊ</div>
-            <strong>Heo Đất Tết</strong>
-          </div>
-          <p className="dealer-heo-welcome-line">
-            Bán thêm mỗi que, heo thêm <b>{formatHeoVnd(status.campaign.rate)}</b>. Mỗi đơn đủ mức còn được <b>lắc heo</b> trúng quà.
-            Đập heo ngày <b>{dm(status.campaign.break_on)}</b> lấy tiền tiêu Tết.
-          </p>
-          <p className="dealer-heo-fine">Không cần đăng ký, không cần mã. Anh/chị đặt hàng như mọi ngày là heo tự lớn.</p>
-          <button type="button" className="dealer-heo-btn dealer-heo-btn--ink" onClick={() => ack(true)}>Đã hiểu</button>
-          <button type="button" className="dealer-heo-btn dealer-heo-btn--ghost" onClick={() => { ack(false); setHowOpen(true); }}>Xem heo của tôi</button>
-        </DialogContent>
-      </Dialog>
-      <HowItWorks open={howOpen} onOpenChange={setHowOpen} status={status} />
-    </>
-  );
-}
-
-/** Thin line that stays pinned at the top of the chat while the dealer scrolls. */
+/** Thin line pinned at the top of the chat while the dealer scrolls. */
 export function DealerHeoPinned() {
   const { status } = useHeo();
-  const [open, setOpen] = useState(false);
   if (!status) return null;
+  const mode = enrollOf(status);
   return (
-    <>
-      <button type="button" className="dealer-heo-pinned" data-dealer-heo-pinned onClick={() => setOpen(true)}>
-        <span aria-hidden="true">🐷</span>
-        <b>{formatHeoVnd(status.summary.total_vnd)}</b>
-        <span>· bán thêm {que(status.summary.extra_que)} que</span>
-        <i aria-hidden="true">›</i>
-      </button>
-      <HowItWorks open={open} onOpenChange={setOpen} status={status} />
-    </>
+    <button type="button" className="dealer-heo-pinned" data-dealer-heo-pinned data-enrollment={mode} onClick={openDealerHeoOffer}>
+      <span aria-hidden="true">🐷</span>
+      {mode === "joined" ? (
+        <><b>{formatHeoVnd(status.summary.total_vnd)}</b><span>· bán thêm {que(status.summary.extra_que)} que</span></>
+      ) : (
+        <><b>Heo Đất Tết</b><span>· {mode === "declined" ? "bấm để tham gia lại" : "bấm để xem thể lệ & tham gia"}</span></>
+      )}
+      <i aria-hidden="true">›</i>
+    </button>
   );
 }
 
-/** Compact card at the top of Đơn hàng (all tabs). */
+/** Compact card at the top of Đơn hàng (history tab). */
 export function DealerHeoOrdersCard() {
   const { status } = useHeo();
-  const [open, setOpen] = useState(false);
   if (!status) return null;
+  const mode = enrollOf(status);
   const s = status.summary;
   return (
-    <>
-      <button type="button" className="dealer-heo-orders-card" data-dealer-heo-orders-card onClick={() => setOpen(true)} aria-label="Xem cách nhận heo">
-        <span className="dealer-heo-pig" aria-hidden="true">🐷</span>
-        <span className="min-w-0 flex-1 text-left">
-          <b>Heo Đất Tết · {formatHeoVnd(s.total_vnd)}</b>
-          <small>Đã bán thêm {que(s.extra_que)} que · mức {que(baselineOf(status))} que/ngày · còn {s.days_to_break} ngày đập heo</small>
-        </span>
-        <i aria-hidden="true">›</i>
-      </button>
-      <HowItWorks open={open} onOpenChange={setOpen} status={status} />
-    </>
+    <button type="button" className="dealer-heo-orders-card" data-dealer-heo-orders-card data-enrollment={mode} onClick={openDealerHeoOffer} aria-label="Xem thể lệ Heo Đất Tết">
+      <span className="dealer-heo-pig" aria-hidden="true">🐷</span>
+      <span className="min-w-0 flex-1 text-left">
+        {mode === "joined" ? (
+          <>
+            <b>Heo Đất Tết · {formatHeoVnd(s.total_vnd)}</b>
+            <small>Đã bán thêm {que(s.extra_que)} que · mức {que(baselineOf(status))} que/ngày · còn {s.days_to_break} ngày đập heo</small>
+          </>
+        ) : (
+          <>
+            <b>Heo Đất Tết · {mode === "declined" ? "Tham gia lại" : "Tham gia ngay"}</b>
+            <small>Mức của anh/chị {que(baselineOf(status))} que/ngày · đặt trên mức là có thưởng</small>
+          </>
+        )}
+      </span>
+      <i aria-hidden="true">›</i>
+    </button>
   );
 }
 
@@ -188,19 +246,31 @@ export function DealerHeoOrdersCard() {
 export function DealerHeoOrderStrip({ quantity }: { quantity: number }) {
   const { status } = useHeo();
   if (!status || !(quantity > 0)) return null;
+  const mode = enrollOf(status);
+  if (mode !== "joined") {
+    return (
+      <button type="button" className="dealer-heo-strip dealer-heo-strip--join" data-dealer-heo-strip onClick={openDealerHeoOffer}>
+        <span aria-hidden="true">🐷</span>
+        <div><b>Tham gia Heo Đất Tết để đơn này được tính thưởng</b><small>Mức của anh/chị {que(baselineOf(status))} que/ngày · bấm xem thể lệ</small></div>
+      </button>
+    );
+  }
   const base = baselineOf(status);
   const extra = Math.max(0, quantity - base);
-  const eligible = quantity >= (status.campaign.is_test ? 1 : (base > 0 ? base : 1));
+  const need = status.campaign.is_test ? 1 : requiredOf(status);
+  const missing = Math.max(0, need - quantity);
   return (
     <div className="dealer-heo-strip" data-dealer-heo-strip>
       <span aria-hidden="true">🐷</span>
       <div>
         {extra > 0
-          ? <><b>Vượt {que(extra)} que → +{formatHeoVnd(extra * status.campaign.rate)} vào heo</b></>
-          : <><b>Thêm {que(Math.ceil(base - quantity) || 1)} que nữa</b> là bắt đầu bỏ heo</>}
+          ? <b>Vượt {que(extra)} que → +{formatHeoVnd(extra * status.campaign.rate)} vào heo</b>
+          : <b>Thêm {que(Math.max(1, Math.ceil(base - quantity)))} que nữa là bắt đầu bỏ heo</b>}
         <small>
           Heo đang có {formatHeoVnd(status.summary.total_vnd)}
-          {eligible && status.campaign.spin_enabled_for_me ? " · đơn này được lắc heo" : ""}
+          {status.campaign.spin_enabled_for_me
+            ? (missing === 0 ? " · đơn này được lắc heo" : ` · còn thiếu ${que(missing)} que để được lắc heo (từ ${que(need)} que)`)
+            : ""}
         </small>
       </div>
     </div>
@@ -217,7 +287,7 @@ export function DealerHeoSpinPrompt() {
   const [total, setTotal] = useState(0);
 
   useEffect(() => { setPhase("idle"); setResult(null); setError(""); }, [lastOrder?.orderNumber]);
-  if (!status || !lastOrder || !status.campaign.spin_enabled_for_me) return null;
+  if (!status || !lastOrder || !status.campaign.spin_enabled_for_me || enrollOf(status) !== "joined") return null;
   const base = baselineOf(status);
   // Test accounts can spin on any order; real dealers need the order to reach their November average.
   if (lastOrder.quantity < (status.campaign.is_test ? 1 : (base > 0 ? base : 1))) return null;
@@ -283,7 +353,7 @@ export function DealerHeoSpinPrompt() {
 export function DealerHeoReportCard({ sessionToken }: { sessionToken: string }) {
   const { status } = useHeo();
   useEffect(() => { setDealerHeoSession(sessionToken); }, [sessionToken]);
-  if (!status) return null;
+  if (!status || enrollOf(status) !== "joined") return null;
   const s = status.summary;
   return (
     <section className="dealer-heo-report" data-dealer-heo-report aria-label="Heo Đất Tết">

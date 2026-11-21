@@ -4,6 +4,7 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   computeHeoSummary,
+  heoSpinShortfall,
   type HeoSpinInput,
   previewOrderExtra,
 } from "./dealer-heo.ts";
@@ -240,4 +241,76 @@ Deno.test("previewOrderExtra only prices the newly crossed part and checks the o
     orderQuantity: 2,
     ratePerExtraQue: 500,
   }).spin_eligible);
+});
+
+Deno.test("joinedOn only counts deliveries from the join date onward", () => {
+  const summary = computeHeoSummary({
+    baselineAvgPerDay: 2,
+    dailyQuantities: [
+      { date: "2026-12-09", quantity: 10 },
+      { date: "2026-12-10", quantity: 5 },
+      { date: "2026-12-11", quantity: 4 },
+    ],
+    spins: [],
+    ratePerExtraQue: 500,
+    windowStart: "2026-12-01",
+    windowEnd: "2026-12-31",
+    breakOn: "2027-01-15",
+    today: "2026-12-20",
+    joinedOn: "2026-12-10",
+  });
+
+  // 9/12 is before the join date and must not earn; 10/12 itself does.
+  assertEquals(summary.extra_que, 5);
+  assertEquals(summary.from_extra_vnd, 2500);
+});
+
+Deno.test("joinedOn after windowEnd earns no extra que", () => {
+  const summary = computeHeoSummary({
+    baselineAvgPerDay: 2,
+    dailyQuantities: [{ date: "2026-12-20", quantity: 10 }],
+    spins: [],
+    ratePerExtraQue: 500,
+    windowStart: "2026-12-01",
+    windowEnd: "2026-12-31",
+    breakOn: "2027-01-15",
+    today: "2026-12-20",
+    joinedOn: "2027-01-01",
+  });
+
+  assertEquals(summary.extra_que, 0);
+  assertEquals(summary.from_extra_vnd, 0);
+});
+
+Deno.test("joinedOn null keeps the legacy calculation", () => {
+  const input = {
+    baselineAvgPerDay: 2,
+    dailyQuantities: [
+      { date: "2026-12-02", quantity: 5 },
+      { date: "2026-12-03", quantity: 4 },
+    ],
+    spins: [],
+    ratePerExtraQue: 500,
+    windowStart: "2026-12-01",
+    windowEnd: "2026-12-31",
+    breakOn: "2027-01-15",
+    today: "2026-12-20",
+  };
+
+  assertEquals(computeHeoSummary({ ...input, joinedOn: null }), computeHeoSummary(input));
+});
+
+Deno.test("heoSpinShortfall rounds the baseline up and reports missing que", () => {
+  assertEquals(heoSpinShortfall({ baselineAvgPerDay: 123.4, orderQuantity: 0 }), {
+    required_quantity: 124,
+    missing_quantity: 124,
+  });
+  assertEquals(heoSpinShortfall({ baselineAvgPerDay: 0, orderQuantity: 0 }), {
+    required_quantity: 1,
+    missing_quantity: 1,
+  });
+  assertEquals(heoSpinShortfall({ baselineAvgPerDay: 123.4, orderQuantity: 130 }), {
+    required_quantity: 124,
+    missing_quantity: 0,
+  });
 });
