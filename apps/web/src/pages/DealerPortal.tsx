@@ -3872,7 +3872,10 @@ function NppQuickOrderPanel({
           </div>
           <div className="mt-2">
             <DealerHeoOrderStrip
-              quantity={assistantProposal.lines.reduce((sum, line) => sum + ((line.product.skuCode || "") === "BMQ-001" ? line.quantity : 0), 0)}
+              quantity={(assistantProposal.lines as Array<{ product: { skuCode?: string }; quantity: number }>).reduce(
+                (sum: number, line) => sum + ((line.product.skuCode || "") === "BMQ-001" ? line.quantity : 0),
+                0,
+              )}
             />
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">

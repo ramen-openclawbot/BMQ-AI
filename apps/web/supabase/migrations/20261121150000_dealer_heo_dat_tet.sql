@@ -285,7 +285,8 @@ begin
 
   v_baseline := coalesce(v_baseline, 0);
 
-  if v_baseline > 0 then
+  -- Test accounts spin on any order with at least 1 que so the flow can be tried.
+  if v_baseline > 0 and p_is_test = false then
     if v_quantity < v_baseline then
       raise exception 'heo_order_not_eligible';
     end if;

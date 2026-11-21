@@ -19,6 +19,8 @@ export type DealerHeoCampaign = {
   break_on: string | null;
   rate: number;
   spin_enabled_for_me: boolean;
+  /** True for test accounts: spins are allowed on any order and are never paid. */
+  is_test?: boolean;
   prizes: DealerHeoPrize[];
 };
 

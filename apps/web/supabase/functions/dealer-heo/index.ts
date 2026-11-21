@@ -238,6 +238,7 @@ function publicCampaign(campaign: CampaignRow, isTest: boolean) {
     break_on: campaign.break_on,
     rate: campaign.rate_per_extra_que_vnd,
     spin_enabled_for_me: campaign.spin_enabled === true || isTest,
+    is_test: isTest,
     prizes: normalizePrizeLabels(campaign.prizes),
   };
 }

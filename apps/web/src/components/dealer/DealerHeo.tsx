@@ -101,7 +101,7 @@ export function DealerHeoOrderStrip({ quantity }: { quantity: number }) {
   if (!status || !(quantity > 0)) return null;
   const base = baselineOf(status);
   const extra = Math.max(0, quantity - base);
-  const eligible = quantity >= (base > 0 ? base : 1);
+  const eligible = quantity >= (status.campaign.is_test ? 1 : (base > 0 ? base : 1));
   return (
     <div className="dealer-heo-strip" data-dealer-heo-strip>
       <span aria-hidden="true">🐷</span>
@@ -130,7 +130,8 @@ export function DealerHeoSpinPrompt() {
   useEffect(() => { setPhase("idle"); setResult(null); setError(""); }, [lastOrder?.orderNumber]);
   if (!status || !lastOrder || !status.campaign.spin_enabled_for_me) return null;
   const base = baselineOf(status);
-  if (lastOrder.quantity < (base > 0 ? base : 1)) return null;
+  // Test accounts can spin on any order; real dealers need the order to reach their November average.
+  if (lastOrder.quantity < (status.campaign.is_test ? 1 : (base > 0 ? base : 1))) return null;
 
   const spin = async () => {
     setOpen(true);

@@ -142,7 +142,7 @@ const HEO_SUMMARY = { extra_que: 257, from_extra_vnd: 128500, from_spins_vnd: 58
   recent_spins: [{ amount_vnd: 20000, bread_qty: 0, prize_kind: "coin", is_jackpot: false, created_at: "2026-12-14T03:00:00Z", order_id: "o1" },
     { amount_vnd: 0, bread_qty: 10, prize_kind: "bread", is_jackpot: false, created_at: "2026-12-13T03:00:00Z", order_id: "o2" }] };
 const HEO_STATUS = { success: true, active: true, baseline_avg_per_day: 123,
-  campaign: { title: "Heo Đất Tết", starts_on: "2026-12-01", ends_on: "2026-12-31", break_on: "2027-01-15", rate: 500, spin_enabled_for_me: true, prizes: [] },
+  campaign: { title: "Heo Đất Tết", starts_on: "2026-12-01", ends_on: "2026-12-31", break_on: "2027-01-15", rate: 500, spin_enabled_for_me: true, is_test: true, prizes: [] },
   summary: HEO_SUMMARY };
 const heoCalls = [];
 function heoAnswer(body) {
