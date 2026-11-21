@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   attendanceConsentState,
+  attendanceHolidayFor,
   attendanceMessage,
   dayStatus,
   dayStatusMessage,
@@ -191,6 +192,43 @@ test("vietnamWorkDate uses UTC+7 across the midnight boundary", () => {
   assert.equal(vietnamWorkDate(new Date("2026-11-09T16:59:00.000Z")), "2026-11-09");
   assert.equal(vietnamWorkDate(new Date("2026-11-09T17:00:00.000Z")), "2026-11-10");
   assert.equal(vietnamWorkDate(new Date("2026-11-09T17:01:00.000Z")), "2026-11-10");
+});
+
+test("attendanceHolidayFor flags 24/11 only from a covering payroll period", () => {
+  const periods = [{
+    date_from: "2026-11-01",
+    date_to: "2026-11-30",
+    holidays: ["2026-11-24"],
+  }];
+  assert.deepEqual(attendanceHolidayFor(periods, "2026-11-24"), {
+    isHoliday: true,
+    date: "2026-11-24",
+    multiplier: 2,
+  });
+  assert.deepEqual(attendanceHolidayFor(periods, "2026-11-23"), {
+    isHoliday: false,
+    date: "2026-11-23",
+    multiplier: 2,
+  });
+  // No period covering today → not a holiday.
+  assert.equal(attendanceHolidayFor([], "2026-11-24").isHoliday, false);
+  assert.equal(attendanceHolidayFor(null, "2026-11-24").isHoliday, false);
+  // A covering period that lists other holidays keeps 24/11 normal.
+  assert.equal(
+    attendanceHolidayFor(
+      [{ date_from: "2026-11-01", date_to: "2026-11-30", holidays: ["2026-11-20"] }],
+      "2026-11-24",
+    ).isHoliday,
+    false,
+  );
+  // A period outside the date does not apply.
+  assert.equal(
+    attendanceHolidayFor(
+      [{ date_from: "2026-10-01", date_to: "2026-10-31", holidays: ["2026-11-24"] }],
+      "2026-11-24",
+    ).isHoliday,
+    false,
+  );
 });
 
 test("dayStatus reports complete, missing_in, missing_out and approved_override", () => {

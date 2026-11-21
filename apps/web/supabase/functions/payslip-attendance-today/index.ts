@@ -14,12 +14,14 @@ import {
 } from "../_shared/payslip-portal.ts";
 import {
   attendanceConsentState,
+  attendanceHolidayFor,
   attendanceMessage,
   dayStatus,
   PAYROLL_ATTENDANCE_CONSENT_VERSION,
   vietnamWorkDate,
   type AttendanceDayEvent,
   type AttendanceDayStatus,
+  type PayrollHolidayPeriod,
 } from "../_shared/payroll-attendance.ts";
 
 const LOOKBACK_DAYS = 35;
@@ -119,7 +121,7 @@ serve(async (req) => {
     const fromDate = previousDate(today, LOOKBACK_DAYS - 1);
     const employeeCode = session.employee_code;
 
-    // Independent reads run together (one round trip instead of seven). Data
+    // Independent reads run together (one round trip instead of eight). Data
     // is only returned after the contact check below passes.
     const [
       contactResult,
@@ -128,6 +130,7 @@ serve(async (req) => {
       consentResult,
       eventsResult,
       overridesResult,
+      periodsResult,
     ] = await Promise.all([
       // Turning a phone off in the Nhân viên tab cuts access immediately.
       supabase
@@ -169,6 +172,13 @@ serve(async (req) => {
         .eq("employee_code", employeeCode)
         .gte("work_date", fromDate)
         .lte("work_date", today),
+      // Owner 2026-11-24 — the period covering today carries the holiday list
+      // that decides whether today's hours count double.
+      supabase
+        .from("payroll_bn_periods")
+        .select("date_from, date_to, holidays")
+        .lte("date_from", today)
+        .gte("date_to", today),
     ]);
 
     if (contactResult.error) throw contactResult.error;
@@ -179,7 +189,7 @@ serve(async (req) => {
         .eq("id", session.id);
       return errorResponse(req, "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", 401, "session_invalid");
     }
-    for (const result of [gateResult, consentConfigResult, consentResult, eventsResult, overridesResult]) {
+    for (const result of [gateResult, consentConfigResult, consentResult, eventsResult, overridesResult, periodsResult]) {
       if (result.error) throw result.error;
     }
 
@@ -234,6 +244,10 @@ serve(async (req) => {
     const overrideDates = new Set(
       ((overridesResult.data || []) as Array<{ work_date: string }>).map((row) => row.work_date),
     );
+    const holiday = attendanceHolidayFor(
+      (periodsResult.data || []) as PayrollHolidayPeriod[],
+      today,
+    );
 
     const eventsByDay = new Map<string, AttendanceDayEvent[]>();
     for (const row of rawEvents) {
@@ -279,6 +293,7 @@ serve(async (req) => {
         accepted_at: consent.acceptedAt,
         withdrawn_at: consent.withdrawnAt,
       },
+      holiday,
       today: {
         work_date: today,
         status: todayStatus,

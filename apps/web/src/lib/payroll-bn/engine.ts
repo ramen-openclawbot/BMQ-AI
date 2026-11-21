@@ -61,6 +61,8 @@ export interface AttendanceAggregate {
   nonHolidayDates: string[];
   holidayDates: string[];
   workedSeconds: bigint;
+  /** 2026-11-24 — portion of `workedSeconds` on period holidays, after the same deductions. */
+  holidayWorkedSeconds: bigint;
   /** Seconds above the standard day, used for reconciliation (Q3). */
   overtimeSeconds: bigint;
   /** 2026-10-09 — exact công credited on non-holiday dates (short shift → 0,5/0). */
@@ -121,6 +123,7 @@ export function aggregateAttendance(
     .filter((row) => Boolean(row.checkIn) || Boolean(row.checkOut))
     .sort((a, b) => a.date.localeCompare(b.date));
   let workedSeconds = 0;
+  let holidayWorkedSeconds = 0;
   let overtimeSeconds = 0;
 
   // Owner 2026-10-09 — short shift: a full-span day earns one công, a half-span
@@ -151,6 +154,7 @@ export function aggregateAttendance(
       effective = Math.max(0, seconds - deductSeconds);
     }
     workedSeconds += effective;
+    if (holidaySet.has(row.date)) holidayWorkedSeconds += effective;
     const extra = seconds - overtimeThresholdSeconds;
     if (extra > 0 && extra >= overtimeMinimumSeconds) overtimeSeconds += extra;
   }
@@ -178,6 +182,7 @@ export function aggregateAttendance(
     nonHolidayDates: uniqueDates(sorted, holidaySet, false),
     holidayDates: uniqueDates(sorted, holidaySet, true),
     workedSeconds: BigInt(workedSeconds),
+    holidayWorkedSeconds: BigInt(holidayWorkedSeconds),
     overtimeSeconds: BigInt(overtimeSeconds),
     nonHolidayDayCredit,
     holidayDayCredit,
@@ -399,8 +404,17 @@ function buildEmployeeLine(
   }
 
   // --- R8 part-time hours ----------------------------------------------
+  // Owner 2026-11-24 — when holiday work counts double, the hours read from the
+  // machine are normal-day hours + 2 × holiday hours (the holiday hours use the
+  // same deductions as `workedSeconds`). Manual figures and part_time_hours
+  // adjustments keep overriding the derived value.
   const partTimeResolved = resolveQuantity(measures?.partTimeHours, hasAttendance, () =>
-    rational(aggregate.workedSeconds, 3600n),
+    rational(
+      rules.holidayWorkDouble
+        ? aggregate.workedSeconds + aggregate.holidayWorkedSeconds
+        : aggregate.workedSeconds,
+      3600n,
+    ),
   );
   let partTimeHours = partTimeResolved.value;
   const partTimeAdjustment = findAdjustment(adjustments, employee.code, "part_time_hours");
@@ -409,6 +423,15 @@ function buildEmployeeLine(
     flags.push("part_time_hours_adjusted");
   }
   if (!partTime) partTimeHours = RATIONAL_ZERO;
+  if (
+    partTime &&
+    rules.holidayWorkDouble &&
+    aggregate.holidayWorkedSeconds > 0n &&
+    partTimeResolved.source === "attendance" &&
+    !partTimeAdjustment
+  ) {
+    flags.push("holiday_hours_double");
+  }
 
   // --- R1 lương ngày công ----------------------------------------------
   const monthlySalary =
