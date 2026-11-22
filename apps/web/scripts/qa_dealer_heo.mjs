@@ -144,6 +144,7 @@ const HEO_SUMMARY = { extra_que: 257, from_extra_vnd: 128500, from_spins_vnd: 58
     { amount_vnd: 0, bread_qty: 10, prize_kind: "bread", is_jackpot: false, created_at: "2026-12-13T03:00:00Z", order_id: "o2" }] };
 let heoEnrollment = "none";
 let heoPhase = "live";
+let heoDelayMs = 0;
 const heoStatus = () => ({ success: true, active: true, phase: heoPhase, baseline_avg_per_day: 123, baseline_month: "2026-11", spin_required_quantity: 123,
   enrollment: { status: heoEnrollment, joined_on: heoEnrollment === "joined" ? "2026-12-01" : null },
   campaign: { title: "Heo Đất Tết", opens_at: "2026-11-30T13:00:00Z", starts_on: "2026-12-01", ends_on: "2026-12-31", break_on: "2027-01-15", rate: 500, spin_enabled_for_me: true, is_test: true, prizes: [] },
@@ -172,6 +173,7 @@ async function open(viewport, { npp = false } = {}) {
         await new Promise((resolve) => setTimeout(resolve, 250));
         return r.fulfill({ status: answer.status, contentType: "application/json", body: JSON.stringify(answer.json) });
       }
+      if (fn === "dealer-heo") { if (heoDelayMs && r.request().postDataJSON()?.action !== "status") await new Promise((res) => setTimeout(res, heoDelayMs)); }
       if (fn === "dealer-heo") return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(heoAnswer(r.request().postDataJSON())) });
       if (fn === "dealer-report") return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: false, error: "QA" }) });
       if (fn === "dealer-catalog") {
@@ -321,6 +323,23 @@ try {
     await page.screenshot({ path: `${EVIDENCE}/heo-open-joined-390.png` });
     assert.deepEqual(errors, []);
     record("heo open phase 390");
+    await context.close();
+  }
+  // A slow server must not make the screen feel slow: choices apply at once, then reconcile.
+  {
+    heoEnrollment = "none"; heoPhase = "live"; heoCalls.length = 0; heoDelayMs = 1500;
+    const { context, page, errors } = await open({ width: 390, height: 844 });
+    const offer = page.locator("[data-dealer-heo-offer]");
+    await offer.waitFor({ timeout: 15000 });
+    const t0 = Date.now();
+    await offer.locator("[data-dealer-heo-join]").click();
+    await page.locator("[data-dealer-heo-banner][data-enrollment='joined']").waitFor({ timeout: 1200 });
+    assert.ok(Date.now() - t0 < 1000, "screen reacts before the slow server answers");
+    await page.waitForTimeout(1800);
+    assert.equal(await page.locator("[data-dealer-heo-banner]").getAttribute("data-enrollment"), "joined");
+    assert.deepEqual(errors, []);
+    heoDelayMs = 0;
+    record("heo optimistic join with slow server");
     await context.close();
   }
   console.log(`${results.length}/${results.length} PASS · evidence ${EVIDENCE}`);

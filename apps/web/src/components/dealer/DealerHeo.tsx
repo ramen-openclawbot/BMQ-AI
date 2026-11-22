@@ -20,12 +20,12 @@ const subscribe = (l: () => void) => { listeners.add(l); return () => listeners.
 const CACHE_KEY = "bmq_heo_status_cache";
 const cacheRead = (token: string): ActiveStatus | null => {
   try {
-    const raw = JSON.parse(sessionStorage.getItem(CACHE_KEY) || "null");
+    const raw = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
     return raw && raw.token === token && raw.status ? raw.status as ActiveStatus : null;
   } catch { return null; }
 };
 const cacheWrite = (token: string, status: ActiveStatus | null) => {
-  try { if (status) sessionStorage.setItem(CACHE_KEY, JSON.stringify({ token, status })); else sessionStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
+  try { if (status) localStorage.setItem(CACHE_KEY, JSON.stringify({ token, status })); else localStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
 };
 
 export async function refreshDealerHeo(token = state.token) {
@@ -62,11 +62,15 @@ export async function enrollDealerHeo(action: "enroll" | "decline") {
   if (!state.token || state.enrolling) return;
   emit({ enrolling: true, enrollError: "" });
   const token = state.token;
+  // Optimistic: the screen changes at once; it is rolled back if the server refuses.
+  const before = state.status;
+  const optimistic = before ? { ...before, enrollment: { status: action === "enroll" ? "joined" as const : "declined" as const, joined_on: before.enrollment?.joined_on ?? null } } : before;
+  if (optimistic) emit({ status: optimistic, offerOpen: false });
   const { data, error } = await callEdgeFunction<{ success?: boolean; enrollment?: { status: "none" | "joined" | "declined"; joined_on: string | null }; summary?: DealerHeoSummary }>(
     "dealer-heo", { dealer_token: token, action }, undefined, 15000,
   );
   if (error || !data?.success || !data.enrollment) {
-    emit({ enrolling: false, enrollError: error || "Chưa lưu được lựa chọn. Vui lòng thử lại." });
+    emit({ enrolling: false, status: before, offerOpen: true, enrollError: error || "Chưa lưu được lựa chọn. Vui lòng thử lại." });
     return;
   }
   try { sessionStorage.removeItem(OFFER_DISMISS_KEY); } catch { /* ignore */ }

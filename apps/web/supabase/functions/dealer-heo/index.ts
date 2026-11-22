@@ -100,7 +100,11 @@ serve(async (req) => {
     const body = await readJsonBody<DealerHeoRequest>(req);
     const supabase = createServiceClient();
     const token = extractDealerSessionToken(body, req);
-    const resolution = token ? await resolveDealerSessionWithLock(supabase, token) : null;
+    // Resolve the session and load the campaign in the same round trip.
+    const [resolution, campaign] = await Promise.all([
+      token ? resolveDealerSessionWithLock(supabase, token) : Promise.resolve(null),
+      loadCampaign(supabase),
+    ]);
 
     if (resolution?.locked) {
       return jsonResponse(req, dealerOrderLockedResponseBody(), 423);
@@ -111,7 +115,6 @@ serve(async (req) => {
       return errorResponse(req, "Phiên đại lý đã hết hạn. Vui lòng đăng nhập lại.", 401, "dealer_session_required");
     }
 
-    const campaign = await loadCampaign(supabase);
     if (!campaign) {
       return errorResponse(
         req,
@@ -336,7 +339,12 @@ function normalizePrizeLabels(prizes: unknown): { label: string }[] {
   });
 }
 
+// The campaign row changes rarely; keep it in this instance's memory for a short time.
+let campaignCache: { at: number; row: CampaignRow | null } | null = null;
+const CAMPAIGN_TTL_MS = 30_000;
+
 async function loadCampaign(supabase: SupabaseServiceClient): Promise<CampaignRow | null> {
+  if (campaignCache && Date.now() - campaignCache.at < CAMPAIGN_TTL_MS) return campaignCache.row;
   const { data, error } = await supabase
     .from("dealer_heo_campaigns")
     .select("*")
@@ -344,7 +352,9 @@ async function loadCampaign(supabase: SupabaseServiceClient): Promise<CampaignRo
     .maybeSingle();
 
   if (error) throw error;
-  return (data as unknown as CampaignRow | null) ?? null;
+  const row = (data as unknown as CampaignRow | null) ?? null;
+  campaignCache = { at: Date.now(), row };
+  return row;
 }
 
 async function loadBaseline(
