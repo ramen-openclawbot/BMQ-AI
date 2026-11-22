@@ -17,18 +17,32 @@ const listeners = new Set<() => void>();
 const emit = (next: Partial<State>) => { state = { ...state, ...next }; listeners.forEach((l) => l()); };
 const subscribe = (l: () => void) => { listeners.add(l); return () => listeners.delete(l); };
 
+const CACHE_KEY = "bmq_heo_status_cache";
+const cacheRead = (token: string): ActiveStatus | null => {
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(CACHE_KEY) || "null");
+    return raw && raw.token === token && raw.status ? raw.status as ActiveStatus : null;
+  } catch { return null; }
+};
+const cacheWrite = (token: string, status: ActiveStatus | null) => {
+  try { if (status) sessionStorage.setItem(CACHE_KEY, JSON.stringify({ token, status })); else sessionStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
+};
+
 export async function refreshDealerHeo(token = state.token) {
   if (!token) return;
   emit({ loading: true });
   const { data } = await callEdgeFunction<DealerHeoStatusResponse>("dealer-heo", { dealer_token: token, action: "status" }, undefined, 15000);
   if (state.token !== token) return;
-  emit({ loading: false, status: data && data.success && data.active ? data : null });
+  const next = data && data.success && data.active ? data : null;
+  cacheWrite(token, next);
+  emit({ loading: false, status: next });
 }
 
 /** Called by the portal when the dealer session changes. */
 export function setDealerHeoSession(token: string) {
   if (state.token === token) return;
-  emit({ token, status: null, lastOrder: null, offerOpen: false, enrollError: "" });
+  // Show the last known status at once (same session) while the fresh one loads.
+  emit({ token, status: token ? cacheRead(token) : null, lastOrder: null, offerOpen: false, enrollError: "" });
   if (token) void refreshDealerHeo(token);
 }
 
@@ -47,14 +61,19 @@ export function openDealerHeoOffer() { emit({ offerOpen: true, enrollError: "" }
 export async function enrollDealerHeo(action: "enroll" | "decline") {
   if (!state.token || state.enrolling) return;
   emit({ enrolling: true, enrollError: "" });
-  const { data, error } = await callEdgeFunction<{ success?: boolean }>("dealer-heo", { dealer_token: state.token, action }, undefined, 15000);
-  if (error || !data?.success) {
+  const token = state.token;
+  const { data, error } = await callEdgeFunction<{ success?: boolean; enrollment?: { status: "none" | "joined" | "declined"; joined_on: string | null }; summary?: DealerHeoSummary }>(
+    "dealer-heo", { dealer_token: token, action }, undefined, 15000,
+  );
+  if (error || !data?.success || !data.enrollment) {
     emit({ enrolling: false, enrollError: error || "Chưa lưu được lựa chọn. Vui lòng thử lại." });
     return;
   }
   try { sessionStorage.removeItem(OFFER_DISMISS_KEY); } catch { /* ignore */ }
-  emit({ enrolling: false, offerOpen: false });
-  await refreshDealerHeo();
+  // Apply the response directly: no second round trip.
+  const next = state.status ? { ...state.status, enrollment: data.enrollment, summary: data.summary ?? state.status.summary } : state.status;
+  cacheWrite(token, next);
+  emit({ enrolling: false, offerOpen: false, status: next });
 }
 
 function useHeo() {

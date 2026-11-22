@@ -28,8 +28,6 @@ import {
 } from "../_shared/dealer-heo.ts";
 
 const ORDER_PAGE_SIZE = 1000;
-const ITEM_BATCH_SIZE = 200;
-const ITEM_PAGE_SIZE = 1000;
 const HEO_BASELINE_MONTH = "2026-11";
 
 const HEO_ERROR_MESSAGES: Record<string, string> = {
@@ -144,10 +142,14 @@ serve(async (req) => {
       ? (campaign.test_starts_on ?? campaign.starts_on)
       : campaign.starts_on;
     const windowEnd = campaign.ends_on;
-    const [baselineAvgPerDay, enrollment] = await Promise.all([
+    // One parallel round trip: baseline, enrollment and the data the summary needs.
+    const [baselineAvgPerDay, enrollment, prefetchedDaily, prefetchedSpins] = await Promise.all([
       loadBaseline(supabase, campaign.id, customerId),
       loadEnrollment(supabase, campaign.id, customerId, isTest),
+      loadDailyQuantities(supabase, customerId, windowStart, windowEnd),
+      loadSpins(supabase, campaign.id, customerId, isTest),
     ]);
+    const prefetched = { daily: prefetchedDaily, spins: prefetchedSpins };
     const spinRequiredQuantity = requiredQueToSpin(baselineAvgPerDay);
 
     const action = typeof body.action === "string" ? body.action.trim() : "status";
@@ -162,6 +164,7 @@ serve(async (req) => {
         windowEnd,
         today,
         enrollment,
+        prefetched,
       });
 
       return jsonResponse(req, {
@@ -238,6 +241,7 @@ serve(async (req) => {
         windowEnd,
         today,
         enrollment: nextEnrollment,
+        prefetched,
       });
 
       return jsonResponse(req, {
@@ -358,16 +362,10 @@ async function loadBaseline(
   if (error) throw error;
   if (data) return toNumber((data as { baseline_avg_per_day?: unknown }).baseline_avg_per_day);
 
-  // No baseline row yet: compute this dealer's November 2026 average on demand.
-  const orders = await loadOrdersInRange(supabase, {
-    customerId,
-    isTest: false,
-    start: HEO_NOV_BASELINE_START,
-    end: HEO_NOV_BASELINE_END,
-  });
-  const items = await loadBmqItems(supabase, orders.map((order) => order.id));
-  const total = items.reduce((sum, item) => sum + toNumber(item.quantity), 0);
-  return total / HEO_NOV_BASELINE_DAYS;
+  // No baseline row yet: one aggregate query for this dealer's November 2026 average.
+  const { data: avg, error: avgError } = await supabase.rpc("dealer_heo_baseline_nov", { p_customer_id: customerId });
+  if (avgError) throw avgError;
+  return toNumber(avg);
 }
 
 async function loadEnrollment(
@@ -413,6 +411,7 @@ async function loadSummary(
     windowEnd: string;
     today: string;
     enrollment: DealerHeoEnrollment;
+    prefetched?: { daily: HeoDailyQuantity[]; spins: HeoSpinInput[] };
   },
 ): Promise<HeoSummary> {
   const base = {
@@ -430,10 +429,12 @@ async function loadSummary(
     return computeHeoSummary({ ...base, dailyQuantities: [], spins: [] });
   }
 
-  const [dailyQuantities, spins] = await Promise.all([
-    loadDailyQuantities(supabase, options.customerId, options.windowStart, options.windowEnd),
-    loadSpins(supabase, options.campaign.id, options.customerId, options.isTest),
-  ]);
+  const [dailyQuantities, spins] = options.prefetched
+    ? [options.prefetched.daily, options.prefetched.spins]
+    : await Promise.all([
+      loadDailyQuantities(supabase, options.customerId, options.windowStart, options.windowEnd),
+      loadSpins(supabase, options.campaign.id, options.customerId, options.isTest),
+    ]);
 
   return computeHeoSummary({
     ...base,
@@ -443,37 +444,23 @@ async function loadSummary(
   });
 }
 
-/** Real, non-cancelled BMQ-001 que grouped by the order's delivery day. */
+/** Real, non-cancelled BMQ-001 que grouped by delivery day (one aggregate query). */
 async function loadDailyQuantities(
   supabase: SupabaseServiceClient,
   customerId: string,
   windowStart: string,
   windowEnd: string,
 ): Promise<HeoDailyQuantity[]> {
-  const orders = await loadOrdersInRange(supabase, {
-    customerId,
-    isTest: false,
-    start: windowStart,
-    end: windowEnd,
+  const { data, error } = await supabase.rpc("dealer_heo_daily_quantities", {
+    p_customer_id: customerId,
+    p_start: windowStart,
+    p_end: windowEnd,
   });
-  const items = await loadBmqItems(supabase, orders.map((order) => order.id));
-  const orderDates = new Map<string, string>();
-
-  orders.forEach((order) => {
-    const date = deliveryDateKey(order);
-    if (date) orderDates.set(order.id, date);
-  });
-
-  const daily = new Map<string, number>();
-  items.forEach((item) => {
-    const date = orderDates.get(item.order_id);
-    if (!date) return;
-    daily.set(date, (daily.get(date) ?? 0) + toNumber(item.quantity));
-  });
-
-  return [...daily.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([date, quantity]) => ({ date, quantity }));
+  if (error) throw error;
+  return ((data ?? []) as Array<{ day: string; quantity: number | string }>).map((row) => ({
+    date: String(row.day).slice(0, 10),
+    quantity: toNumber(row.quantity),
+  }));
 }
 
 async function loadDayQuantity(
@@ -511,73 +498,6 @@ async function loadSpins(
   }
 
   return spins;
-}
-
-async function loadOrdersInRange(
-  supabase: SupabaseServiceClient,
-  options: { customerId: string; isTest: boolean; start: string; end: string },
-): Promise<OrderRow[]> {
-  const startIso = vietnamDayStartIso(options.start);
-  const endExclusiveIso = vietnamDayStartIso(addDays(options.end, 1));
-  const deliveryFilter = [
-    `and(requested_delivery_date.gte.${options.start},requested_delivery_date.lte.${options.end})`,
-    `and(requested_delivery_date.is.null,submitted_at.gte.${startIso},submitted_at.lt.${endExclusiveIso})`,
-  ].join(",");
-  const orders: OrderRow[] = [];
-
-  for (let from = 0;; from += ORDER_PAGE_SIZE) {
-    const { data, error } = await supabase
-      .from("dealer_orders")
-      .select("id, status, requested_delivery_date, submitted_at, is_test")
-      .eq("customer_id", options.customerId)
-      .eq("is_test", options.isTest)
-      .neq("status", "cancelled")
-      .or(deliveryFilter)
-      .order("id", { ascending: true })
-      .range(from, from + ORDER_PAGE_SIZE - 1);
-
-    if (error) throw error;
-    const batch = (data ?? []) as unknown as OrderRow[];
-    orders.push(...batch);
-    if (batch.length < ORDER_PAGE_SIZE) break;
-  }
-
-  return orders;
-}
-
-async function loadBmqItems(
-  supabase: SupabaseServiceClient,
-  orderIds: string[],
-): Promise<ItemRow[]> {
-  const items: ItemRow[] = [];
-
-  for (let offset = 0; offset < orderIds.length; offset += ITEM_BATCH_SIZE) {
-    const batchIds = orderIds.slice(offset, offset + ITEM_BATCH_SIZE);
-
-    for (let from = 0;; from += ITEM_PAGE_SIZE) {
-      const { data, error } = await supabase
-        .from("dealer_order_items")
-        .select("id, order_id, quantity, sku_code")
-        .in("order_id", batchIds)
-        .eq("sku_code", "BMQ-001")
-        .order("id", { ascending: true })
-        .range(from, from + ITEM_PAGE_SIZE - 1);
-
-      if (error) throw error;
-      const batch = (data ?? []) as unknown as ItemRow[];
-      items.push(...batch);
-      if (batch.length < ITEM_PAGE_SIZE) break;
-    }
-  }
-
-  return items;
-}
-
-function deliveryDateKey(order: OrderRow): string | null {
-  if (order.requested_delivery_date) return order.requested_delivery_date.slice(0, 10);
-  const submitted = new Date(order.submitted_at);
-  if (Number.isNaN(submitted.getTime())) return null;
-  return vietnamDateKey(submitted);
 }
 
 function normalizeDateKey(value: unknown): string | null {
