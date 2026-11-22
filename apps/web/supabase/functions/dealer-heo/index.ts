@@ -40,6 +40,7 @@ const HEO_ERROR_MESSAGES: Record<string, string> = {
   heo_campaign_not_found: "Chương trình Heo Đất Tết chưa được cấu hình.",
   heo_not_enrolled: "Anh/chị cần bấm Tham gia chương trình trước khi lắc heo.",
   heo_invalid_status: "Trạng thái tham gia không hợp lệ.",
+  heo_not_open: "Chương trình chưa mở tham gia. Vui lòng quay lại sau.",
 };
 
 type CampaignRow = {
@@ -50,6 +51,7 @@ type CampaignRow = {
   ends_on: string;
   break_on: string | null;
   test_starts_on: string | null;
+  opens_at: string | null;
   rate_per_extra_que_vnd: number;
   spin_enabled: boolean;
   spin_budget_vnd: number | string;
@@ -126,7 +128,15 @@ serve(async (req) => {
     const today = vietnamDateKey();
     const isExcluded = (campaign.excluded_customer_ids ?? []).includes(customerId);
 
-    if (isExcluded || (!isTest && today < campaign.starts_on)) {
+    // announce: before opens_at (banner only) · open: joining allowed, heo not yet counting · live: running.
+    const opensAtMs = campaign.opens_at ? Date.parse(campaign.opens_at) : NaN;
+    const phase: "announce" | "open" | "live" = isTest
+      ? "live"
+      : Number.isFinite(opensAtMs) && Date.now() < opensAtMs
+        ? "announce"
+        : today < campaign.starts_on ? "open" : "live";
+
+    if (isExcluded) {
       return jsonResponse(req, { success: true, active: false });
     }
 
@@ -157,6 +167,7 @@ serve(async (req) => {
       return jsonResponse(req, {
         success: true,
         active: true,
+        phase,
         campaign: publicCampaign(campaign, isTest),
         baseline_avg_per_day: baselineAvgPerDay,
         baseline_month: HEO_BASELINE_MONTH,
@@ -164,6 +175,10 @@ serve(async (req) => {
         enrollment,
         summary,
       });
+    }
+
+    if (phase === "announce" && action !== "status") {
+      return errorResponse(req, HEO_ERROR_MESSAGES.heo_not_open, 409, "heo_not_open");
     }
 
     if (action === "preview") {
@@ -301,6 +316,7 @@ function publicCampaign(campaign: CampaignRow, isTest: boolean) {
     starts_on: campaign.starts_on,
     ends_on: campaign.ends_on,
     break_on: campaign.break_on,
+    opens_at: campaign.opens_at,
     rate: campaign.rate_per_extra_que_vnd,
     spin_enabled_for_me: campaign.spin_enabled === true || isTest,
     is_test: isTest,

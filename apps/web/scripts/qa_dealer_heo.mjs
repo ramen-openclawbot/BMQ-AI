@@ -143,10 +143,11 @@ const HEO_SUMMARY = { extra_que: 257, from_extra_vnd: 128500, from_spins_vnd: 58
   recent_spins: [{ amount_vnd: 20000, bread_qty: 0, prize_kind: "coin", is_jackpot: false, created_at: "2026-12-14T03:00:00Z", order_id: "o1" },
     { amount_vnd: 0, bread_qty: 10, prize_kind: "bread", is_jackpot: false, created_at: "2026-12-13T03:00:00Z", order_id: "o2" }] };
 let heoEnrollment = "none";
-const heoStatus = () => ({ success: true, active: true, baseline_avg_per_day: 123, baseline_month: "2026-11", spin_required_quantity: 123,
+let heoPhase = "live";
+const heoStatus = () => ({ success: true, active: true, phase: heoPhase, baseline_avg_per_day: 123, baseline_month: "2026-11", spin_required_quantity: 123,
   enrollment: { status: heoEnrollment, joined_on: heoEnrollment === "joined" ? "2026-12-01" : null },
-  campaign: { title: "Heo Đất Tết", starts_on: "2026-12-01", ends_on: "2026-12-31", break_on: "2027-01-15", rate: 500, spin_enabled_for_me: true, is_test: true, prizes: [] },
-  summary: heoEnrollment === "joined" ? HEO_SUMMARY : ZERO });
+  campaign: { title: "Heo Đất Tết", opens_at: "2026-11-30T13:00:00Z", starts_on: "2026-12-01", ends_on: "2026-12-31", break_on: "2027-01-15", rate: 500, spin_enabled_for_me: true, is_test: true, prizes: [] },
+  summary: heoEnrollment === "joined" && heoPhase === "live" ? HEO_SUMMARY : ZERO });
 const heoCalls = [];
 function heoAnswer(body) {
   heoCalls.push(body);
@@ -277,6 +278,49 @@ try {
     assert.equal(small, 0, "heo buttons >= 44px");
     assert.deepEqual(errors, []);
     record(`heo chat flow ${tag}`);
+    await context.close();
+  }
+  // Announcement phase: banner only, no join, no auto-open. Then the 20:00 on 30/11 opening: join allowed, heo not counting yet.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }]) {
+    heoEnrollment = "none"; heoPhase = "announce"; heoCalls.length = 0;
+    const { context, page, errors } = await open(viewport);
+    const banner = page.locator("[data-dealer-heo-banner]");
+    await banner.waitFor({ timeout: 15000 });
+    assert.equal(await banner.getAttribute("data-phase"), "announce");
+    const t = await banner.textContent();
+    assert.match(t, /áp dụng từ 01\/12/i);
+    assert.match(t, /20:00 ngày 30\/11/);
+    assert.equal(await page.locator("[data-dealer-heo-offer]").count(), 0, "no auto-open before opening time");
+    await page.screenshot({ path: `${EVIDENCE}/heo-announce-${viewport.width}.png` });
+    await banner.locator("[data-dealer-heo-open-offer]").click();
+    const offer = page.locator("[data-dealer-heo-offer]");
+    await offer.waitFor();
+    assert.match(await offer.locator("[data-dealer-heo-notice]").textContent(), /Mở đăng ký tham gia lúc 20:00 ngày 30\/11/);
+    assert.equal(await offer.locator("[data-dealer-heo-join]").count(), 0, "cannot join before opening");
+    await page.screenshot({ path: `${EVIDENCE}/heo-announce-offer-${viewport.width}.png` });
+    await offer.getByRole("button", { name: "Đã hiểu" }).click();
+    assert.equal(heoCalls.filter((c) => c.action === "enroll" || c.action === "decline").length, 0);
+    assert.deepEqual(errors, []);
+    record(`heo announce ${viewport.width}`);
+    await context.close();
+  }
+  {
+    heoEnrollment = "none"; heoPhase = "open"; heoCalls.length = 0;
+    const { context, page, errors } = await open({ width: 390, height: 844 });
+    const offer = page.locator("[data-dealer-heo-offer]");
+    await offer.waitFor({ timeout: 15000 });
+    assert.match(await offer.locator("[data-dealer-heo-notice]").textContent(), /Áp dụng từ 01\/12/);
+    await page.screenshot({ path: `${EVIDENCE}/heo-open-offer-390.png` });
+    await offer.locator("[data-dealer-heo-join]").click();
+    await offer.waitFor({ state: "detached" });
+    const banner = page.locator("[data-dealer-heo-banner][data-enrollment='joined']");
+    await banner.waitFor();
+    assert.match(await banner.textContent(), /Đã tham gia/);
+    assert.match(await banner.textContent(), /01\/12/);
+    assert.equal(await page.locator("[data-dealer-heo-extra]").count(), 0, "no money grid before the program starts");
+    await page.screenshot({ path: `${EVIDENCE}/heo-open-joined-390.png` });
+    assert.deepEqual(errors, []);
+    record("heo open phase 390");
     await context.close();
   }
   console.log(`${results.length}/${results.length} PASS · evidence ${EVIDENCE}`);

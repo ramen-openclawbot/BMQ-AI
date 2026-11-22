@@ -71,6 +71,14 @@ const spinLabel = (s: { prize_kind: string; amount_vnd: number; bread_qty: numbe
         : "Chúc may mắn lần sau";
 
 const enrollOf = (s: ActiveStatus) => s.enrollment?.status ?? "none";
+const phaseOf = (s: ActiveStatus) => s.phase ?? "live";
+/** "20:00 ngày 30/11" in Vietnam time. */
+const openLabel = (s: ActiveStatus) => {
+  const at = s.campaign.opens_at ? new Date(s.campaign.opens_at) : null;
+  if (!at || Number.isNaN(at.getTime())) return dm(s.campaign.starts_on);
+  const vn = new Date(at.getTime() + 7 * 3600 * 1000).toISOString();
+  return `${vn.slice(11, 16)} ngày ${dm(vn.slice(0, 10))}`;
+};
 const requiredOf = (s: ActiveStatus) => Math.max(1, Number(s.spin_required_quantity) || Math.ceil(baselineOf(s)) || 1);
 
 /** Full rules, shown inside the offer dialog and "Thể lệ" sheets. */
@@ -97,6 +105,8 @@ function OfferDialog() {
     emit({ offerOpen: false });
   };
   const joined = enrollOf(status) === "joined";
+  const phase = phaseOf(status);
+  const canJoin = phase !== "announce" && !joined;
   return (
     <Dialog open={offerOpen} onOpenChange={close}>
       <DialogContent data-dealer-ui="dealer-option-c" className="dealer-heo-offer max-w-sm rounded-[28px]" data-dealer-heo-offer>
@@ -110,6 +120,12 @@ function OfferDialog() {
         <p className="dealer-heo-welcome-line">
           Bán thêm mỗi que, heo thêm <b>{formatHeoVnd(status.campaign.rate)}</b>. Đập heo ngày <b>{dm(status.campaign.break_on)}</b> lấy tiền tiêu Tết.
         </p>
+        {phase !== "live" ? (
+          <div className="dealer-heo-notice" data-dealer-heo-notice>
+            <b>Áp dụng từ {dm(status.campaign.starts_on)}</b>
+            <span>{phase === "announce" ? `Mở đăng ký tham gia lúc ${openLabel(status)}.` : "Đã mở đăng ký. Anh/chị bấm Tham gia để đặt đơn giao từ ngày " + dm(status.campaign.starts_on) + " được tính thưởng."}</span>
+          </div>
+        ) : null}
         <div className="dealer-heo-baseline" data-dealer-heo-baseline>
           <b>{que(baselineOf(status))} que/ngày</b>
           <span>Mức trung bình tháng {Number(status.baseline_month?.slice(5) || 11)} của anh/chị. Đặt trên mức này là có thưởng.</span>
@@ -117,12 +133,13 @@ function OfferDialog() {
         <RulesList status={status} />
         <p className="dealer-heo-fine">
           Chương trình từ {dm(status.campaign.starts_on)} đến {dm(status.campaign.ends_on)}. Chỉ tính que bánh mì que tính tiền; bánh đổi/bù không tính.
-          Heo tính từ ngày anh/chị bấm Tham gia. {joined ? "" : "Không tham gia thì đặt hàng bình thường, anh/chị vẫn tham gia lại được bất cứ lúc nào."}
+          {phase === "live" ? "Heo tính từ ngày anh/chị bấm Tham gia." : `Heo tính từ các đơn giao từ ngày ${dm(status.campaign.starts_on)}.`}{" "}
+          {canJoin ? "Không tham gia thì đặt hàng bình thường, anh/chị vẫn tham gia lại được bất cứ lúc nào." : ""}
         </p>
         {enrollError ? <p className="dealer-heo-err" role="alert">{enrollError}</p> : null}
         <div className="dealer-heo-offer-actions">
-        {joined ? (
-          <button type="button" className="dealer-heo-btn dealer-heo-btn--ink" onClick={() => emit({ offerOpen: false })}>Đóng</button>
+        {!canJoin ? (
+          <button type="button" className="dealer-heo-btn dealer-heo-btn--ink" onClick={() => emit({ offerOpen: false })}>{joined ? "Đóng" : "Đã hiểu"}</button>
         ) : (
           <>
             <button type="button" className="dealer-heo-btn dealer-heo-btn--red" data-dealer-heo-join disabled={enrolling} onClick={() => void enrollDealerHeo("enroll")}>
@@ -143,7 +160,7 @@ function OfferDialog() {
 function OfferAutoOpen() {
   const { status, token } = useHeo();
   useEffect(() => {
-    if (!status || !token || enrollOf(status) !== "none") return;
+    if (!status || !token || enrollOf(status) !== "none" || phaseOf(status) === "announce") return;
     let later = "";
     try { later = sessionStorage.getItem(OFFER_DISMISS_KEY) || ""; } catch { /* ignore */ }
     if (!later) openDealerHeoOffer();
@@ -156,13 +173,38 @@ export function DealerHeoBanner() {
   const { status } = useHeo();
   if (!status) return null;
   const mode = enrollOf(status);
+  const phase = phaseOf(status);
   const s = status.summary;
   return (
-    <section className="dealer-heo-banner" data-dealer-heo-banner data-enrollment={mode} aria-label="Chương trình Heo Đất Tết">
+    <section className="dealer-heo-banner" data-dealer-heo-banner data-enrollment={mode} data-phase={phase} aria-label="Chương trình Heo Đất Tết">
       <OfferAutoOpen />
       <OfferDialog />
-      <div className="dealer-heo-kicker">{status.campaign.title.toUpperCase()}</div>
-      {mode === "joined" ? (
+      <div className="dealer-heo-kicker">{status.campaign.title.toUpperCase()}{phase !== "live" ? ` · ÁP DỤNG TỪ ${dm(status.campaign.starts_on)}` : ""}</div>
+      {phase === "announce" ? (
+        <>
+          <div className="dealer-heo-pigrow">
+            <span className="dealer-heo-pig" aria-hidden="true">🐷</span>
+            <div className="min-w-0">
+              <strong>Sắp có chương trình mới</strong>
+              <span>Mức của anh/chị: {que(baselineOf(status))} que/ngày</span>
+            </div>
+          </div>
+          <p>Bán thêm mỗi que, heo thêm {formatHeoVnd(status.campaign.rate)}. Chương trình <b>áp dụng từ {dm(status.campaign.starts_on)}</b>. Mở đăng ký tham gia lúc <b>{openLabel(status)}</b>.</p>
+          <button type="button" className="dealer-heo-btn dealer-heo-btn--light" data-dealer-heo-open-offer onClick={openDealerHeoOffer}>Xem thể lệ</button>
+        </>
+      ) : mode === "joined" && phase === "open" ? (
+        <>
+          <div className="dealer-heo-pigrow">
+            <span className="dealer-heo-pig" aria-hidden="true">🐷</span>
+            <div className="min-w-0">
+              <strong>Đã tham gia ✓</strong>
+              <span>Heo bắt đầu tính từ đơn giao ngày {dm(status.campaign.starts_on)}</span>
+            </div>
+          </div>
+          <p>Mức của anh/chị: <b>{que(baselineOf(status))} que/ngày</b>. Đặt vượt mức mỗi ngày: mỗi que +{formatHeoVnd(status.campaign.rate)} vào heo.</p>
+          <button type="button" className="dealer-heo-btn dealer-heo-btn--light" onClick={openDealerHeoOffer}>Xem thể lệ</button>
+        </>
+      ) : mode === "joined" ? (
         <>
           <div className="dealer-heo-pigrow">
             <span className="dealer-heo-pig" aria-hidden="true">🐷</span>
@@ -205,7 +247,11 @@ export function DealerHeoPinned() {
   return (
     <button type="button" className="dealer-heo-pinned" data-dealer-heo-pinned data-enrollment={mode} onClick={openDealerHeoOffer}>
       <span aria-hidden="true">🐷</span>
-      {mode === "joined" ? (
+      {phaseOf(status) === "announce" ? (
+        <><b>Heo Đất Tết</b><span>· áp dụng từ {dm(status.campaign.starts_on)}, mở đăng ký {openLabel(status)}</span></>
+      ) : mode === "joined" && phaseOf(status) === "open" ? (
+        <><b>Heo Đất Tết</b><span>· đã tham gia, tính từ {dm(status.campaign.starts_on)}</span></>
+      ) : mode === "joined" ? (
         <><b>{formatHeoVnd(status.summary.total_vnd)}</b><span>· bán thêm {que(status.summary.extra_que)} que</span></>
       ) : (
         <><b>Heo Đất Tết</b><span>· {mode === "declined" ? "bấm để tham gia lại" : "bấm để xem thể lệ & tham gia"}</span></>
@@ -225,7 +271,17 @@ export function DealerHeoOrdersCard() {
     <button type="button" className="dealer-heo-orders-card" data-dealer-heo-orders-card data-enrollment={mode} onClick={openDealerHeoOffer} aria-label="Xem thể lệ Heo Đất Tết">
       <span className="dealer-heo-pig" aria-hidden="true">🐷</span>
       <span className="min-w-0 flex-1 text-left">
-        {mode === "joined" ? (
+        {phaseOf(status) === "announce" ? (
+          <>
+            <b>Heo Đất Tết · áp dụng từ {dm(status.campaign.starts_on)}</b>
+            <small>Mở đăng ký lúc {openLabel(status)} · mức của anh/chị {que(baselineOf(status))} que/ngày</small>
+          </>
+        ) : mode === "joined" && phaseOf(status) === "open" ? (
+          <>
+            <b>Heo Đất Tết · đã tham gia ✓</b>
+            <small>Heo bắt đầu tính từ đơn giao ngày {dm(status.campaign.starts_on)} · mức {que(baselineOf(status))} que/ngày</small>
+          </>
+        ) : mode === "joined" ? (
           <>
             <b>Heo Đất Tết · {formatHeoVnd(s.total_vnd)}</b>
             <small>Đã bán thêm {que(s.extra_que)} que · mức {que(baselineOf(status))} que/ngày · còn {s.days_to_break} ngày đập heo</small>
@@ -245,7 +301,7 @@ export function DealerHeoOrdersCard() {
 /** One line inside the order confirmation card (before submit). */
 export function DealerHeoOrderStrip({ quantity }: { quantity: number }) {
   const { status } = useHeo();
-  if (!status || !(quantity > 0)) return null;
+  if (!status || !(quantity > 0) || phaseOf(status) !== "live") return null;
   const mode = enrollOf(status);
   if (mode !== "joined") {
     return (
@@ -287,7 +343,7 @@ export function DealerHeoSpinPrompt() {
   const [total, setTotal] = useState(0);
 
   useEffect(() => { setPhase("idle"); setResult(null); setError(""); }, [lastOrder?.orderNumber]);
-  if (!status || !lastOrder || !status.campaign.spin_enabled_for_me || enrollOf(status) !== "joined") return null;
+  if (!status || !lastOrder || !status.campaign.spin_enabled_for_me || enrollOf(status) !== "joined" || phaseOf(status) !== "live") return null;
   const base = baselineOf(status);
   // Test accounts can spin on any order; real dealers need the order to reach their November average.
   if (lastOrder.quantity < (status.campaign.is_test ? 1 : (base > 0 ? base : 1))) return null;
@@ -353,7 +409,7 @@ export function DealerHeoSpinPrompt() {
 export function DealerHeoReportCard({ sessionToken }: { sessionToken: string }) {
   const { status } = useHeo();
   useEffect(() => { setDealerHeoSession(sessionToken); }, [sessionToken]);
-  if (!status || enrollOf(status) !== "joined") return null;
+  if (!status || enrollOf(status) !== "joined" || phaseOf(status) !== "live") return null;
   const s = status.summary;
   return (
     <section className="dealer-heo-report" data-dealer-heo-report aria-label="Heo Đất Tết">

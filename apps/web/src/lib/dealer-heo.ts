@@ -17,6 +17,8 @@ export type DealerHeoCampaign = {
   starts_on: string;
   ends_on: string;
   break_on: string | null;
+  /** When joining opens for real dealers (ISO). */
+  opens_at?: string | null;
   rate: number;
   spin_enabled_for_me: boolean;
   /** True for test accounts: spins are allowed on any order and are never paid. */
@@ -54,6 +56,8 @@ export type DealerHeoStatusResponse =
   | {
     success: true;
     active: true;
+    /** announce: banner only · open: can join, heo not counting yet · live: running. */
+    phase?: "announce" | "open" | "live";
     campaign: DealerHeoCampaign;
     baseline_avg_per_day: number;
     baseline_month: string;
