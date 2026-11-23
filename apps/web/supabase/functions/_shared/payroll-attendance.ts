@@ -210,6 +210,36 @@ export function vietnamWorkDate(input: Date | string | number = new Date()): str
   return `${year}-${month}-${day}`;
 }
 
+/** One payroll period row (payroll_bn_periods) used to detect a work-date holiday. */
+export interface PayrollHolidayPeriod {
+  date_from: string;
+  date_to: string;
+  holidays: readonly string[] | null;
+}
+
+export interface PayrollAttendanceHoliday {
+  isHoliday: boolean;
+  date: string;
+  /** Holiday work is worth twice the normal hours (owner 2026-11-24). */
+  multiplier: number;
+}
+
+/**
+ * Holiday flag for the employee's current Vietnam work date: true only when a
+ * payroll period covering that date lists it in `holidays`.
+ */
+export function attendanceHolidayFor(
+  periods: readonly PayrollHolidayPeriod[] | null | undefined,
+  workDate: string,
+): PayrollAttendanceHoliday {
+  const covering = (periods ?? []).find(
+    (period) => period.date_from <= workDate && workDate <= period.date_to,
+  );
+  const holidays = covering?.holidays;
+  const isHoliday = Array.isArray(holidays) && holidays.includes(workDate);
+  return { isHoliday, date: workDate, multiplier: 2 };
+}
+
 function coordinatesAreValid(latitude: number | null | undefined, longitude: number | null | undefined): boolean {
   return (
     isFiniteNumber(latitude) &&

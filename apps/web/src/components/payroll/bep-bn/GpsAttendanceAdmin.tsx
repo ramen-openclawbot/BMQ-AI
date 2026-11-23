@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
-import { AlertTriangle, ArrowRightLeft, Camera, Crosshair, Loader2, MapPin, ShieldAlert, Smartphone } from "lucide-react";
+import { useId, useMemo, useState } from "react";
+import { AlertTriangle, ArrowRightLeft, Camera, ChevronDown, Crosshair, Loader2, MapPin, ShieldAlert, Smartphone, Users, History } from "lucide-react";
+import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,6 +43,61 @@ function formatDate(value: string): string {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : "Không thực hiện được. Vui lòng thử lại.";
+}
+
+/**
+ * Long lists stay collapsed behind a one-line summary. Opening reveals the list
+ * inside a fixed-height region that scrolls vertically on its own.
+ */
+function CollapsibleSection({
+  icon,
+  title,
+  summary,
+  badge,
+  tone = "default",
+  defaultOpen = false,
+  scroll = true,
+  dataAttr,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  summary?: ReactNode;
+  badge?: ReactNode;
+  tone?: "default" | "warn";
+  defaultOpen?: boolean;
+  scroll?: boolean;
+  dataAttr?: Record<string, string>;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const panelId = useId();
+  return (
+    <Card className={tone === "warn" ? "border-amber-300 bg-amber-50/40" : undefined} {...dataAttr}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-3 rounded-xl px-5 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">{icon}</span>
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-2 text-base font-semibold leading-tight">
+            {title}
+            {badge}
+          </span>
+          {summary ? <span className="mt-0.5 block text-sm text-muted-foreground">{summary}</span> : null}
+        </span>
+        <ChevronDown className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open ? (
+        <div id={panelId} className="border-t">
+          <div className={scroll ? "max-h-80 space-y-2 overflow-y-auto overscroll-contain p-4" : "space-y-2 p-4"}>{children}</div>
+        </div>
+      ) : null}
+    </Card>
+  );
 }
 
 export interface GpsAttendanceAdminProps {
@@ -152,13 +208,19 @@ export function GpsAttendanceAdmin({ employees }: GpsAttendanceAdminProps) {
       />
 
       {(pendingDays.length > 0 || flagged.length > 0 || pendingDevices.length > 0) && (
-        <Card className="border-amber-300">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <AlertTriangle className="h-4 w-4 text-amber-600" /> Cần xử lý
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
+        <CollapsibleSection
+          tone="warn"
+          icon={<AlertTriangle className="h-4 w-4 text-amber-600" />}
+          title="Cần xử lý"
+          badge={<Badge variant="secondary" className="font-normal">{pendingDays.length + flagged.length + pendingDevices.length} việc</Badge>}
+          summary={[
+            pendingDevices.length ? `${pendingDevices.length} máy cần duyệt` : null,
+            flagged.length ? `${flagged.length} lượt nghi chấm hộ` : null,
+            pendingDays.length ? `${pendingDays.length} ngày thiếu giờ` : null,
+          ].filter(Boolean).join(" · ")}
+          defaultOpen={pendingDays.length + flagged.length + pendingDevices.length <= 3}
+        >
+          <div className="space-y-5">
             {pendingDevices.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-semibold">Máy cần anh duyệt</p>
@@ -227,26 +289,24 @@ export function GpsAttendanceAdmin({ employees }: GpsAttendanceAdminProps) {
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </CollapsibleSection>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Nhân viên được chấm công GPS</CardTitle>
-          <CardDescription>
-            Bật cho từng người. Máy nhân viên vừa đăng nhập OTP Zalo được dùng chấm công ngay và thay máy cũ.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="divide-y p-0">
+      <CollapsibleSection
+        icon={<Users className="h-4 w-4" />}
+        title="Nhân viên được chấm công GPS"
+        summary={`Đang bật ${employees.filter((e) => gates.get(e.code) === true).length}/${employees.length} người · máy vừa đăng nhập OTP Zalo được dùng ngay`}
+      >
+        <div className="-mx-4 -my-4 divide-y">
           {employees.length === 0 ? (
-            <p className="px-6 pb-6 text-sm text-muted-foreground">Chưa có danh sách nhân viên của kỳ này.</p>
+            <p className="px-4 py-4 text-sm text-muted-foreground">Chưa có danh sách nhân viên của kỳ này.</p>
           ) : (
             employees.map((employee) => {
               const enabled = gates.get(employee.code) === true;
               const device = activeDevices.find((item) => item.employee_code === employee.code);
               return (
-                <div key={employee.code} className="flex items-center gap-3 px-6 py-3 text-sm">
+                <div key={employee.code} className="flex items-center gap-3 px-4 py-3 text-sm">
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{employee.name}</p>
                     <p className="truncate text-xs text-muted-foreground">
@@ -288,26 +348,29 @@ export function GpsAttendanceAdmin({ employees }: GpsAttendanceAdminProps) {
               );
             })
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </CollapsibleSection>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Lượt chấm gần đây</CardTitle>
-          <CardDescription>
-            {list ? `${formatDate(list.from)} – ${formatDate(list.to)}` : ""} · gồm cả lượt bị từ chối
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {recent.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Chưa có lượt chấm công nào.</p>
-          ) : (
-            recent.map((event) => (
-              <EventRow key={event.id} event={event} name={nameOf(event.employee_code)} onSelfie={openSelfie} />
-            ))
-          )}
-        </CardContent>
-      </Card>
+      <CollapsibleSection
+        icon={<History className="h-4 w-4" />}
+        title="Lượt chấm gần đây"
+        summary={`${recent.length} lượt gần nhất${list ? ` · ${formatDate(list.from)} – ${formatDate(list.to)}` : ""} · gồm cả lượt bị từ chối`}
+        badge={
+          recent.some((event) => event.decision !== "accepted") ? (
+            <Badge variant="destructive" className="font-normal">
+              {recent.filter((event) => event.decision !== "accepted").length} bị từ chối
+            </Badge>
+          ) : null
+        }
+      >
+        {recent.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Chưa có lượt chấm công nào.</p>
+        ) : (
+          recent.map((event) => (
+            <EventRow key={event.id} event={event} name={nameOf(event.employee_code)} onSelfie={openSelfie} />
+          ))
+        )}
+      </CollapsibleSection>
 
       <ApproveDayDialog
         day={approveDay}
@@ -535,11 +598,12 @@ function ApproveDayDialog({
   );
 }
 
-export default GpsAttendanceAdmin;
-
 const BROWSER_LABEL: Record<string, string> = { ios: "iPhone", android: "Android" };
 
-/** Read-only review of automatic device switches after a Zalo OTP login (last 14 days). */
+/** Switches per person above this in 14 days are flagged as unusual. */
+const FREQUENT_SWITCH_THRESHOLD = 3;
+
+/** Read-only review of automatic device switches after a Zalo OTP login (last 14 days), grouped by employee. */
 function DeviceChangesCard({
   loading,
   error,
@@ -549,47 +613,84 @@ function DeviceChangesCard({
   error: string | null;
   changes: { id: string; employee_code: string; employee_name: string; from_device_hash: string | null; user_agent_family: string | null; changed_at: string }[];
 }) {
-  const [showAll, setShowAll] = useState(false);
-  const shown = showAll ? changes : changes.slice(0, 6);
+  const groups = useMemo(() => {
+    const map = new Map<string, { code: string; name: string; family: string | null; count: number; last: string; first: string }>();
+    for (const change of changes) {
+      const current = map.get(change.employee_code);
+      if (!current) {
+        map.set(change.employee_code, {
+          code: change.employee_code,
+          name: change.employee_name || change.employee_code,
+          family: change.user_agent_family,
+          count: 1,
+          last: change.changed_at,
+          first: change.changed_at,
+        });
+      } else {
+        current.count += 1;
+        if (change.changed_at > current.last) current.last = change.changed_at;
+        if (change.changed_at < current.first) current.first = change.changed_at;
+      }
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count || (a.last < b.last ? 1 : -1));
+  }, [changes]);
+  const frequent = groups.filter((group) => group.count >= FREQUENT_SWITCH_THRESHOLD);
+
   return (
-    <Card data-device-changes>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <ArrowRightLeft className="h-4 w-4 text-muted-foreground" /> Đổi máy gần đây
-        </CardTitle>
-        <CardDescription>
-          Nhân viên đăng nhập OTP Zalo trên trình duyệt hoặc máy khác thì tự chuyển sang máy đó. Chỉ để anh xem lại; mỗi lần chấm vẫn có ảnh và vị trí.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="text-sm">
-        {loading ? (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Đang tải" />
-        ) : error ? (
-          <p className="text-destructive">{error}</p>
-        ) : changes.length === 0 ? (
-          <p className="text-muted-foreground">14 ngày qua chưa có ai đổi máy.</p>
-        ) : (
-          <>
-            <ul className="divide-y rounded-lg border">
-              {shown.map((change) => (
-                <li key={change.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 px-3 py-2" data-device-change={change.employee_code}>
-                  <span className="min-w-0 font-medium">{change.employee_name || change.employee_code}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {change.user_agent_family ? BROWSER_LABEL[change.user_agent_family] ?? change.user_agent_family : "Máy"} ·{" "}
-                    {formatDateTime(change.changed_at)}
-                    {change.from_device_hash ? "" : " · trước đó chưa có máy"}
+    <CollapsibleSection
+      dataAttr={{ "data-device-changes": "" }}
+      icon={<ArrowRightLeft className="h-4 w-4" />}
+      title="Đổi máy gần đây"
+      badge={
+        frequent.length > 0 ? (
+          <Badge variant="destructive" className="font-normal">
+            {frequent.length} người đổi liên tục
+          </Badge>
+        ) : null
+      }
+      summary={
+        loading
+          ? "Đang tải…"
+          : error
+            ? error
+            : changes.length === 0
+              ? "14 ngày qua chưa có ai đổi máy."
+              : `${changes.length} lần · ${groups.length} người · 14 ngày qua`
+      }
+    >
+      {loading ? (
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Đang tải" />
+      ) : error ? (
+        <p className="text-sm text-destructive">{error}</p>
+      ) : changes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">14 ngày qua chưa có ai đổi máy.</p>
+      ) : (
+        <>
+          <p className="text-xs text-muted-foreground">
+            Nhân viên đăng nhập OTP Zalo trên máy khác thì tự chuyển sang máy đó. Mỗi lần chấm vẫn có ảnh và vị trí. Đổi từ {FREQUENT_SWITCH_THRESHOLD} lần trở lên là bất thường: thường do mở bằng trình duyệt trong Zalo hoặc chế độ riêng tư, nên xem lại ảnh chấm.
+          </p>
+          <ul className="divide-y rounded-lg border bg-background">
+            {groups.map((group) => {
+              const unusual = group.count >= FREQUENT_SWITCH_THRESHOLD;
+              return (
+                <li key={group.code} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2.5 text-sm" data-device-change={group.code}>
+                  <span className="min-w-0">
+                    <span className="block font-medium">{group.name}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {group.family ? BROWSER_LABEL[group.family] ?? group.family : "Máy"} · gần nhất {formatDateTime(group.last)}
+                    </span>
                   </span>
+                  <Badge variant={unusual ? "destructive" : "secondary"} className="font-normal">
+                    {group.count} lần{unusual ? " · bất thường" : ""}
+                  </Badge>
                 </li>
-              ))}
-            </ul>
-            {changes.length > 6 ? (
-              <Button variant="link" size="sm" className="mt-1 h-auto px-0" onClick={() => setShowAll((value) => !value)}>
-                {showAll ? "Thu gọn" : `Xem tất cả ${changes.length} lần`}
-              </Button>
-            ) : null}
-          </>
-        )}
-      </CardContent>
-    </Card>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </CollapsibleSection>
   );
 }
+
+export default GpsAttendanceAdmin;

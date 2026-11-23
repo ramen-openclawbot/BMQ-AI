@@ -82,12 +82,21 @@ export interface PayrollAttendanceConsentState {
   withdrawnAt: string | null;
 }
 
+export interface PayrollAttendanceHoliday {
+  isHoliday: boolean;
+  date: string;
+  /** Holiday work multiplier (2 = double hours). */
+  multiplier: number;
+}
+
 export interface PayrollAttendanceTodayPayload {
   employee: { code: string; name?: string | null };
   gateEnabled: boolean;
   siteConfigured: boolean;
   siteName: string | null;
   siteRadiusM: number | null;
+  /** Present when the server knows the payroll period covering today. */
+  holiday?: PayrollAttendanceHoliday;
   today: {
     workDate: string;
     status: AttendanceDayStatus;

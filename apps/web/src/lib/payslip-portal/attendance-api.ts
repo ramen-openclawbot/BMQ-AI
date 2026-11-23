@@ -13,6 +13,7 @@ import type {
   PayrollAttendanceConsentState,
   PayrollAttendanceDaySummary,
   PayrollAttendanceEvent,
+  PayrollAttendanceHoliday,
   PayrollAttendanceSource,
   PayrollAttendanceTodayPayload,
 } from "./types.ts";
@@ -127,6 +128,18 @@ function asEvent(value: unknown): PayrollAttendanceEvent | null {
   };
 }
 
+function asHoliday(value: unknown): PayrollAttendanceHoliday | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const row = value as Record<string, unknown>;
+  const date = typeof row.date === "string" ? row.date : "";
+  if (!date) return undefined;
+  return {
+    isHoliday: row.isHoliday === true,
+    date,
+    multiplier: asNumber(row.multiplier) ?? 2,
+  };
+}
+
 function asDay(value: unknown): PayrollAttendanceDaySummary | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -166,6 +179,7 @@ export function normalizeTodayPayload(data: Record<string, unknown> | null): Pay
         .filter((day): day is PayrollAttendanceDaySummary => day !== null)
     : [];
   const status = asDayStatus(today.status);
+  const holiday = asHoliday(data?.holiday);
 
   return {
     employee: {
@@ -176,6 +190,7 @@ export function normalizeTodayPayload(data: Record<string, unknown> | null): Pay
     siteConfigured: data?.site_configured === true,
     siteName: typeof data?.site_name === "string" ? data.site_name : null,
     siteRadiusM: asNumber(data?.site_radius_m),
+    ...(holiday ? { holiday } : {}),
     today: {
       workDate: String(today.work_date ?? ""),
       status,

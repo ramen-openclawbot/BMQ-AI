@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Camera, CheckCircle2, FileText, Loader2, LogIn, LogOut, MapPin, RefreshCw, ShieldCheck, X, XCircle } from "lucide-react";
+import { AlertTriangle, CalendarHeart, Camera, CheckCircle2, FileText, Loader2, LogIn, LogOut, MapPin, RefreshCw, ShieldCheck, X, XCircle } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CONSENT_CHECKBOX, CONSENT_CONTROLLER, CONSENT_SECTIONS, CONSENT_TITLE } from "@/components/payslip-portal/attendanceConsentText";
 import { Button } from "@/components/ui/button";
@@ -141,6 +141,23 @@ export function AttendancePanel({ source, onSessionExpired, onCheckedIn }: Atten
           <RefreshCw className={cn("h-5 w-5", loading && "animate-spin")} />
         </button>
       </div>
+
+      {today.holiday?.isHoliday ? (
+        <div
+          role="note"
+          data-attendance-holiday
+          className="mt-4 flex items-start gap-3 rounded-[20px] bg-[#fff4c7] p-4 text-[#4a3b00] ring-1 ring-[#f3dd86]"
+        >
+          <CalendarHeart className="mt-0.5 h-5 w-5 shrink-0 text-[#b7791f]" aria-hidden />
+          <div className="min-w-0 text-sm leading-relaxed">
+            <p className="text-[15px] font-bold">Hôm nay {formatWorkDate(today.holiday.date)} là ngày nghỉ lễ</p>
+            <p className="mt-1">
+              Đi làm hôm nay được tính <b>x{today.holiday.multiplier}</b>: nhân viên chính thức được 1 công lễ cộng công đi làm
+              (làm từ 6 giờ là 2 công); nhân viên bán thời gian được tính gấp đôi số giờ.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-4 rounded-[24px] bg-white p-5 shadow-[0_12px_28px_rgba(70,50,55,0.08)] ring-1 ring-[#eee8e5]">
         <div className="grid grid-cols-2 gap-3">

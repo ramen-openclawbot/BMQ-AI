@@ -29,7 +29,7 @@ const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh", y
 const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 const INCOMPLETE = "Ngày công không được tính, vui lòng liên hệ quản lý duyệt";
 
-function todayPayload(events, consented) {
+function todayPayload(events, consented, holiday = false) {
   const hasIn = events.some((e) => e.event_kind === "in" && e.decision === "accepted");
   const hasOut = events.some((e) => e.event_kind === "out" && e.decision === "accepted");
   return {
@@ -42,6 +42,7 @@ function todayPayload(events, consented) {
     consent: { required_version: "2026-11-09", accepted: consented, accepted_at: consented ? new Date().toISOString() : null, withdrawn_at: null },
     today: { work_date: today, status: hasIn && hasOut ? "complete" : hasIn ? "missing_out" : "missing_in", events },
     incomplete_days: [{ work_date: yesterday, status: "missing_out", message: INCOMPLETE }],
+    holiday: { isHoliday: holiday, date: today, multiplier: 2 },
   };
 }
 
@@ -143,7 +144,7 @@ function currentWeekPayload(requests) {
   } };
 }
 
-async function open(viewport, { geolocation = true, checkinDecision = "accepted", reason = null, consented = true, mission = null, shifts = false } = {}) {
+async function open(viewport, { geolocation = true, checkinDecision = "accepted", reason = null, consented = true, mission = null, shifts = false, holiday = false } = {}) {
   const context = await browser.newContext({
     viewport,
     locale: "vi-VN",
@@ -164,7 +165,7 @@ async function open(viewport, { geolocation = true, checkinDecision = "accepted"
       } else if (fn === "payslip-attendance-today") {
         assert.equal(request.headers()["x-payslip-session"], "psp_qa");
         assert.match(request.headers()["x-payslip-device"] ?? "", /^[0-9a-f-]{36}$/);
-        body = todayPayload(state.events, state.consented);
+        body = todayPayload(state.events, state.consented, holiday);
       } else if (fn === "payslip-shifts") {
         const payload = JSON.parse(request.postData() || "{}");
         if (!shifts) { body = { success: true, week: { eligible: false } }; }
@@ -239,6 +240,30 @@ const WIDTHS = [
 ];
 
 try {
+  // Owner 2026-11-22 — a payroll holiday shows a clear x2 notice above the punch card.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }]) {
+    const w = viewport.width;
+    const { context, page, errors } = await open(viewport, { holiday: true });
+    const note = page.locator("[data-attendance-holiday]");
+    await note.waitFor();
+    const text = await note.innerText();
+    assert.match(text, /là ngày nghỉ lễ/);
+    assert.match(text, /x2/);
+    assert.match(text, /gấp đôi số giờ/);
+    assert.ok((await overflow(page)) <= 0, `holiday notice: no overflow ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/holiday-${w}.png`, fullPage: true });
+    assert.deepEqual(errors, [], `holiday notice: no console errors ${w}`);
+    record(`holiday notice ${w}`);
+    await context.close();
+  }
+  {
+    const { context, page } = await open({ width: 390, height: 844 });
+    await page.getByText(INCOMPLETE).first().waitFor();
+    assert.equal(await page.locator("[data-attendance-holiday]").count(), 0, "no holiday notice on a normal day");
+    record("no holiday notice on a normal day");
+    await context.close();
+  }
+
   for (const viewport of WIDTHS) {
     const w = viewport.width;
     const { context, page, errors, state } = await open(viewport);
