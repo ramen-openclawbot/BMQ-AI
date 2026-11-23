@@ -134,7 +134,7 @@
 .dealer-heo-home-money strong { display: block; font-size: 32px; font-weight: 900; font-variant-numeric: tabular-nums; }
 .dealer-heo-home-money span { font-size: 13px; opacity: .95; }
 .dealer-heo-home-note { margin: 12px 0 0; border-radius: 12px; background: rgba(255,255,255,.18); padding: 8px 12px; font-size: 13px; line-height: 1.4; }
-.dealer-heo-home-actions { display: grid; gap: 8px; margin-top: 16px; }
+.dealer-heo-home-actions { display: grid; gap: 8px; margin-top: 14px; }
 .dealer-heo-home .dealer-heo-btn { margin-top: 0; min-height: 48px; }
 .dealer-heo-btn--glass { background: rgba(255,255,255,.2); color: #fff; border: 1.5px solid rgba(255,255,255,.7); }
 .dealer-heo-home[data-enrollment="none"], .dealer-heo-home[data-enrollment="declined"], .dealer-heo-home[data-phase="announce"] { background: linear-gradient(150deg, #7a1020, #c8102e 55%, #e8432f); }

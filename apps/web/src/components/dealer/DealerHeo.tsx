@@ -299,11 +299,6 @@ export function DealerHeoHomeCard({ onOrder }: { onOrder?: () => void }) {
             <b>{que(baselineOf(status))} que/ngày</b>
             <span>mức trung bình tháng {Number(status.baseline_month?.slice(5) || 11)} của anh/chị. Đặt trên mức này là có thưởng.</span>
           </div>
-          <ul className="dealer-heo-home-points">
-            <li>Không cần đăng ký phức tạp, bấm một nút là tham gia</li>
-            <li>Mỗi đơn từ {que(requiredOf(status))} que được lắc heo trúng quà</li>
-            <li>Không tham gia vẫn đặt hàng bình thường</li>
-          </ul>
         </>
       )}
       {phase === "announce" ? (
@@ -322,6 +317,14 @@ export function DealerHeoHomeCard({ onOrder }: { onOrder?: () => void }) {
           {phase === "announce" ? "Xem thể lệ" : mode === "joined" ? "Xem thể lệ" : mode === "declined" ? "Tham gia lại" : "🐷 Xem thể lệ & tham gia"}
         </button>
       </div>
+      {joinedLive ? null : (
+
+        <ul className="dealer-heo-home-points">
+          <li>Không cần đăng ký phức tạp, bấm một nút là tham gia</li>
+          <li>Mỗi đơn từ {que(requiredOf(status))} que được lắc heo trúng quà</li>
+          <li>Không tham gia vẫn đặt hàng bình thường</li>
+        </ul>
+      )}
     </section>
   );
 }
