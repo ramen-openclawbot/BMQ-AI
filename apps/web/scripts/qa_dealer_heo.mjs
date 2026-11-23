@@ -190,6 +190,15 @@ async function open(viewport, { npp = false } = {}) {
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(BASE + "/dealer", { waitUntil: "domcontentloaded" });
   await page.locator("[data-dealer-agent-row='order']").first().waitFor({ timeout: 30000 });
+  if (!npp) {
+    const home = page.locator("[data-dealer-heo-home]");
+    await home.waitFor({ timeout: 15000 });
+    const box = await home.boundingBox();
+    if (!box || box.width < 200) throw new Error("inbox heo card not visible");
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    if (overflow) throw new Error("inbox horizontal overflow");
+    if (process.env.EVIDENCE_DIR) await page.screenshot({ path: `${process.env.EVIDENCE_DIR}/inbox-${viewport.width}-${await home.getAttribute("data-phase")}-${await home.getAttribute("data-enrollment")}.png` });
+  }
   await page.locator("[data-dealer-agent-row='order']").first().click();
   await page.locator("[data-dealer-agent-screen='chat']").waitFor();
   await page.evaluate(() => document.fonts.ready);
@@ -219,10 +228,11 @@ try {
     assert.match(offerText, /trung bình tháng 11/);
     assert.match(offerText, /từ 123 que trở lên/);
     assert.match(offerText, /Heo tính từ ngày anh\/chị bấm Tham gia/);
+    await page.waitForTimeout(450);
     for (const sel of ["[data-dealer-heo-join]", "[data-dealer-heo-decline]"]) {
       const box = await offer.locator(sel).boundingBox();
       assert.ok(box && box.y + box.height <= viewport.height + 1 && box.y >= 0, `${sel} visible without scrolling`);
-      assert.ok(box.height >= 44, `${sel} tap target >= 44px`);
+      assert.ok(box.height >= 44, `${sel} tap target >= 44px (got ${box.height} @${viewport.width})`);
     }
     await page.screenshot({ path: `${EVIDENCE}/heo-offer-${tag}.png` });
     assert.equal(heoCalls.filter((c) => c.action === "enroll").length, 0, "nothing saved before a choice");

@@ -44,7 +44,7 @@ import { useDealerCartAssistant, type DealerCartAssistantHistoryTurn } from "@/h
 import { applyCartProposal, applyRouteProposal, type DealerRouteProposalLine } from "@/lib/dealer-cart-assistant";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { DealerAwaitingSlipNotice } from "@/components/dealer/DealerAwaitingSlipNotice";
-import { DealerHeoBanner, DealerHeoOrderStrip, DealerHeoOrdersCard, DealerHeoPinned, DealerHeoSpinPrompt, noteDealerHeoOrder, setDealerHeoSession } from "@/components/dealer/DealerHeo";
+import { DealerHeoBanner, DealerHeoHomeCard, DealerHeoOrderStrip, DealerHeoOrdersCard, DealerHeoPinned, DealerHeoSpinPrompt, noteDealerHeoOrder, setDealerHeoSession } from "@/components/dealer/DealerHeo";
 import { DealerReportPanel } from "@/components/dealer/DealerReportPanel";
 import { cn } from "@/lib/utils";
 import "@/styles/dealer-order-history.css";
@@ -2397,6 +2397,7 @@ export default function DealerPortal() {
             </div>
             <span className="text-xs text-[#9a8e94]">T6</span>
           </button>
+          <DealerHeoHomeCard onOrder={() => setActiveNav("order")} />
         </main>
 
         <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-[#eee4e8] bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-5px_20px_rgba(71,39,53,0.05)] backdrop-blur" data-dealer-agent-nav="messages-orders-account">

@@ -262,6 +262,70 @@ export function DealerHeoBanner() {
   );
 }
 
+/** Big promo card for the empty space on the inbox (first screen). */
+export function DealerHeoHomeCard({ onOrder }: { onOrder?: () => void }) {
+  const { status } = useHeo();
+  if (!status) return null;
+  const mode = enrollOf(status);
+  const phase = phaseOf(status);
+  const s = status.summary;
+  const rate = formatHeoVnd(status.campaign.rate);
+  const joinedLive = mode === "joined" && phase === "live";
+  return (
+    <section className="dealer-heo-home" data-dealer-heo-home data-enrollment={mode} data-phase={phase} aria-label="Chương trình Heo Đất Tết">
+      <OfferDialog />
+      <div className="dealer-heo-home-top">
+        <span className="dealer-heo-home-pig" aria-hidden="true">🐷</span>
+        <div className="min-w-0">
+          <div className="dealer-heo-kicker">CHƯƠNG TRÌNH THÁNG 12{phase !== "live" ? ` · ÁP DỤNG TỪ ${dm(status.campaign.starts_on)}` : ""}</div>
+          <h2>Heo Đất Tết</h2>
+        </div>
+      </div>
+      {joinedLive ? (
+        <>
+          <div className="dealer-heo-home-money">
+            <strong>{formatHeoVnd(s.total_vnd)}</strong>
+            <span>trong heo{s.bread_qty > 0 ? ` + ${que(s.bread_qty)} que bánh tặng` : ""} · đập heo {dm(status.campaign.break_on)}</span>
+          </div>
+          <div className="dealer-heo-extra">
+            <div><b>{que(s.extra_que)} que</b><span>đã bán thêm</span></div>
+            <div><b>{que(baselineOf(status))} que/ngày</b><span>mức của anh/chị</span></div>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="dealer-heo-home-line">Bán thêm mỗi que, heo thêm <b>{rate}</b>. Đập heo ngày <b>{dm(status.campaign.break_on)}</b> lấy tiền tiêu Tết.</p>
+          <div className="dealer-heo-home-base">
+            <b>{que(baselineOf(status))} que/ngày</b>
+            <span>mức trung bình tháng {Number(status.baseline_month?.slice(5) || 11)} của anh/chị. Đặt trên mức này là có thưởng.</span>
+          </div>
+          <ul className="dealer-heo-home-points">
+            <li>Không cần đăng ký phức tạp, bấm một nút là tham gia</li>
+            <li>Mỗi đơn từ {que(requiredOf(status))} que được lắc heo trúng quà</li>
+            <li>Không tham gia vẫn đặt hàng bình thường</li>
+          </ul>
+        </>
+      )}
+      {phase === "announce" ? (
+        <p className="dealer-heo-home-note"><b>Mở đăng ký lúc {openLabel(status)}.</b> Chương trình áp dụng từ {dm(status.campaign.starts_on)}.</p>
+      ) : null}
+      <div className="dealer-heo-home-actions">
+        {joinedLive && onOrder ? (
+          <button type="button" className="dealer-heo-btn dealer-heo-btn--light" onClick={onOrder}>Đặt bánh để heo lớn thêm</button>
+        ) : null}
+        <button
+          type="button"
+          className={`dealer-heo-btn ${joinedLive ? "dealer-heo-btn--glass" : "dealer-heo-btn--light"}`}
+          data-dealer-heo-open-offer
+          onClick={openDealerHeoOffer}
+        >
+          {phase === "announce" ? "Xem thể lệ" : mode === "joined" ? "Xem thể lệ" : mode === "declined" ? "Tham gia lại" : "🐷 Xem thể lệ & tham gia"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 /** Thin line pinned at the top of the chat while the dealer scrolls. */
 export function DealerHeoPinned() {
   const { status } = useHeo();
