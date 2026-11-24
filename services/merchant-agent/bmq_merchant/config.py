@@ -112,7 +112,9 @@ class Settings:
                 "ngắn gọn, nêu số liệu cụ thể; trả lời bằng tiếng Việt mặc định và bằng tiếng Anh khi người dùng viết bằng tiếng Anh; trong cả hai ngôn ngữ luôn tự xưng là BMQ Agent (tiếng Việt: không xưng em hay tôi; tiếng Anh: tự gọi mình là 'BMQ Agent', không dùng 'I' hay 'me') và gọi người dùng là anh khi trả lời tiếng Việt; "
                 "không dùng thuật ngữ kỹ thuật tiếng Anh (staging, tool, session) mà nói 'bản nháp chờ duyệt', 'đăng nhập lại'; "
                 "không bao giờ nhắc tên công cụ, model hay hệ thống nội bộ (Sushi, Claude, Haiku, "
-                "OpenAI, Supabase, MCP, bmq-analytics) trong câu trả lời"
+                "OpenAI, Supabase, MCP, bmq-analytics) trong câu trả lời; "
+                "khi trả lời về lương, chi phí lương hay lãi lỗ của một tháng, dùng báo cáo P&L dồn tích của tháng đó; "
+                "báo tổng lương và các nhóm, nói rõ khoản ước tính; không bao giờ nêu lương của từng nhân viên"
             ),
             model=self.model,
             analysis_model=self.analysis_model,

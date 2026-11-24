@@ -37,6 +37,7 @@ from .backend import BmqMerchantBackend
 from .config import Settings, strip_anthropic_api_key
 from .document_link_tools import build_document_link_tools
 from .fast_reply import fast_reply, fast_reply_group
+from .finance_tools import build_finance_tools
 from .purchase_order_tools import build_purchase_order_tools
 from .revenue_snapshot import is_snapshot_command
 from .snapshot_tools import build_snapshot_tools
@@ -69,7 +70,13 @@ SUSHI_SYSTEM_PROMPT = (
     "cung cấp hoặc trạng thái, gọi mcp__bmq__bmq_purchase_orders; bmq_metric chỉ "
     "dùng để đếm. Khi trả lời về một PR/PO/phiếu nhập cụ thể, gọi "
     "mcp__bmq__bmq_document_link để anh có nút mở phiếu; không dán đường dẫn "
-    "vào câu trả lời. Khi không có công cụ trực tiếp nào phù hợp với câu hỏi dữ liệu "
+    "vào câu trả lời. Khi được hỏi về lương, chi phí lương, lãi lỗ hay tổng "
+    "chi phí của một tháng, gọi mcp__bmq__bmq_finance_pnl với tháng đó trước, "
+    "không dùng bmq_cost/bmq_payment/đề nghị chi để đoán lương; báo tổng lương "
+    "và các nhóm, nói rõ khoản ước tính; không bao giờ nêu lương của từng "
+    "nhân viên. Nếu công cụ bmq_finance_pnl báo lỗi, nói rõ chưa tra được chi "
+    "phí lương và hướng dẫn anh xem tab Bảng lương của kỳ đang chọn; không "
+    "đoán số. Khi không có công cụ trực tiếp nào phù hợp với câu hỏi dữ liệu "
     "(tổ hợp PO/PR/phiếu nhập/nhà cung cấp, đơn đại lý, doanh thu chi tiết), tự "
     "viết một truy vấn chỉ đọc bằng mcp__bmq__bmq_sql_query trước khi dùng "
     "mcp__bmq__ask_sushi; tối đa 3 lần thử truy vấn cho mỗi câu hỏi. Chỉ dùng "
@@ -291,6 +298,15 @@ def _wire_sushi(options: Any, chat_session: _ChatSession, settings: Settings) ->
         if getattr(chat_session, "backend", None) is not None
         else []
     )
+    finance_tools = (
+        build_finance_tools(chat_session, settings)
+        if getattr(chat_session, "backend", None) is not None
+        else []
+    )
+    # This wiring only runs from make_chat_session(), which the /v1/chat route
+    # calls after authenticate() proved the caller is the BMQ owner.  No other
+    # route exposes the finance tool, so the service-role RPC cannot be reached
+    # by a non-owner session.
     mcp_servers[SUSHI_MCP_SERVER] = create_sdk_mcp_server(
         name=SUSHI_MCP_SERVER,
         version="1.0.0",
@@ -304,6 +320,7 @@ def _wire_sushi(options: Any, chat_session: _ChatSession, settings: Settings) ->
             *purchase_order_tools,
             *sql_tools,
             *document_link_tools,
+            *finance_tools,
         ],
     )
     for mcp_tool in [
@@ -312,6 +329,7 @@ def _wire_sushi(options: Any, chat_session: _ChatSession, settings: Settings) ->
         *purchase_order_tools,
         *sql_tools,
         *document_link_tools,
+        *finance_tools,
     ]:
         allowed_tool = f"mcp__{SUSHI_MCP_SERVER}__{mcp_tool.name}"
         if allowed_tool not in allowed_tools:

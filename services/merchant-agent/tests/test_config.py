@@ -25,6 +25,8 @@ def test_brand_voice_uses_bmq_agent_in_both_languages() -> None:
     assert config.assistant_name == "BMQ Agent"
     assert "BMQ Agent" in config.brand_voice
     assert "tiếng Anh" in config.brand_voice
+    assert "P&L dồn tích" in config.brand_voice
+    assert "không bao giờ nêu lương của từng nhân viên" in config.brand_voice
     assert "VNAgent" not in config.brand_voice
 
 

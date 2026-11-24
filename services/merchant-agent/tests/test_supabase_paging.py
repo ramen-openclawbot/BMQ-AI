@@ -1,9 +1,13 @@
 import httpx
 import respx
 
-from bmq_merchant.supabase import SELECT_PAGE_SIZE, SupabaseClient
+from bmq_merchant.supabase import ALLOWED_RPCS, SELECT_PAGE_SIZE, SupabaseClient
 
 BASE = "https://example.supabase.co"
+
+
+def test_finance_pnl_accrual_is_an_allowed_rpc() -> None:
+    assert "finance_pnl_accrual" in ALLOWED_RPCS
 
 
 @respx.mock

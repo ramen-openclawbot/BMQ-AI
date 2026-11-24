@@ -48,7 +48,7 @@ const GUIDES: MerchantPageGuide[] = [
   {
     prefix: "/salary-payouts",
     label: "Đợt chi lương",
-    purpose: "một đợt chi lương nhân viên; BMQ Agent không đọc được số lương hay chi tiết đợt chi, chỉ hướng dẫn xem tab Bảng lương của kỳ đang chọn và trạng thái duyệt chấm công",
+    purpose: "một đợt chi lương nhân viên; BMQ Agent tra được tổng chi phí lương theo tháng và theo nhóm từ báo cáo lãi lỗ, không nêu lương từng nhân viên; chi tiết đợt chi xem trên màn hình này",
     suggestions: PAYROLL_SUGGESTIONS,
   },
   {
@@ -170,7 +170,7 @@ const GUIDES: MerchantPageGuide[] = [
   {
     prefix: "/payroll",
     label: "Bảng lương",
-    purpose: "bảng lương và đợt chi lương nhân viên; BMQ Agent không đọc được số lương, chỉ hướng dẫn xem tab Bảng lương của kỳ đang chọn và trạng thái duyệt chấm công",
+    purpose: "bảng lương và đợt chi lương nhân viên; BMQ Agent tra được tổng chi phí lương theo tháng và theo nhóm từ báo cáo lãi lỗ, không nêu lương từng nhân viên; chi tiết từng người xem tab Bảng lương của kỳ đang chọn",
     suggestions: PAYROLL_SUGGESTIONS,
   },
 ];

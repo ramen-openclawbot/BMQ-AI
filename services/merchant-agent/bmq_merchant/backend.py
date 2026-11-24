@@ -50,7 +50,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from . import bank_slip
 from .revenue_snapshot import build_revenue_snapshot
-from .supabase import SupabaseClient
+from .supabase import SupabaseClient, SupabaseError
 
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 _LOG = logging.getLogger("bmq_merchant.backend")
@@ -660,6 +660,27 @@ class BmqMerchantBackend(MerchantBackend):
             "code": stored_code,
             "title": _document_title(kind, row, stored_code),
         }
+
+    # -- finance P&L ----------------------------------------------------------
+
+    async def finance_pnl(self, month: date) -> dict[str, Any]:
+        """Read the accrual P&L of one month from the Finance screen's RPC.
+
+        The RPC is service-role-only through ``finance_can_view()``.  The only
+        route that reaches this method is ``POST /v1/chat``, which calls
+        ``authenticate()`` -> ``verify_owner()`` before any session or tool is
+        built, so a non-owner never gets here.  It returns the payroll cost that
+        the Finance screen shows, including ``C6_PAYROLL`` lines accrued from
+        ``payroll_bn_payslips`` and ``salary_payouts``.
+        """
+
+        result = await self._db.rpc(
+            "finance_pnl_accrual",
+            {"p_month": month.strftime("%Y-%m-01")},
+        )
+        if not isinstance(result, dict):
+            raise SupabaseError("Dữ liệu báo cáo lãi lỗ không hợp lệ")
+        return result
 
     # -- revenue snapshot -----------------------------------------------------
 

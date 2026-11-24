@@ -31,18 +31,18 @@ test("pages whose data the agent cannot read offer no suggestions", () => {
   assert.equal(merchantPageGuide("/payment-requests")?.suggestions?.length, 4);
 });
 
-test("payroll guides say the agent cannot read salary and suggest where to look", () => {
+test("payroll guides say the agent gives totals only and suggest where to look", () => {
   for (const path of ["/payroll", "/salary-payouts/1"]) {
     const guide = merchantPageGuide(path);
     assert.ok(guide, path);
-    assert.match(guide.purpose, /không đọc được số lương/);
+    assert.match(guide.purpose, /không nêu lương từng nhân viên/);
     const suggestions = guide.suggestions;
     assert.ok(suggestions && suggestions.length >= 2, path);
     for (const suggestion of suggestions) {
       assert.match(suggestion, /lương/i);
       assert.doesNotMatch(suggestion, /bao nhiêu|số lương|thu nhập/i);
     }
-    assert.match(merchantPageContext(path), /không đọc được số lương/);
+    assert.match(merchantPageContext(path), /không nêu lương từng nhân viên/);
   }
 });
 

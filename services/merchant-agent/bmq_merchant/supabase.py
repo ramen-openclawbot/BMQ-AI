@@ -2,7 +2,7 @@
 
 Only the operations this service needs are exposed.  The generic write surface is
 private so the backend cannot accidentally update another table: staged changes
-are the only table writes, and the three allowed RPCs are the only function calls.
+are the only table writes, and the allow-listed RPCs are the only function calls.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ ALLOWED_RPCS = frozenset(
         "merchant_apply_announcement",
         "merchant_prepare_bank_slip_request",
         "merchant_finalize_bank_slip_payment",
+        "finance_pnl_accrual",
     }
 )
 

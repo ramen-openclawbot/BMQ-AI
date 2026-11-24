@@ -216,6 +216,49 @@ def test_chat_uses_fake_sdk_and_returns_pending_changes(settings: Settings) -> N
     assert captured["options_kwargs"]["operator"] == "owner@bmq.vn"
 
 
+def test_chat_non_owner_is_rejected_before_the_finance_tool(
+    settings: Settings,
+) -> None:
+    from fastapi import HTTPException
+
+    turns: list[str] = []
+
+    async def deny(_: str | None) -> Owner:
+        raise HTTPException(
+            status_code=403,
+            detail="Tài khoản không có quyền owner BMQ",
+        )
+
+    async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
+        turns.append(text)
+        return TurnResult(text="không được gọi")
+
+    def options_factory(**kwargs: Any) -> Any:
+        return object(), FakeToolset()
+
+    app = create_app(
+        settings,
+        backend_factory=lambda: FakeBackend(),
+        options_factory=options_factory,
+        client_factory=lambda _: FakeClient(),
+        turn_runner=fake_turn,
+        owner_verifier=deny,
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer non-owner-token"},
+            json={
+                "session_id": "session-payroll-denied",
+                "message": "Lương tháng 10 bao nhiêu",
+                "page": "/payroll · Bảng lương: bảng lương và đợt chi lương nhân viên",
+            },
+        )
+
+    assert response.status_code == 403
+    assert turns == [], "non-owner must not reach any tool or model turn"
+
+
 def test_chat_english_ui_tells_the_model_to_answer_in_english(settings: Settings) -> None:
     captured: dict[str, Any] = {}
 
@@ -390,14 +433,14 @@ def test_chat_greeting_fast_reply_skips_turn_runner(settings: Settings) -> None:
     assert context_sent is False, "fast reply must not mark the context as sent"
 
 
-def test_chat_payroll_question_answers_once_without_turn_runner(
+def test_chat_payroll_question_on_payroll_page_uses_turn_runner(
     settings: Settings,
 ) -> None:
     captured: dict[str, Any] = {"turns": []}
 
     async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
         captured["turns"].append(text)
-        return TurnResult(text="không được gọi")
+        return TurnResult(text="AI trả lời")
 
     fake = FakeBackend()
     app = _app(settings, fake, captured, turn_runner=fake_turn)
@@ -415,19 +458,14 @@ def test_chat_payroll_question_answers_once_without_turn_runner(
 
     assert response.status_code == 200
     body = response.json()
-    assert body["tool_calls"] == ["bmq_fast_reply"]
-    assert captured["turns"] == [], "payroll fast reply must not call turn_runner"
-    assert context_sent is False
-    assert "BMQ Agent" in body["text"]
-    assert "không đọc được số lương" in body["text"]
-    assert "tab Bảng lương" in body["text"]
-    assert "kỳ đang chọn" in body["text"]
-    assert "chấm công" in body["text"]
-    assert "10" not in body["text"], "the reply must not repeat a salary number"
-    assert not any(
-        block["component"] == "sushi_answer" for block in body["ui"]
-    ), "one question must not produce a second answer"
-    assert [block["component"] for block in body["ui"]] == ["suggestions"]
+    assert body["text"] == "AI trả lời"
+    assert "không đọc được số lương" not in body["text"]
+    assert captured["turns"] == [
+        "[Trang: /payroll · Bảng lương: bảng lương và đợt chi lương nhân viên]\n"
+        "Lương tháng 10 bao nhiêu"
+    ], "salary questions on /payroll must reach the model"
+    assert context_sent is True
+    assert "bmq_fast_reply" not in body["tool_calls"]
 
 
 def test_chat_payroll_question_on_another_page_uses_turn_runner(
@@ -691,6 +729,44 @@ def test_wire_sushi_registers_document_link_tool(
         "ask_sushi",
         "bmq_cost",
     ]
+
+
+def test_wire_sushi_registers_finance_pnl_tool(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bmq_merchant import server as server_module
+
+    captured: dict[str, Any] = {}
+
+    def fake_create_server(
+        name: str, version: str = "1.0.0", tools: Any = None
+    ) -> Any:
+        captured["tools"] = list(tools or [])
+        return {"type": "sdk", "name": name}
+
+    monkeypatch.setattr(server_module, "create_sdk_mcp_server", fake_create_server)
+    session = SimpleNamespace(
+        owner_token="",
+        pending_ui=[],
+        backend=SimpleNamespace(),
+    )
+    options = SimpleNamespace(
+        system_prompt="BASE PROMPT",
+        mcp_servers={},
+        allowed_tools=[],
+    )
+
+    server_module._wire_sushi(options, session, settings)
+
+    tool_names = {sdk_tool.name for sdk_tool in captured["tools"]}
+    assert "bmq_finance_pnl" in tool_names
+    assert "mcp__bmq__bmq_finance_pnl" in options.allowed_tools
+    assert "mcp__bmq__bmq_finance_pnl" in options.system_prompt
+    assert "không dùng bmq_cost/bmq_payment/đề nghị chi để đoán lương" in (
+        options.system_prompt
+    )
+    assert "không bao giờ nêu lương của từng nhân viên" in options.system_prompt
+    assert "hướng dẫn anh xem tab Bảng lương" in options.system_prompt
 
 
 def test_chat_empty_message_with_one_image_runs_intake_without_model(
