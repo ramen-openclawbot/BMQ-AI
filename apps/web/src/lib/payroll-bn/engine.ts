@@ -389,6 +389,21 @@ function buildEmployeeLine(
       ? rationalFromNumber(employee.monthlySalary)
       : RATIONAL_ZERO;
     const employment = employedCalendarDays(period, employee);
+    // A driver who starts after (or left before) this period is not paid here at
+    // all: owner 2026-11-25 keeps T11 drivers on manual "Lương lẻ" and starts app
+    // payroll from T12 by setting start_date. No units, extras or fixed pay.
+    if (employment.total > 0 && employment.days === 0) {
+      flags.push("not_in_period");
+      return {
+        kind: "employee",
+        employeeCode: employee.code,
+        employeeName: employee.name,
+        group: employee.group,
+        employmentType: employee.employmentType,
+        ...base,
+        flags,
+      };
+    }
     const fixedPay = employment.total > 0
       ? divRational(mulRational(monthlySalary, rational(employment.days)), rational(employment.total))
       : RATIONAL_ZERO;

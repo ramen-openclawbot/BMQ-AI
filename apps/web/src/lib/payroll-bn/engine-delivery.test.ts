@@ -310,3 +310,24 @@ test("a delivery adjustment that cannot apply is called out in the payroll note"
   const notes = buildPayrollNotes(result.employees, adjustments, labels);
   assert.match(notes.get("DUYEN")?.join("; ") ?? "", /Không áp dụng cho Giao hàng/);
 });
+
+test("a driver starting after the period is not paid and gets no payslip (T11 stays on Lương lẻ)", async () => {
+  const { buildPayslips } = await import("./payslip.ts");
+  const employees: PayrollEmployee[] = DELIVERY_EMPLOYEES.map((employee) =>
+    employee.code === "DUYEN" ? { ...employee, startDate: "2026-10-01" } : employee
+  );
+  const result = computePayroll({
+    period: DELIVERY_T09_PERIOD,
+    employees,
+    deliveryUnits: DELIVERY_T09_UNITS,
+    deliveryExtras: { DUYEN: 500_000 },
+  });
+  const duyen = lineFor(result.employees, "DUYEN");
+  assert.ok(duyen.flags.includes("not_in_period"));
+  assert.equal(Number(duyen.netPayRounded), 0);
+  assert.deepEqual(duyen.deliveryUnitPay, RATIONAL_ZERO);
+  assert.equal(Number(lineFor(result.employees, "TUAN").netPayRounded), 3_667_000);
+  const payslips = buildPayslips(DELIVERY_T09_PERIOD, employees, result);
+  assert.equal(payslips.some((slip) => slip.employee_code === "DUYEN"), false);
+  assert.equal(payslips.some((slip) => slip.employee_code === "TUAN"), true);
+});

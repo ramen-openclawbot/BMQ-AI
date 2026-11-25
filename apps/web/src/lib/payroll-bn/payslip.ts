@@ -64,7 +64,8 @@ export function buildPayslips(
 ): PayslipRecord[] {
   const groupByCode = new Map(employees.map((employee) => [employee.code, employee.group]));
 
-  return result.employees.map((employeeLine) => {
+  // A driver outside this period (start_date after it) gets no payslip at all.
+  return result.employees.filter((employeeLine) => !employeeLine.flags.includes("not_in_period")).map((employeeLine) => {
     const partTime = employeeLine.employmentType === "part_time";
     const delivery = employeeLine.employmentType === "delivery" ||
       employeeLine.group === "Giao hàng";
