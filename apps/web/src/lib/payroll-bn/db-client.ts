@@ -27,6 +27,7 @@ import {
   toAttendancePayloadRow,
   toEmployeeUpsertRow,
   toIssueReviewUpsertRow,
+  toOptionalNumber,
   toPeriodInsertRow,
 } from "./db-mapping.ts";
 import type {
@@ -118,6 +119,23 @@ export interface BepBnImportSummary {
   source: AttendanceImportSource;
 }
 
+export interface BepBnDeliveryUnitDay {
+  employeeCode: string;
+  /** YYYY-MM-DD. */
+  deliveryDate: string;
+  units: number;
+}
+
+export interface BepBnDeliveryExtra {
+  id: string;
+  employeeCode: string;
+  amount: number;
+  note: string;
+  workDate: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
 export interface BepBnPeriodData {
   id: string;
   period: PayrollPeriod;
@@ -129,6 +147,14 @@ export interface BepBnPeriodData {
   imports: BepBnImportSummary[];
   /** When the attendance of this period was approved, or null. */
   attendanceApprovedAt: string | null;
+  /** Giao hàng — delivery units per day (delivery_units_by_day). */
+  deliveryUnitsByDay: BepBnDeliveryUnitDay[];
+  /** Giao hàng — total delivery units per employee for this period. */
+  deliveryUnits: Record<string, number>;
+  /** Giao hàng — delivery extras rows for this period. */
+  deliveryExtraRows: BepBnDeliveryExtra[];
+  /** Giao hàng — total extra amount per employee for this period. */
+  deliveryExtras: Record<string, number>;
 }
 
 export interface BepBnImportResult {
@@ -220,6 +246,15 @@ export function describeDbError(error: unknown): string {
       if (message.includes("date_out_of_period")) {
         return "Có dòng chấm công nằm ngoài khoảng ngày của kỳ hoặc thiếu mã nhân viên/ngày.";
       }
+      if (message.includes("payroll_bn_delivery_extra_not_delivery")) {
+        return "Chỉ nhân viên nhóm Giao hàng mới có khoản phát sinh giao hàng.";
+      }
+      if (message.includes("delivery_units_invalid")) {
+        return "Công giao hàng phải lớn hơn hoặc bằng 0 và là bội của 0,25.";
+      }
+      if (message.includes("delivery_employee_not_in_catalogue")) {
+        return "Mã nhân viên không phải tài xế Giao hàng trong bảng lương.";
+      }
       return "Dữ liệu gửi lên không hợp lệ.";
     case "23505":
       if (message.includes("duplicate_employee_day")) {
@@ -247,12 +282,40 @@ export function describeDbError(error: unknown): string {
   if (message.includes("payroll_bn_duplicate_employee_day")) {
     return "Trùng ngày chấm công của cùng một nhân viên trong file.";
   }
+  if (message.includes("payroll_bn_delivery_extra_not_delivery")) {
+    return "Chỉ nhân viên nhóm Giao hàng mới có khoản phát sinh giao hàng.";
+  }
+  if (message.includes("delivery_units_invalid")) {
+    return "Công giao hàng phải lớn hơn hoặc bằng 0 và là bội của 0,25.";
+  }
+  if (message.includes("delivery_employee_not_in_catalogue")) {
+    return "Mã nhân viên không phải tài xế Giao hàng trong bảng lương.";
+  }
   if (message) return message;
   return GENERIC_ERROR;
 }
 
 function fail(error: DbErrorLike | null | undefined): never {
   throw new Error(describeDbError(error));
+}
+
+/**
+ * The web app may ship before the additive delivery migration is applied.
+ * Missing delivery RPC/table errors must not take the whole payroll page down;
+ * every other error still fails loudly.
+ */
+function isMissingDeliverySchema(error: DbErrorLike | null | undefined): boolean {
+  if (!error) return false;
+  const code = typeof error.code === "string" ? error.code : "";
+  const message = typeof error.message === "string" ? error.message : "";
+  if (!/delivery/i.test(message)) return false;
+  return (
+    code === "PGRST202" ||
+    code === "PGRST205" ||
+    code === "42P01" ||
+    code === "42883" ||
+    /could not find|does not exist|schema cache/i.test(message)
+  );
 }
 
 function asRows<T>(data: unknown): T[] {
@@ -321,6 +384,8 @@ export async function loadPeriodData(
     importsResult,
     adjustmentsResult,
     missionBonusResult,
+    deliveryUnitsResult,
+    deliveryExtrasResult,
   ] = await Promise.all([
     client
       .from("payroll_bn_period_employees")
@@ -344,6 +409,17 @@ export async function loadPeriodData(
       // Oldest first: the engine lets the latest adjustment of a field win.
       .order("created_at", { ascending: true }),
     missionBonusPromise,
+    // Delivery units and extras of the period. The RPC aggregates the same
+    // completed delivery_tasks rows the delivery payroll uses.
+    client.rpc("delivery_units_by_day", {
+      p_from: period.dateFrom,
+      p_to: period.dateTo,
+    }),
+    client
+      .from("payroll_bn_delivery_extras")
+      .select("*")
+      .eq("period_id", periodId)
+      .order("created_at", { ascending: true }),
   ]);
 
   if (employeesResult.error) fail(employeesResult.error);
@@ -351,6 +427,12 @@ export async function loadPeriodData(
   if (importsResult.error) fail(importsResult.error);
   if (adjustmentsResult.error) fail(adjustmentsResult.error);
   if (missionBonusResult.error) fail(missionBonusResult.error);
+  if (deliveryUnitsResult.error && !isMissingDeliverySchema(deliveryUnitsResult.error)) {
+    fail(deliveryUnitsResult.error);
+  }
+  if (deliveryExtrasResult.error && !isMissingDeliverySchema(deliveryExtrasResult.error)) {
+    fail(deliveryExtrasResult.error);
+  }
 
   const missionBonusByCode = new Map<string, number>();
   for (const bonus of asRows<Record<string, unknown>>(missionBonusResult.data)) {
@@ -366,10 +448,49 @@ export async function loadPeriodData(
     return bonus === undefined ? employee : { ...employee, missionBonus: bonus };
   });
 
+  const deliveryUnitsByDay: BepBnDeliveryUnitDay[] = asRows<Record<string, unknown>>(
+    deliveryUnitsResult.data,
+  ).map((row) => ({
+    employeeCode: typeof row.employee_code === "string" ? row.employee_code : "",
+    deliveryDate: typeof row.delivery_date === "string" ? row.delivery_date : "",
+    units: toOptionalNumber(row.units) ?? 0,
+  })).filter((row) => row.employeeCode !== "" && row.deliveryDate !== "");
+
+  const deliveryUnits: Record<string, number> = {};
+  for (const row of deliveryUnitsByDay) {
+    deliveryUnits[row.employeeCode] = (deliveryUnits[row.employeeCode] ?? 0) + row.units;
+  }
+
+  const deliveryExtraRows: BepBnDeliveryExtra[] = asRows<Record<string, unknown>>(
+    deliveryExtrasResult.data,
+  ).map((row) => ({
+    id: typeof row.id === "string" ? row.id : "",
+    employeeCode: typeof row.employee_code === "string" ? row.employee_code : "",
+    amount: toOptionalNumber(row.amount) ?? 0,
+    note: typeof row.note === "string" ? row.note : "",
+    workDate: typeof row.work_date === "string" ? row.work_date : null,
+    createdBy: typeof row.created_by === "string" ? row.created_by : null,
+    createdAt: typeof row.created_at === "string" ? row.created_at : "",
+  })).filter((row) => row.id !== "" && row.employeeCode !== "");
+
+  const deliveryExtras: Record<string, number> = {};
+  for (const row of deliveryExtraRows) {
+    deliveryExtras[row.employeeCode] = (deliveryExtras[row.employeeCode] ?? 0) + row.amount;
+  }
+
+  // Every existing computePayroll call site (draft, export, publish, previous
+  // period) builds its input from these employee rows. Carrying the totals on
+  // the row keeps delivery pay correct without touching those UI files.
+  const employeesWithDelivery = employees.map((employee) => ({
+    ...employee,
+    deliveryUnits: deliveryUnits[employee.code] ?? 0,
+    deliveryExtras: deliveryExtras[employee.code] ?? 0,
+  }));
+
   return {
     id: periodRow.id,
     period,
-    employees,
+    employees: employeesWithDelivery,
     measures: {},
     rows: asRows<PayrollBnAttendanceRow>(rowsResult.data).map(mapAttendanceRow),
     adjustments: asRows<PayrollBnAdjustmentRow>(adjustmentsResult.data).map(mapAdjustmentRow),
@@ -382,6 +503,10 @@ export async function loadPeriodData(
       source: normalizeImportSource(row.source),
     })),
     attendanceApprovedAt: periodRow.attendance_approved_at ?? null,
+    deliveryUnitsByDay,
+    deliveryUnits,
+    deliveryExtraRows,
+    deliveryExtras,
   };
 }
 
@@ -463,6 +588,27 @@ export async function addAdjustment(
     throw new Error("Bắt buộc ghi lý do điều chỉnh.");
   }
 
+  // Delivery pay does not use work days / overtime / part-time hours. Reject
+  // those fields for a driver instead of saving an adjustment that does nothing.
+  if (input.field !== "net_pay") {
+    const employeeResult = await client
+      .from("payroll_bn_period_employees")
+      .select("employment_type, group_name")
+      .eq("period_id", periodId)
+      .eq("employee_code", input.employeeCode)
+      .maybeSingle();
+    if (employeeResult.error) fail(employeeResult.error);
+    const employeeRow = firstRow(employeeResult.data);
+    if (
+      employeeRow &&
+      (employeeRow.employment_type === "delivery" || employeeRow.group_name === "Giao hàng")
+    ) {
+      throw new Error(
+        "Nhân viên Giao hàng chỉ nhận điều chỉnh Thực nhận; dùng khoản phát sinh giao hàng cho các khoản khác.",
+      );
+    }
+  }
+
   const { error } = await client
     .from("payroll_bn_adjustments")
     .insert(toAdjustmentInsertRow(periodId, { ...input, reason }));
@@ -532,6 +678,153 @@ export async function upsertEmployee(
     .from("payroll_bn_period_employees")
     .upsert(toEmployeeUpsertRow(periodId, employee), { onConflict: "period_id,employee_code" });
   if (error) fail(error);
+}
+
+// ---------------------------------------------------------------------------
+// Delivery (Giao hàng) — units, extras and delivery_unit_base
+// ---------------------------------------------------------------------------
+
+export interface BepBnDeliveryExtraInput {
+  employeeCode: string;
+  amount: number;
+  note: string;
+  /** YYYY-MM-DD, or null for a period-level extra. */
+  workDate?: string | null;
+}
+
+/** A delivery unit quantity must be non-negative and a multiple of 0.25. */
+export function normalizeDeliveryUnits(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  const quarters = parsed * 4;
+  if (Math.abs(quarters - Math.round(quarters)) > 1e-9) return null;
+  return Math.round(quarters) / 4;
+}
+
+function mapDeliveryUnitRow(row: Record<string, unknown>): BepBnDeliveryUnitDay | null {
+  const employeeCode = typeof row.employee_code === "string" ? row.employee_code : "";
+  const deliveryDate = typeof row.delivery_date === "string" ? row.delivery_date : "";
+  if (employeeCode === "" || deliveryDate === "") return null;
+  return { employeeCode, deliveryDate, units: toOptionalNumber(row.units) ?? 0 };
+}
+
+/** Read the per-day delivery units of a date range (delivery_units_by_day). */
+export async function getDeliveryUnitsByDay(
+  client: BepBnClient,
+  from: string,
+  to: string,
+): Promise<BepBnDeliveryUnitDay[]> {
+  const { data, error } = await client.rpc("delivery_units_by_day", { p_from: from, p_to: to });
+  if (error) fail(error);
+  return asRows<Record<string, unknown>>(data)
+    .map(mapDeliveryUnitRow)
+    .filter((row): row is BepBnDeliveryUnitDay => row !== null);
+}
+
+export async function listDeliveryExtras(
+  client: BepBnClient,
+  periodId: string,
+): Promise<BepBnDeliveryExtra[]> {
+  const { data, error } = await client
+    .from("payroll_bn_delivery_extras")
+    .select("*")
+    .eq("period_id", periodId)
+    .order("created_at", { ascending: true });
+  if (error) fail(error);
+  return asRows<Record<string, unknown>>(data).map((row) => ({
+    id: typeof row.id === "string" ? row.id : "",
+    employeeCode: typeof row.employee_code === "string" ? row.employee_code : "",
+    amount: toOptionalNumber(row.amount) ?? 0,
+    note: typeof row.note === "string" ? row.note : "",
+    workDate: typeof row.work_date === "string" ? row.work_date : null,
+    createdBy: typeof row.created_by === "string" ? row.created_by : null,
+    createdAt: typeof row.created_at === "string" ? row.created_at : "",
+  })).filter((row) => row.id !== "" && row.employeeCode !== "");
+}
+
+/** Insert one delivery extra. A locked period is rejected by the DB trigger. */
+export async function addDeliveryExtra(
+  client: BepBnClient,
+  periodId: string,
+  input: BepBnDeliveryExtraInput,
+): Promise<void> {
+  const employeeCode = String(input.employeeCode ?? "").trim();
+  if (employeeCode === "") throw new Error("Thiếu mã nhân viên.");
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount === 0) {
+    throw new Error("Số tiền phát sinh giao hàng không hợp lệ.");
+  }
+  const note = typeof input.note === "string" ? input.note.trim() : "";
+  if (note === "") throw new Error("Bắt buộc ghi lý do phát sinh giao hàng.");
+
+  // Surface an input that cannot apply: only a delivery catalogue row may carry
+  // a delivery extra. The DB trigger re-checks the same rule.
+  const employeeResult = await client
+    .from("payroll_bn_period_employees")
+    .select("employment_type, group_name")
+    .eq("period_id", periodId)
+    .eq("employee_code", employeeCode)
+    .maybeSingle();
+  if (employeeResult.error) fail(employeeResult.error);
+  const employeeRow = firstRow(employeeResult.data);
+  if (
+    employeeRow &&
+    employeeRow.employment_type !== "delivery" &&
+    employeeRow.group_name !== "Giao hàng"
+  ) {
+    throw new Error("Chỉ nhân viên nhóm Giao hàng mới có khoản phát sinh giao hàng.");
+  }
+
+  const { error } = await client.from("payroll_bn_delivery_extras").insert({
+    period_id: periodId,
+    employee_code: employeeCode,
+    amount,
+    note,
+    work_date: input.workDate ?? null,
+  });
+  if (error) fail(error);
+}
+
+export async function deleteDeliveryExtra(
+  client: BepBnClient,
+  extraId: string,
+): Promise<void> {
+  const id = String(extraId ?? "").trim();
+  if (id === "") throw new Error("Thiếu mã khoản phát sinh.");
+  const { error } = await client.from("payroll_bn_delivery_extras").delete().eq("id", id);
+  if (error) fail(error);
+}
+
+/**
+ * Set (or clear with null) the delivery unit base of one employee in an open
+ * period. The existing locked-period trigger rejects writes to a locked month.
+ */
+export async function setDeliveryUnitBase(
+  client: BepBnClient,
+  periodId: string,
+  employeeCode: string,
+  value: number | null,
+): Promise<void> {
+  const code = String(employeeCode ?? "").trim();
+  if (code === "") throw new Error("Thiếu mã nhân viên.");
+  let base: number | null = null;
+  if (value !== null && value !== undefined) {
+    base = normalizeDeliveryUnits(value);
+    if (base === null) {
+      throw new Error("Đơn giá công giao hàng phải lớn hơn hoặc bằng 0 và là bội của 0,25.");
+    }
+  }
+
+  const { data, error } = await client
+    .from("payroll_bn_period_employees")
+    .update({ delivery_unit_base: base })
+    .eq("period_id", periodId)
+    .eq("employee_code", code)
+    .select("id");
+  if (error) fail(error);
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new Error("Không lưu được đơn giá công giao hàng: nhân viên không thuộc kỳ hoặc kỳ đã chốt.");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -695,7 +988,7 @@ export async function ensurePeriodForRows(
     name: `Kỳ lương tháng ${monthText}/${yearText} — Bếp BN`,
     dateFrom,
     dateTo,
-    standardDaysByGroup: { "Văn phòng": 22, "Bếp bánh": 26, "Kho BN": 26 },
+    standardDaysByGroup: { "Văn phòng": 22, "Bếp bánh": 26, "Kho BN": 26, "Giao hàng": 26 },
     holidays: [],
   });
 }

@@ -66,6 +66,37 @@ export function buildPayslips(
 
   return result.employees.map((employeeLine) => {
     const partTime = employeeLine.employmentType === "part_time";
+    const delivery = employeeLine.employmentType === "delivery" ||
+      employeeLine.group === "Giao hàng";
+    if (delivery) {
+      const deliveryLines: PayslipLine[] = [
+        line("delivery_units", "Công giao hàng", cents(employeeLine.deliveryUnits), "day"),
+        line("delivery_unit_rate", "Đơn giá công giao hàng", cents(employeeLine.deliveryUnitRate), "vnd"),
+        line("fixed_pay", "Lương cố định", cents(employeeLine.fixedPay), "vnd"),
+        line("delivery_unit_pay", "Lương giao hàng", cents(employeeLine.deliveryUnitPay), "vnd"),
+        line("delivery_extras", "Phát sinh giao hàng", cents(employeeLine.deliveryExtras), "vnd"),
+        line("allowance", "Phụ cấp", cents(employeeLine.allowance), "vnd"),
+      ];
+      if (compareRational(employeeLine.missionBonus, RATIONAL_ZERO) > 0) {
+        deliveryLines.push(
+          line("mission_bonus", "Thưởng nhiệm vụ", cents(employeeLine.missionBonus), "vnd"),
+        );
+      }
+      deliveryLines.push(
+        line("gross_pay", "Tổng thu nhập", cents(employeeLine.grossPay), "vnd"),
+      );
+      return {
+        employee_code: employeeLine.employeeCode,
+        employee_name: employeeLine.employeeName,
+        group_name: groupByCode.get(employeeLine.employeeCode) ?? employeeLine.group,
+        period_name: period.name,
+        date_from: period.dateFrom ?? null,
+        date_to: period.dateTo ?? null,
+        net_pay: Number(employeeLine.netPayRounded),
+        note: noteFor(employeeLine.employeeCode, employeeLine.flags, notes),
+        lines: deliveryLines,
+      };
+    }
     const lines: PayslipLine[] = [
       line("standard_days", "Ngày công chuẩn", cents(employeeLine.standardDays), "day"),
       line("actual_work_days", "Ngày công thực tế", cents(employeeLine.actualWorkDays), "day"),

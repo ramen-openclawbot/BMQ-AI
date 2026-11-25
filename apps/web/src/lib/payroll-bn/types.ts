@@ -63,10 +63,10 @@ export interface PayrollBnCurrentPeriod {
   latestPeriodCode: string | null;
 }
 
-/** The three Bếp BN groups the payroll is split into. */
-export type PayrollGroup = "Văn phòng" | "Bếp bánh" | "Kho BN";
+/** The Bếp BN payroll groups, including delivery drivers. */
+export type PayrollGroup = "Văn phòng" | "Bếp bánh" | "Kho BN" | "Giao hàng";
 
-export type EmploymentType = "official" | "part_time";
+export type EmploymentType = "official" | "part_time" | "delivery";
 
 /** Where a per-employee quantity came from. */
 export type MeasureSource = "manual" | "attendance";
@@ -109,6 +109,15 @@ export interface PayrollEmployee {
    * added to gross pay before the final rounding (never a substitute for R1–R9).
    */
   missionBonus?: number | null;
+  /** Giao hàng — đơn giá một đơn vị công giao hàng (delivery_unit_base). */
+  deliveryUnitBase?: number | null;
+  /**
+   * Giao hàng — tổng công giao hàng của kỳ, gắn sẵn khi đọc period data để
+   * mọi call site computePayroll không phải truyền map riêng.
+   */
+  deliveryUnits?: number | null;
+  /** Giao hàng — tổng khoản phát sinh của kỳ, gắn sẵn như deliveryUnits. */
+  deliveryExtras?: number | null;
 }
 
 /** The machine shift column (Ca). Only HC / V are recognised. */
@@ -282,6 +291,16 @@ export interface PayrollLineBase {
   allowance: Rational;
   /** Thưởng nhiệm vụ bất ngờ (mặc định 0; cộng vào gross trước khi làm tròn). */
   missionBonus: Rational;
+  /** Giao hàng — tổng công giao hàng của nhân viên trong kỳ. */
+  deliveryUnits: Rational;
+  /** Giao hàng — đơn giá một đơn vị công (delivery_unit_base). */
+  deliveryUnitRate: Rational;
+  /** Giao hàng — lương cố định (monthly_salary). */
+  fixedPay: Rational;
+  /** Giao hàng — lương theo công = công × đơn giá / số ngày lịch của tháng. */
+  deliveryUnitPay: Rational;
+  /** Giao hàng — khoản phát sinh trong kỳ. */
+  deliveryExtras: Rational;
   grossPay: Rational;
   netPay: Rational;
   /** R5 — final rounded amount in whole đồng. */

@@ -73,6 +73,7 @@ export interface PayrollBnEmployeeRow {
   hourly_rate?: number | string | null;
   overtime_rate?: number | string | null;
   allowance?: number | string | null;
+  delivery_unit_base?: number | string | null;
   standard_days_override?: number | string | null;
   start_date?: string | null;
   end_date?: string | null;
@@ -88,6 +89,8 @@ export interface PayrollBnEmployeeUpsertRow {
   hourly_rate: number | null;
   overtime_rate: number | null;
   allowance: number | null;
+  /** Omitted when the caller did not provide it, so a catalogue edit cannot erase it. */
+  delivery_unit_base?: number | null;
   standard_days_override: number | null;
   start_date: string | null;
   end_date: string | null;
@@ -203,7 +206,7 @@ export interface PayrollBnPeriodInput {
 // Small value normalisers
 // ---------------------------------------------------------------------------
 
-const PAYROLL_GROUPS: readonly PayrollGroup[] = ["Văn phòng", "Bếp bánh", "Kho BN"];
+const PAYROLL_GROUPS: readonly PayrollGroup[] = ["Văn phòng", "Bếp bánh", "Kho BN", "Giao hàng"];
 
 const ADJUSTMENT_FIELDS: readonly AdjustmentField[] = [
   "work_days",
@@ -256,7 +259,9 @@ export function normalizeGroup(value: unknown): PayrollGroup {
 }
 
 export function normalizeEmploymentType(value: unknown): EmploymentType {
-  return value === "part_time" ? "part_time" : "official";
+  if (value === "part_time") return "part_time";
+  if (value === "delivery") return "delivery";
+  return "official";
 }
 
 /** The machine shift is HC or V; anything else (including absent) reads null. */
@@ -335,6 +340,11 @@ export function mapEmployeeRow(row: PayrollBnEmployeeRow, periodDateFrom: string
     monthlySalary: toOptionalNumber(row.monthly_salary),
     hourlyRate: toOptionalNumber(row.hourly_rate),
     allowance: toOptionalNumber(row.allowance),
+    // A row read before the delivery migration has no such key; leave it
+    // undefined so an edit does not write a column that does not exist yet.
+    deliveryUnitBase: Object.prototype.hasOwnProperty.call(row, "delivery_unit_base")
+      ? toOptionalNumber(row.delivery_unit_base)
+      : undefined,
     overtimeRate: toOptionalNumber(row.overtime_rate),
     standardDaysOverride: toOptionalNumber(row.standard_days_override),
     startDate: row.start_date ?? null,
@@ -615,6 +625,11 @@ export function toEmployeeUpsertRow(
     hourly_rate: employee.hourlyRate ?? null,
     overtime_rate: employee.overtimeRate ?? null,
     allowance: employee.allowance ?? null,
+    // A form that does not know about delivery_unit_base must not write NULL
+    // over an existing driver base; only an explicit null clears the column.
+    ...(employee.deliveryUnitBase === undefined
+      ? {}
+      : { delivery_unit_base: employee.deliveryUnitBase }),
     standard_days_override: employee.standardDaysOverride ?? null,
     start_date: employee.startDate ?? null,
     end_date: employee.endDate ?? null,

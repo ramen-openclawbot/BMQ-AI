@@ -12,6 +12,8 @@ import {
   mapOpenPeriodResult,
   mapPeriodRow,
   mapPeriodScheduleSummary,
+  normalizeEmploymentType,
+  normalizeGroup,
   normalizeImportSource,
   normalizeIssueCode,
   normalizeIssueDecision,
@@ -235,7 +237,7 @@ test("toPeriodInsertRow builds the insert payload for createPeriod", () => {
     name: "Tháng 10/2026",
     dateFrom: "2026-10-01",
     dateTo: "2026-10-31",
-    standardDaysByGroup: { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27 },
+    standardDaysByGroup: { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27, "Giao hàng": 26 },
     holidays: ["2026-10-01"],
   };
 
@@ -244,7 +246,7 @@ test("toPeriodInsertRow builds the insert payload for createPeriod", () => {
     period_name: "Tháng 10/2026",
     date_from: "2026-10-01",
     date_to: "2026-10-31",
-    standard_days_by_group: { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27 },
+    standard_days_by_group: { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27, "Giao hàng": 26 },
     holidays: ["2026-10-01"],
   });
 });
@@ -693,4 +695,46 @@ test("mapCurrentPeriod reads an employees array as its count", () => {
     period: { id: "period-11", employees: [{ code: "E01" }, { code: "E02" }] },
   });
   assert.equal(current.period?.employees, 2);
+});
+
+
+test("delivery group, employment type and delivery_unit_base map both ways", () => {
+  assert.equal(normalizeGroup("Giao hàng"), "Giao hàng");
+  assert.equal(normalizeEmploymentType("delivery"), "delivery");
+  assert.equal(normalizeEmploymentType("official"), "official");
+  assert.equal(normalizeEmploymentType("part_time"), "part_time");
+
+  const employee = mapEmployeeRow(
+    employeeRow({
+      group_name: "Giao hàng",
+      employment_type: "delivery",
+      delivery_unit_base: "4000000.00",
+      monthly_salary: "10000000.00",
+    }),
+    "2026-09-01",
+  );
+  assert.equal(employee.group, "Giao hàng");
+  assert.equal(employee.employmentType, "delivery");
+  assert.equal(employee.deliveryUnitBase, 4_000_000);
+
+  const upsert = toEmployeeUpsertRow("period-1", employee);
+  assert.equal(upsert.group_name, "Giao hàng");
+  assert.equal(upsert.employment_type, "delivery");
+  assert.equal(upsert.delivery_unit_base, 4_000_000);
+
+  const cleared = toEmployeeUpsertRow(
+    "period-1",
+    mapEmployeeRow(employeeRow({ delivery_unit_base: null }), "2026-09-01"),
+  );
+  assert.equal(cleared.delivery_unit_base, null);
+
+  const omitted = toEmployeeUpsertRow("period-1", {
+    code: "DUYEN",
+    name: "Duyên",
+    group: "Giao hàng",
+    employmentType: "delivery",
+    monthlySalary: 2_000_000,
+  });
+  assert.equal("delivery_unit_base" in omitted, false);
+  assert.equal(toEmployeeUpsertRow("period-1", employee).delivery_unit_base, 4_000_000);
 });

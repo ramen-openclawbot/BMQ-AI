@@ -15,7 +15,11 @@ import type { BepBnDataSource, BepBnEmployeeContact, BepBnPeriodData } from "./t
 import { formatAdjustmentValue } from "./format";
 import { MissionGiftBar, MissionGiftButton, useMissionGifts } from "./MissionGift";
 
-const GROUPS: PayrollGroup[] = ["Văn phòng", "Bếp bánh", "Kho BN"];
+const GROUPS: PayrollGroup[] = ["Văn phòng", "Bếp bánh", "Kho BN", "Giao hàng"];
+
+function typeLabel(type: EmploymentType): string {
+  return type === "part_time" ? "Part-time" : type === "delivery" ? "Giao hàng" : "Chính thức";
+}
 
 interface CatalogSectionProps {
   data: BepBnPeriodData;
@@ -72,6 +76,7 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
                 ["Lương chính thức", employee.monthlySalary],
                 ["Đơn giá giờ", employee.hourlyRate],
                 ["Đơn giá TC", employee.overtimeRate],
+                ["Lương cứng tính công", employee.deliveryUnitBase],
                 ["Phụ cấp", employee.allowance],
               ];
               const shown = pay.filter(([, value]) => value !== null && value !== undefined && value !== 0);
@@ -81,7 +86,7 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
                     <div className="min-w-0">
                       <p className="break-words text-[15px] font-semibold leading-snug">{employee.name}</p>
                       <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                        Mã {employee.code} · {employee.group} · {employee.employmentType === "part_time" ? "Part-time" : "Chính thức"}
+                        Mã {employee.code} · {employee.group} · {typeLabel(employee.employmentType)}
                         {shift ? ` · Ca ${shift}` : ""}
                       </p>
                     </div>
@@ -160,7 +165,7 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-3 py-2">{employee.group}</td>
-                    <td className="whitespace-nowrap px-3 py-2">{employee.employmentType === "part_time" ? "Part-time" : "Chính thức"}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{typeLabel(employee.employmentType)}</td>
                     <MoneyCell value={employee.monthlySalary} />
                     <MoneyCell value={employee.hourlyRate} />
                     <MoneyCell value={employee.overtimeRate} />
@@ -242,6 +247,7 @@ interface EmployeeForm {
   hourlyRate: string;
   overtimeRate: string;
   allowance: string;
+  deliveryUnitBase: string;
   startDate: string;
   endDate: string;
 }
@@ -257,6 +263,7 @@ function toForm(employee: PayrollEmployee | null): EmployeeForm {
     hourlyRate: text(employee?.hourlyRate),
     overtimeRate: text(employee?.overtimeRate),
     allowance: text(employee?.allowance),
+    deliveryUnitBase: text(employee?.deliveryUnitBase),
     startDate: employee?.startDate ?? "",
     endDate: employee?.endDate ?? "",
   };
@@ -315,11 +322,13 @@ function EmployeeDialog({
 
   const set = <K extends keyof EmployeeForm>(key: K, value: EmployeeForm[K]) => setForm((current) => ({ ...current, [key]: value }));
   const isPartTime = form.employmentType === "part_time";
+  const isDelivery = form.employmentType === "delivery";
   const amounts = {
     monthlySalary: parseAmount(form.monthlySalary),
     hourlyRate: parseAmount(form.hourlyRate),
     overtimeRate: parseAmount(form.overtimeRate),
     allowance: parseAmount(form.allowance),
+    deliveryUnitBase: parseAmount(form.deliveryUnitBase),
   };
   const duplicate = !employee && data.employees.some((item) => item.code === form.code.trim());
   const errors = {
@@ -331,6 +340,7 @@ function EmployeeDialog({
       amounts.hourlyRate === "invalid" ? "Số không hợp lệ." : isPartTime && amounts.hourlyRate === null ? "Nhập đơn giá giờ." : null,
     overtimeRate: amounts.overtimeRate === "invalid" ? "Số không hợp lệ." : null,
     allowance: amounts.allowance === "invalid" ? "Số không hợp lệ." : null,
+    deliveryUnitBase: amounts.deliveryUnitBase === "invalid" ? "Số không hợp lệ." : null,
     endDate: form.endDate && form.startDate && form.endDate < form.startDate ? "Ngày nghỉ phải sau ngày bắt đầu." : null,
     shift: shift.trim() !== "" && !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(shift.trim()) ? "Nhập giờ dạng HH:MM, ví dụ 07:00." : null,
   };
@@ -349,7 +359,8 @@ function EmployeeDialog({
         employmentType: form.employmentType,
         monthlySalary: isPartTime ? null : number(amounts.monthlySalary),
         hourlyRate: isPartTime ? number(amounts.hourlyRate) : null,
-        overtimeRate: isPartTime ? null : number(amounts.overtimeRate),
+        overtimeRate: isPartTime || isDelivery ? null : number(amounts.overtimeRate),
+        ...(isDelivery ? { deliveryUnitBase: number(amounts.deliveryUnitBase) } : {}),
         allowance: number(amounts.allowance),
         startDate: form.startDate || null,
         endDate: form.endDate || null,
@@ -421,7 +432,11 @@ function EmployeeDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="bep-bn-emp-group">Nhóm</Label>
-            <Select value={form.group} onValueChange={(value) => set("group", value as PayrollGroup)}>
+            <Select value={form.group} onValueChange={(value) => {
+              set("group", value as PayrollGroup);
+              if (value === "Giao hàng") set("employmentType", "delivery");
+              else if (form.employmentType === "delivery") set("employmentType", "official");
+            }}>
               <SelectTrigger id="bep-bn-emp-group">
                 <SelectValue />
               </SelectTrigger>
@@ -443,6 +458,7 @@ function EmployeeDialog({
               <SelectContent>
                 <SelectItem value="official">Chính thức</SelectItem>
                 <SelectItem value="part_time">Part-time</SelectItem>
+                <SelectItem value="delivery">Giao hàng</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -455,15 +471,24 @@ function EmployeeDialog({
           ) : (
             <>
               <div className="space-y-2">
-                <Label htmlFor="bep-bn-emp-salary">Lương chính thức</Label>
+                <Label htmlFor="bep-bn-emp-salary">{isDelivery ? "Lương cố định tháng" : "Lương chính thức"}</Label>
                 <Input id="bep-bn-emp-salary" inputMode="numeric" value={form.monthlySalary} onChange={(event) => set("monthlySalary", event.target.value)} placeholder="8.000.000" />
                 {show(errors.monthlySalary)}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="bep-bn-emp-ot">Đơn giá tăng ca / giờ</Label>
-                <Input id="bep-bn-emp-ot" inputMode="numeric" value={form.overtimeRate} onChange={(event) => set("overtimeRate", event.target.value)} placeholder="Bỏ trống nếu không tính TC" />
-                {show(errors.overtimeRate)}
-              </div>
+              {isDelivery ? (
+                <div className="space-y-2">
+                  <Label htmlFor="bep-bn-emp-unit-base">Lương cứng tính công</Label>
+                  <Input id="bep-bn-emp-unit-base" inputMode="numeric" value={form.deliveryUnitBase} onChange={(event) => set("deliveryUnitBase", event.target.value)} placeholder="Bỏ trống nếu không tính công" />
+                  <p className="text-xs text-muted-foreground">Mỗi công = số này ÷ số ngày của tháng.</p>
+                  {show(errors.deliveryUnitBase)}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="bep-bn-emp-ot">Đơn giá tăng ca / giờ</Label>
+                  <Input id="bep-bn-emp-ot" inputMode="numeric" value={form.overtimeRate} onChange={(event) => set("overtimeRate", event.target.value)} placeholder="Bỏ trống nếu không tính TC" />
+                  {show(errors.overtimeRate)}
+                </div>
+              )}
             </>
           )}
           <div className="space-y-2">

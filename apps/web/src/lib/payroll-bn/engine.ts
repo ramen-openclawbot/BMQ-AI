@@ -54,6 +54,10 @@ export interface PayrollComputationInput {
   /** Direct per-employee figures from the payroll sheet (mode a). */
   measures?: Record<string, PayrollEmployeeMeasures>;
   adjustments?: readonly PayrollAdjustment[];
+  /** Giao hàng — total delivery units per employee for the period. */
+  deliveryUnits?: Record<string, number>;
+  /** Giao hàng — total delivery extras (VND) per employee for the period. */
+  deliveryExtras?: Record<string, number>;
 }
 
 export interface AttendanceAggregate {
@@ -260,6 +264,44 @@ function isPartTime(employee: PayrollEmployee): boolean {
   return employee.employmentType === "part_time";
 }
 
+/** Giao hàng rows use the delivery formula instead of R1–R9. */
+function isDelivery(employee: PayrollEmployee): boolean {
+  return employee.employmentType === "delivery" || employee.group === "Giao hàng";
+}
+
+/** Number of calendar days covered by an inclusive ISO period. */
+function calendarDays(period: PayrollPeriod): number {
+  const from = Date.parse(`${period.dateFrom}T00:00:00.000Z`);
+  const to = Date.parse(`${period.dateTo}T00:00:00.000Z`);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return 0;
+  return Math.round((to - from) / 86_400_000) + 1;
+}
+
+/**
+ * Giao hàng — employed calendar days inside the period. A driver who joins or
+ * leaves mid-month has the fixed monthly salary prorated over these days.
+ */
+function employedCalendarDays(
+  period: PayrollPeriod,
+  employee: PayrollEmployee,
+): { days: number; total: number } {
+  const total = calendarDays(period);
+  if (total === 0) return { days: 0, total: 0 };
+  const periodFrom = Date.parse(`${period.dateFrom}T00:00:00.000Z`);
+  const periodTo = Date.parse(`${period.dateTo}T00:00:00.000Z`);
+  const start = employee.startDate
+    ? Date.parse(`${employee.startDate}T00:00:00.000Z`)
+    : periodFrom;
+  const end = employee.endDate
+    ? Date.parse(`${employee.endDate}T00:00:00.000Z`)
+    : periodTo;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return { days: total, total };
+  const from = Math.max(periodFrom, start);
+  const to = Math.min(periodTo, end);
+  if (to < from) return { days: 0, total };
+  return { days: Math.round((to - from) / 86_400_000) + 1, total };
+}
+
 /**
  * Owner 2026-10-09 — "chốt lương": a non-terminated employee who stopped during
  * the period (`dateFrom <= endDate < dateTo`) gets neither holiday pay nor
@@ -287,6 +329,11 @@ function zeroLineFields(): Omit<PayrollEmployeeLine, "kind" | "employeeCode" | "
     overtimePayReconciled: RATIONAL_ZERO,
     allowance: RATIONAL_ZERO,
     missionBonus: RATIONAL_ZERO,
+    deliveryUnits: RATIONAL_ZERO,
+    deliveryUnitRate: RATIONAL_ZERO,
+    fixedPay: RATIONAL_ZERO,
+    deliveryUnitPay: RATIONAL_ZERO,
+    deliveryExtras: RATIONAL_ZERO,
     grossPay: RATIONAL_ZERO,
     netPay: RATIONAL_ZERO,
     netPayRounded: 0n,
@@ -301,11 +348,20 @@ function buildEmployeeLine(
   aggregate: AttendanceAggregate,
   measures: PayrollEmployeeMeasures | undefined,
   adjustments: readonly PayrollAdjustment[],
+  deliveryUnitsTotal: number,
+  deliveryExtrasTotal: number,
 ): PayrollEmployeeLine {
   const rules = period.rules;
   const base = zeroLineFields();
   const flags: string[] = [];
   const hasAttendance = aggregate.dates.length > 0;
+  if (
+    !isDelivery(employee) &&
+    ((Number.isFinite(deliveryUnitsTotal) ? deliveryUnitsTotal : 0) !== 0 ||
+      (Number.isFinite(deliveryExtrasTotal) ? deliveryExtrasTotal : 0) !== 0)
+  ) {
+    flags.push("delivery_input_ignored");
+  }
   // Owner 2026-10-09 — "chốt lương" only bites when the rule is enabled.
   const leftInPeriodNoExtras = rules.leftInPeriodNoExtras && leftDuringPeriod(period, employee);
 
@@ -323,6 +379,87 @@ function buildEmployeeLine(
   }
 
   const standardDays = resolveStandardDays(period, employee);
+
+  // Giao hàng — skip R1–R9 entirely. Pay = fixed monthly salary + delivery
+  // units × delivery_unit_base / number of calendar days in the month + extras.
+  // Nothing here depends on attendance, holidays, overtime or standard days.
+  if (isDelivery(employee)) {
+    flags.push("delivery");
+    const monthlySalary = employee.monthlySalary !== null && employee.monthlySalary !== undefined
+      ? rationalFromNumber(employee.monthlySalary)
+      : RATIONAL_ZERO;
+    const employment = employedCalendarDays(period, employee);
+    const fixedPay = employment.total > 0
+      ? divRational(mulRational(monthlySalary, rational(employment.days)), rational(employment.total))
+      : RATIONAL_ZERO;
+    if (employment.days < employment.total) flags.push("delivery_prorated");
+
+    const deliveryUnits = rationalFromNumber(
+      Number.isFinite(deliveryUnitsTotal) ? deliveryUnitsTotal : 0,
+    );
+    const deliveryUnitRate = employee.deliveryUnitBase !== null &&
+        employee.deliveryUnitBase !== undefined
+      ? rationalFromNumber(employee.deliveryUnitBase)
+      : RATIONAL_ZERO;
+    const days = calendarDays(period);
+    const deliveryUnitPay = days > 0
+      ? divRational(mulRational(deliveryUnits, deliveryUnitRate), rational(days))
+      : RATIONAL_ZERO;
+    const deliveryExtras = rationalFromNumber(
+      Number.isFinite(deliveryExtrasTotal) ? deliveryExtrasTotal : 0,
+    );
+    // A driver is still an employee: the fixed allowance and a confirmed mission
+    // reward are paid on top of the delivery formula, never silently dropped.
+    const allowance = employee.allowance !== null && employee.allowance !== undefined
+      ? rationalFromNumber(employee.allowance)
+      : RATIONAL_ZERO;
+    const missionBonus = adjustmentToRational(employee.missionBonus);
+    const grossPay = addRational(
+      addRational(
+        addRational(fixedPay, deliveryUnitPay),
+        addRational(deliveryExtras, allowance),
+      ),
+      missionBonus,
+    );
+
+    let netPay = grossPay;
+    const netAdjustment = findAdjustment(adjustments, employee.code, "net_pay");
+    if (netAdjustment) {
+      netPay = adjustmentToRational(netAdjustment.value);
+      flags.push("net_pay_adjusted");
+    }
+
+    return {
+      kind: "employee",
+      employeeCode: employee.code,
+      employeeName: employee.name,
+      group: employee.group,
+      employmentType: employee.employmentType,
+      standardDays: RATIONAL_ZERO,
+      actualWorkDays: RATIONAL_ZERO,
+      holidayPayDays: RATIONAL_ZERO,
+      workDays: RATIONAL_ZERO,
+      partTimeHours: RATIONAL_ZERO,
+      overtimeHours: RATIONAL_ZERO,
+      overtimeAppliedHours: RATIONAL_ZERO,
+      dayPay: RATIONAL_ZERO,
+      partTimePay: RATIONAL_ZERO,
+      overtimePay: RATIONAL_ZERO,
+      overtimePayReconciled: RATIONAL_ZERO,
+      allowance,
+      missionBonus,
+      deliveryUnits,
+      deliveryUnitRate,
+      fixedPay,
+      deliveryUnitPay,
+      deliveryExtras,
+      grossPay,
+      netPay,
+      netPayRounded: roundVndToThousand(netPay),
+      flags,
+      shortShiftDays: [],
+    };
+  }
 
   // --- NC thực tế -------------------------------------------------------
   const actualResolved = resolveQuantity(measures?.actualWorkDays, hasAttendance, () => {
@@ -530,6 +667,11 @@ function buildEmployeeLine(
     overtimePayReconciled,
     allowance,
     missionBonus,
+    deliveryUnits: RATIONAL_ZERO,
+    deliveryUnitRate: RATIONAL_ZERO,
+    fixedPay: RATIONAL_ZERO,
+    deliveryUnitPay: RATIONAL_ZERO,
+    deliveryExtras: RATIONAL_ZERO,
     grossPay,
     netPay,
     netPayRounded: roundVndToThousand(netPay),
@@ -552,6 +694,11 @@ const SUMMED_FIELDS: (keyof PayrollLineBase)[] = [
   "overtimePayReconciled",
   "allowance",
   "missionBonus",
+  "deliveryUnits",
+  "deliveryUnitRate",
+  "fixedPay",
+  "deliveryUnitPay",
+  "deliveryExtras",
   "grossPay",
   "netPay",
 ];
@@ -596,6 +743,8 @@ export function computePayroll(input: PayrollComputationInput): PayrollResult {
   };
   const adjustments = input.adjustments ?? [];
   const measures = input.measures ?? {};
+  const deliveryUnits = input.deliveryUnits ?? {};
+  const deliveryExtras = input.deliveryExtras ?? {};
   const rowsByEmployee = new Map<string, AttendanceRow[]>();
   for (const row of input.rows ?? []) {
     const list = rowsByEmployee.get(row.employeeCode) ?? [];
@@ -607,15 +756,64 @@ export function computePayroll(input: PayrollComputationInput): PayrollResult {
   const employeeLines = input.employees.map((employee) => {
     const rows = rowsByEmployee.get(employee.code) ?? [];
     const employeeMeasures = measures[employee.code];
-    if (rows.length === 0 && !employeeMeasures && !employee.terminated) {
+    const delivery = isDelivery(employee);
+    if (!delivery && rows.length === 0 && !employeeMeasures && !employee.terminated) {
       warnings.push(`employee_without_attendance:${employee.code}`);
     }
-    return buildEmployeeLine(period, employee, aggregateAttendance(rows, period), employeeMeasures, adjustments);
+
+    // Period data attaches the totals to the employee row, so every existing
+    // computePayroll call site gets delivery pay without passing extra maps.
+    const units = deliveryUnits[employee.code] ?? employee.deliveryUnits ?? 0;
+    const extras = deliveryExtras[employee.code] ?? employee.deliveryExtras ?? 0;
+
+    if (!delivery && (units !== 0 || extras !== 0)) {
+      warnings.push(`delivery_input_without_delivery:${employee.code}`);
+    }
+    if (delivery) {
+      if (
+        employee.deliveryUnitBase === null ||
+        employee.deliveryUnitBase === undefined
+      ) {
+        warnings.push(`delivery_unit_base_missing:${employee.code}`);
+      }
+      if (employee.monthlySalary === null || employee.monthlySalary === undefined) {
+        warnings.push(`delivery_salary_missing:${employee.code}`);
+      }
+      const seen = new Set<string>();
+      for (const item of adjustments) {
+        if (item.employeeCode !== employee.code || item.field === "net_pay") continue;
+        const key = `delivery_adjustment_ignored:${employee.code}:${item.field}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        warnings.push(key);
+      }
+    }
+
+    return buildEmployeeLine(
+      period,
+      employee,
+      aggregateAttendance(rows, period),
+      employeeMeasures,
+      adjustments,
+      units,
+      extras,
+    );
   });
 
   const catalog = new Set(input.employees.map((employee) => employee.code));
   for (const code of rowsByEmployee.keys()) {
     if (!catalog.has(code)) warnings.push(`attendance_without_employee:${code}`);
+  }
+  for (const code of new Set([
+    ...Object.keys(deliveryUnits),
+    ...Object.keys(deliveryExtras),
+  ])) {
+    if (catalog.has(code)) continue;
+    const units = deliveryUnits[code] ?? 0;
+    const extras = deliveryExtras[code] ?? 0;
+    if (units !== 0 || extras !== 0) {
+      warnings.push(`delivery_units_without_employee:${code}`);
+    }
   }
 
   const groupNames = Array.from(new Set(employeeLines.map((line) => line.group))).sort() as PayrollGroup[];

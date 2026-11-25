@@ -267,7 +267,7 @@ export function AttendancePanel({ source, onSessionExpired, onCheckedIn }: Atten
   );
 }
 
-function ConsentSheet({
+export function ConsentSheet({
   mode,
   accepted,
   acceptedAt,

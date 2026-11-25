@@ -3,7 +3,10 @@ import test from "node:test";
 
 import {
   addAdjustment,
+  addDeliveryExtra,
   createPeriod,
+  deleteDeliveryExtra,
+  getDeliveryUnitsByDay,
   describeDbError,
   deleteEmployeeContact,
   deleteEmployeeShift,
@@ -26,12 +29,14 @@ import {
   previewGpsAttendance,
   publishPayslips,
   setAttendanceApproved,
+  setDeliveryUnitBase,
   setPeriodStandardDays,
   upsertEmployee,
   upsertEmployeeContact,
   upsertEmployeeShift,
   upsertIssueReview,
 } from "./db-client.ts";
+import { normalizeDeliveryUnits } from "./db-client.ts";
 import type { BepBnClient } from "./db-client.ts";
 import type { AttendanceRow, PayrollEmployee } from "./types.ts";
 import type { PayslipRecord } from "./payslip.ts";
@@ -543,7 +548,10 @@ test("addAdjustment trims the reason and inserts the adjustment", async () => {
     new_value: null,
     reason: "Chốt lương",
   });
-  assert.deepEqual(calls, [{ table: "payroll_bn_adjustments", op: "insert" }]);
+  assert.deepEqual(calls, [
+    { table: "payroll_bn_period_employees", op: "select" },
+    { table: "payroll_bn_adjustments", op: "insert" },
+  ]);
 });
 
 // ---------------------------------------------------------------------------
@@ -580,7 +588,7 @@ test("createPeriod returns the new id and sends the insert row", async () => {
     name: "Tháng 10/2026",
     dateFrom: "2026-10-01",
     dateTo: "2026-10-31",
-    standardDaysByGroup: { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27 },
+    standardDaysByGroup: { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27, "Giao hàng": 26 },
     holidays: ["2026-10-01"],
   });
 
@@ -590,7 +598,7 @@ test("createPeriod returns the new id and sends the insert row", async () => {
     period_name: "Tháng 10/2026",
     date_from: "2026-10-01",
     date_to: "2026-10-31",
-    standard_days_by_group: { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27 },
+    standard_days_by_group: { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27, "Giao hàng": 26 },
     holidays: ["2026-10-01"],
   });
 });
@@ -794,8 +802,8 @@ test("setPeriodStandardDays updates only an open period with the chosen days", a
     },
   });
 
-  await setPeriodStandardDays(client, "period-1", { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27 });
-  assert.deepEqual(payload, { standard_days_by_group: { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27 } });
+  await setPeriodStandardDays(client, "period-1", { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27, "Giao hàng": 26 });
+  assert.deepEqual(payload, { standard_days_by_group: { "Văn phòng": 22, "Bếp bánh": 27, "Kho BN": 27, "Giao hàng": 26 } });
   assert.deepEqual(filters, [
     ["id", "period-1"],
     ["status", "draft"],
@@ -920,7 +928,7 @@ test("ensurePeriodForRows creates the period with the derived code and standard 
     period_name: "Kỳ lương tháng 09/2026 — Bếp BN",
     date_from: "2026-09-01",
     date_to: "2026-09-30",
-    standard_days_by_group: { "Văn phòng": 22, "Bếp bánh": 26, "Kho BN": 26 },
+    standard_days_by_group: { "Văn phòng": 22, "Bếp bánh": 26, "Kho BN": 26, "Giao hàng": 26 },
     holidays: [],
   });
 });
@@ -1573,4 +1581,289 @@ test("openPeriod and getCurrentPeriod map month errors to Vietnamese messages", 
     () => getCurrentPeriod(past),
     /Không thể mở kỳ lương của tháng trước kỳ gần nhất\./,
   );
+});
+
+
+test("loadPeriodData reads delivery units per day and delivery extras", async () => {
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_periods: () => ({ data: PERIOD_ROW, error: null }),
+      payroll_bn_period_employees: () => ({
+        data: [
+          {
+            id: "employee-1",
+            period_id: "period-1",
+            employee_code: "DUYEN",
+            employee_name: "Duyên",
+            group_name: "Giao hàng",
+            employment_type: "delivery",
+            monthly_salary: "2000000",
+            delivery_unit_base: "2000000",
+            start_date: null,
+            end_date: null,
+          },
+        ],
+        error: null,
+      }),
+      payroll_bn_delivery_extras: () => ({
+        data: [
+          {
+            id: "extra-1",
+            period_id: "period-1",
+            employee_code: "DUYEN",
+            amount: "150000",
+            note: "Phát sinh điểm xa",
+            work_date: "2026-08-12",
+            created_at: "2026-08-31T10:00:00.000Z",
+          },
+          {
+            id: "extra-2",
+            period_id: "period-1",
+            employee_code: "DUYEN",
+            amount: 840000,
+            note: "Phụ phí",
+            work_date: null,
+            created_at: "2026-08-31T11:00:00.000Z",
+          },
+        ],
+        error: null,
+      }),
+    },
+    rpc: {
+      delivery_units_by_day: (args) => {
+        assert.deepEqual(args, { p_from: "2026-08-01", p_to: "2026-08-31" });
+        return {
+          data: [
+            { employee_code: "DUYEN", delivery_date: "2026-08-03", units: "1.50" },
+            { employee_code: "DUYEN", delivery_date: "2026-08-04", units: 2 },
+            { employee_code: "TUAN", delivery_date: "2026-08-03", units: 0.5 },
+          ],
+          error: null,
+        };
+      },
+    },
+  });
+
+  const data = await loadPeriodData(client, "period-1");
+  assert.ok(data);
+  assert.deepEqual(data.deliveryUnitsByDay, [
+    { employeeCode: "DUYEN", deliveryDate: "2026-08-03", units: 1.5 },
+    { employeeCode: "DUYEN", deliveryDate: "2026-08-04", units: 2 },
+    { employeeCode: "TUAN", deliveryDate: "2026-08-03", units: 0.5 },
+  ]);
+  assert.deepEqual(data.deliveryUnits, { DUYEN: 3.5, TUAN: 0.5 });
+  assert.equal(data.deliveryExtraRows.length, 2);
+  assert.deepEqual(data.deliveryExtras, { DUYEN: 990_000 });
+  // The totals ride on the employee row so existing computePayroll call sites
+  // get delivery pay without passing extra maps.
+  assert.equal(data.employees[0].deliveryUnits, 3.5);
+  assert.equal(data.employees[0].deliveryExtras, 990_000);
+});
+
+test("getDeliveryUnitsByDay reads the RPC and skips rows without an employee or date", async () => {
+  const client = createFakeClient({
+    rpc: {
+      delivery_units_by_day: () => ({
+        data: [
+          { employee_code: "DUYEN", delivery_date: "2026-09-01", units: 1.25 },
+          { employee_code: "", delivery_date: "2026-09-01", units: 1 },
+          { employee_code: "TUAN", delivery_date: null, units: 1 },
+        ],
+        error: null,
+      }),
+    },
+  });
+  assert.deepEqual(await getDeliveryUnitsByDay(client, "2026-09-01", "2026-09-30"), [
+    { employeeCode: "DUYEN", deliveryDate: "2026-09-01", units: 1.25 },
+  ]);
+});
+
+test("delivery extras insert and delete go through the table and reject blank input", async () => {
+  const calls: { table: string; op: string }[] = [];
+  const inserted: unknown[] = [];
+  const filters: [string, unknown][] = [];
+  const client = createFakeClient({
+    calls,
+    tables: {
+      payroll_bn_period_employees: () => ({
+        data: [{
+          employment_type: "delivery",
+          group_name: "Giao hàng",
+        }],
+        error: null,
+      }),
+      payroll_bn_delivery_extras: (op, payload, _options, activeFilters) => {
+        if (op === "insert") inserted.push(payload);
+        if (op === "delete") filters.push(...activeFilters);
+        return { data: null, error: null };
+      },
+    },
+  });
+
+  await addDeliveryExtra(client, "period-1", {
+    employeeCode: "DUYEN",
+    amount: 150_000,
+    note: "Phát sinh điểm xa",
+    workDate: "2026-09-12",
+  });
+  assert.deepEqual(inserted, [{
+    period_id: "period-1",
+    employee_code: "DUYEN",
+    amount: 150_000,
+    note: "Phát sinh điểm xa",
+    work_date: "2026-09-12",
+  }]);
+  assert.deepEqual(calls, [
+    { table: "payroll_bn_period_employees", op: "select" },
+    { table: "payroll_bn_delivery_extras", op: "insert" },
+  ]);
+
+  await assert.rejects(
+    () => addDeliveryExtra(client, "period-1", { employeeCode: "DUYEN", amount: 1, note: "  " }),
+    /Bắt buộc ghi lý do phát sinh giao hàng\./,
+  );
+
+  await deleteDeliveryExtra(client, "extra-1");
+  assert.deepEqual(filters, [["id", "extra-1"]]);
+});
+
+test("addDeliveryExtra rejects a non-delivery catalogue employee", async () => {
+  const inserted: unknown[] = [];
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_period_employees: () => ({
+        data: [{ employment_type: "official", group_name: "Bếp bánh" }],
+        error: null,
+      }),
+      payroll_bn_delivery_extras: (_op, payload) => {
+        inserted.push(payload);
+        return { data: null, error: null };
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => addDeliveryExtra(client, "period-1", {
+      employeeCode: "BN01",
+      amount: 100_000,
+      note: "not a driver",
+    }),
+    /Chỉ nhân viên nhóm Giao hàng mới có khoản phát sinh giao hàng\./,
+  );
+  assert.deepEqual(inserted, []);
+});
+
+test("setDeliveryUnitBase validates 0,25 steps and writes the period employee column", async () => {
+  assert.equal(normalizeDeliveryUnits(0.25), 0.25);
+  assert.equal(normalizeDeliveryUnits(0.3), null);
+  assert.equal(normalizeDeliveryUnits(-0.25), null);
+  assert.equal(normalizeDeliveryUnits(2_000_000), 2_000_000);
+
+  const updates: unknown[] = [];
+  const filters: [string, unknown][] = [];
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_period_employees: (op, payload, _options, activeFilters) => {
+        if (op === "update") updates.push(payload);
+        filters.push(...activeFilters);
+        return { data: [{ id: "employee-1" }], error: null };
+      },
+    },
+  });
+
+  await setDeliveryUnitBase(client, "period-1", "DUYEN", 2_000_000);
+  assert.deepEqual(updates, [{ delivery_unit_base: 2_000_000 }]);
+  assert.deepEqual(filters, [["period_id", "period-1"], ["employee_code", "DUYEN"]]);
+
+  await assert.rejects(
+    () => setDeliveryUnitBase(client, "period-1", "DUYEN", 0.3),
+    /bội của 0,25/,
+  );
+});
+
+
+test("loadPeriodData tolerates the delivery migration not being applied yet", async () => {
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_periods: () => ({ data: PERIOD_ROW, error: null }),
+      payroll_bn_delivery_extras: () => ({
+        data: null,
+        error: {
+          code: "PGRST205",
+          message: "Could not find the table 'public.payroll_bn_delivery_extras' in the schema cache",
+        },
+      }),
+    },
+    rpc: {
+      delivery_units_by_day: () => ({
+        data: null,
+        error: {
+          code: "PGRST202",
+          message:
+            "Could not find the function public.delivery_units_by_day(p_from, p_to) in the schema cache",
+        },
+      }),
+    },
+  });
+
+  const data = await loadPeriodData(client, "period-1");
+  assert.ok(data);
+  assert.deepEqual(data.deliveryUnits, {});
+  assert.deepEqual(data.deliveryExtraRows, []);
+  assert.deepEqual(data.deliveryUnitsByDay, []);
+});
+
+test("loadPeriodData still fails on a non-schema delivery error", async () => {
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_periods: () => ({ data: PERIOD_ROW, error: null }),
+    },
+    rpc: {
+      delivery_units_by_day: () => ({
+        data: null,
+        error: { code: "42501", message: "insufficient_privilege: payroll view required" },
+      }),
+    },
+  });
+
+  await assert.rejects(
+    () => loadPeriodData(client, "period-1"),
+    /Bạn không có quyền thực hiện thao tác này\./,
+  );
+});
+
+
+test("addAdjustment blocks non-net fields for a delivery employee", async () => {
+  const inserted: unknown[] = [];
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_period_employees: () => ({
+        data: [{ employment_type: "delivery", group_name: "Giao hàng" }],
+        error: null,
+      }),
+      payroll_bn_adjustments: (_op, payload) => {
+        inserted.push(payload);
+        return { data: null, error: null };
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => addAdjustment(client, "period-1", {
+      employeeCode: "DUYEN",
+      field: "work_days",
+      value: 20,
+      reason: "not applicable",
+    }),
+    /chỉ nhận điều chỉnh Thực nhận/,
+  );
+  assert.deepEqual(inserted, []);
+
+  await addAdjustment(client, "period-1", {
+    employeeCode: "DUYEN",
+    field: "net_pay",
+    value: 1_000_000,
+    reason: "manual net",
+  });
+  assert.equal(inserted.length, 1);
 });

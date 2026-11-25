@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GpsAttendanceAdmin } from "@/components/payroll/bep-bn/GpsAttendanceAdmin";
 import { ShiftBoard } from "@/components/payroll/bep-bn/ShiftBoard";
 import { AttendanceBoard } from "@/components/payroll/bep-bn/AttendanceBoard";
+import { DeliveryAdmin } from "@/components/payroll/bep-bn/DeliveryAdmin";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,7 +33,7 @@ interface BepBnPayrollPanelProps {
   canLock: boolean;
 }
 
-type PanelTab = "attendance" | "payroll" | "employees" | "gps" | "shifts" | "board";
+type PanelTab = "attendance" | "payroll" | "employees" | "gps" | "shifts" | "board" | "delivery";
 
 export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPanelProps) {
   const { toast } = useToast();
@@ -178,6 +179,7 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
           <TabsTrigger value="attendance">Chấm công</TabsTrigger>
           <TabsTrigger value="payroll">Bảng lương</TabsTrigger>
           <TabsTrigger value="employees">Hồ sơ nhân viên</TabsTrigger>
+          <TabsTrigger value="delivery">Giao hàng</TabsTrigger>
           {canEdit ? <TabsTrigger value="gps">Chấm công GPS</TabsTrigger> : null}
           {canEdit ? <TabsTrigger value="shifts">Xếp ca</TabsTrigger> : null}
           {canEdit ? <TabsTrigger value="board">Bảng chấm công</TabsTrigger> : null}
@@ -250,6 +252,10 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
           ) : (
             <EmptyCard text="Chưa có hồ sơ nhân viên. Mở kỳ lương tháng này để bắt đầu thêm nhân viên." />
           )}
+        </TabsContent>
+
+        <TabsContent value="delivery" className="space-y-4">
+          {tab === "delivery" ? <DeliveryAdmin employees={source.data?.employees ?? []} canEdit={canEdit} /> : null}
         </TabsContent>
 
         {canEdit ? (

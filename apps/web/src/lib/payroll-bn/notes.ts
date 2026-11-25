@@ -11,6 +11,7 @@
 //
 // It only formats: no amount is recalculated or changed. Framework-free.
 
+import { isZeroRational } from "./money.ts";
 import type { IssueReview } from "./issue-review.ts";
 import type {
   AdjustmentField,
@@ -44,6 +45,11 @@ export function buildPayrollNotes(
   issueReviews: readonly IssueReview[] = [],
 ): Map<string, string[]> {
   const notes = new Map<string, string[]>();
+  const deliveryCodes = new Set(
+    lines
+      .filter((line) => line.group === "Giao hàng" || line.employmentType === "delivery")
+      .map((line) => line.employeeCode),
+  );
   const push = (employeeCode: string, note: string) => {
     const list = notes.get(employeeCode) ?? [];
     list.push(note);
@@ -54,6 +60,13 @@ export function buildPayrollNotes(
   // Meaningful reasons keep their original text/order; audit data is untouched.
   for (const item of adjustments) {
     if (item.field === "overtime_hours" && item.reason.trim() === "Theo bảng lương DIEU CHINH T09") continue;
+    if (deliveryCodes.has(item.employeeCode) && item.field !== "net_pay") {
+      push(
+        item.employeeCode,
+        `Không áp dụng cho Giao hàng: ${adjustmentLabels[item.field]}: ${item.reason}`,
+      );
+      continue;
+    }
     push(item.employeeCode, `${adjustmentLabels[item.field]}: ${item.reason}`);
   }
 
@@ -71,6 +84,19 @@ export function buildPayrollNotes(
   const emittedMissingCheckOut = new Set<string>();
 
   for (const line of lines) {
+    // 1a. Delivery units attached to a non-delivery employee are not paid.
+    if (line.flags.includes("delivery_input_ignored")) {
+      push(line.employeeCode, "Công giao hàng không được tính vì nhân viên không thuộc nhóm Giao hàng");
+    }
+    // 1b. A delivery line with no unit base / fixed salary would silently pay 0.
+    if (line.group === "Giao hàng" || line.employmentType === "delivery") {
+      if (isZeroRational(line.deliveryUnitRate) && !isZeroRational(line.deliveryUnits)) {
+        push(line.employeeCode, "Chưa có đơn giá công giao hàng");
+      }
+      if (isZeroRational(line.fixedPay)) {
+        push(line.employeeCode, "Chưa có lương chính thức");
+      }
+    }
     // 2. Short shifts — one note for every affected attendance date.
     if (line.shortShiftDays.length > 0) {
       const parts = line.shortShiftDays.map(

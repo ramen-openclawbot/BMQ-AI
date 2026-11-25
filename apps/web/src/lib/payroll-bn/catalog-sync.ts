@@ -12,7 +12,11 @@ import type { AttendanceRow, PayrollEmployee, PayrollGroup, PayrollPeriod } from
 
 export type CatalogSuggestionSource = "previous_period" | "attendance_file";
 
-export type CatalogMissingField = "group" | "salary" | "hourly_rate";
+export type CatalogMissingField =
+  | "group"
+  | "salary"
+  | "hourly_rate"
+  | "delivery_unit_base";
 
 export interface CatalogSuggestion {
   code: string;
@@ -36,7 +40,7 @@ export interface CatalogSyncResult {
   maybeLeft: CatalogSuggestion[];
 }
 
-const PAYROLL_GROUPS: readonly string[] = ["Văn phòng", "Bếp bánh", "Kho BN"];
+const PAYROLL_GROUPS: readonly string[] = ["Văn phòng", "Bếp bánh", "Kho BN", "Giao hàng"];
 
 function normalizeGroup(department: string | null | undefined): PayrollGroup | null {
   if (typeof department !== "string") return null;
@@ -58,10 +62,18 @@ function dayBeforeIso(date: string): string {
 function missingFields(employee: PayrollEmployee): CatalogMissingField[] {
   const missing: CatalogMissingField[] = [];
   if (employee.monthlySalary === null || employee.monthlySalary === undefined) {
-    if (employee.employmentType === "official") missing.push("salary");
+    if (employee.employmentType === "official" || employee.employmentType === "delivery") {
+      missing.push("salary");
+    }
   }
   if (employee.hourlyRate === null || employee.hourlyRate === undefined) {
     if (employee.employmentType === "part_time") missing.push("hourly_rate");
+  }
+  if (
+    employee.employmentType === "delivery" &&
+    (employee.deliveryUnitBase === null || employee.deliveryUnitBase === undefined)
+  ) {
+    missing.push("delivery_unit_base");
   }
   return missing;
 }
@@ -116,6 +128,9 @@ export function suggestCatalogSync(input: CatalogSyncInput): CatalogSyncResult {
         hourlyRate: previous.hourlyRate ?? null,
         overtimeRate: previous.overtimeRate ?? null,
         allowance: previous.allowance ?? null,
+        // Keep undefined (column not loaded) distinct from null so an upsert
+        // never writes delivery_unit_base before the migration exists.
+        ...(previous.deliveryUnitBase === undefined ? {} : { deliveryUnitBase: previous.deliveryUnitBase }),
         startDate: previous.startDate ?? null,
         // The previous row's end date does not carry over to the new period.
         endDate: null,
@@ -135,7 +150,7 @@ export function suggestCatalogSync(input: CatalogSyncInput): CatalogSyncResult {
         code,
         name,
         group,
-        employmentType: "official",
+        employmentType: group === "Giao hàng" ? "delivery" : "official",
         monthlySalary: null,
         hourlyRate: null,
         overtimeRate: null,

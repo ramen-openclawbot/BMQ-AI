@@ -34,6 +34,8 @@ import {
 import { ShiftPanel } from "@/components/payslip-portal/ShiftPanel";
 import { AttendancePanel } from "@/components/payslip-portal/AttendancePanel";
 import { MissionPanel } from "@/components/payslip-portal/MissionPanel";
+import { DeliveryPanel } from "@/components/payslip-portal/DeliveryPanel";
+import type { PayrollDeliverySource } from "@/lib/payslip-portal/delivery-api";
 import { LedgerMark } from "@/components/ui/loading";
 
 const BRAND_GRADIENT = { background: "linear-gradient(90deg, #dc4f78 0%, #dc527a 100%)" };
@@ -86,9 +88,11 @@ export interface PayslipPortalProps {
   missions?: PayrollMissionSource;
   /** Weekly shift registration; omitted in the demo. Hidden unless eligible. */
   shifts?: PayrollShiftSource;
+  /** Driver deliveries; hidden unless the employee is a driver. */
+  deliveries?: PayrollDeliverySource;
 }
 
-export default function PayslipPortal({ source, demo = false, attendance, missions, shifts }: PayslipPortalProps) {
+export default function PayslipPortal({ source, demo = false, attendance, missions, shifts, deliveries }: PayslipPortalProps) {
   const [checkInSignal, setCheckInSignal] = useState(0);
   const [step, setStep] = useState<Step>("loading");
   const [phone, setPhone] = useState("");
@@ -370,6 +374,9 @@ export default function PayslipPortal({ source, demo = false, attendance, missio
                 if (kind === "in") setCheckInSignal((n) => n + 1);
               }}
             />
+          ) : null}
+          {deliveries ? (
+            <DeliveryPanel source={deliveries} attendance={attendance} onSessionExpired={(message) => resetToLogin(message)} />
           ) : null}
           {shifts ? <ShiftPanel source={shifts} onSessionExpired={(message) => resetToLogin(message)} /> : null}
           {missions ? (

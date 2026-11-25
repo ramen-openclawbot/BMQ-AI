@@ -8,7 +8,7 @@ import { addRational, mulRational, rational, roundHalfUpToStep, type Rational } 
 import type { PayrollComparison } from "./compare.ts";
 import type { PayrollGroup, PayrollLine, PayrollPeriod, PayrollResult } from "./types.ts";
 
-const GROUP_ORDER: PayrollGroup[] = ["Văn phòng", "Bếp bánh", "Kho BN"];
+const GROUP_ORDER: PayrollGroup[] = ["Văn phòng", "Bếp bánh", "Kho BN", "Giao hàng"];
 
 export const PAYROLL_EXPORT_HEADER = [
   "Mã NV",
@@ -37,6 +37,34 @@ function cents(value: Rational): number {
 function lineRow(line: PayrollLine, code: string, name: string, type: string, note: string): (string | number)[] {
   const isEmployee = line.kind === "employee";
   const partTime = isEmployee && line.employmentType === "part_time";
+  // A delivery employee row and the "Nhóm Giao hàng" subtotal must use the
+  // same column mapping; the grand total keeps R1–R9 work-day columns clean.
+  const delivery = (isEmployee &&
+    (line.employmentType === "delivery" || line.group === "Giao hàng")) ||
+    (line.kind === "group" && line.group === "Giao hàng");
+  if (delivery) {
+    // Same header positions as the old groups: fixed pay and the delivery unit
+    // pay stay in "Lương ngày công", extras + allowance in "Phụ cấp", the
+    // mission bonus in its own column, and net pay is unchanged.
+    return [
+      code,
+      name,
+      isEmployee ? "Giao hàng" : "",
+      "",
+      cents(line.deliveryUnits),
+      0,
+      cents(line.deliveryUnits),
+      0,
+      0,
+      cents(addRational(line.fixedPay, line.deliveryUnitPay)),
+      0,
+      cents(addRational(line.allowance, line.deliveryExtras)),
+      cents(line.missionBonus),
+      cents(line.grossPay),
+      Number(line.netPayRounded),
+      note,
+    ];
+  }
   return [
     code,
     name,
@@ -47,9 +75,12 @@ function lineRow(line: PayrollLine, code: string, name: string, type: string, no
     cents(line.workDays),
     cents(line.partTimeHours),
     cents(line.overtimeHours),
-    cents(addRational(line.dayPay, line.partTimePay)),
+    cents(addRational(
+      addRational(line.dayPay, line.partTimePay),
+      addRational(line.fixedPay, line.deliveryUnitPay),
+    )),
     cents(line.overtimePay),
-    cents(line.allowance),
+    cents(addRational(line.allowance, line.deliveryExtras)),
     cents(line.missionBonus),
     cents(line.grossPay),
     Number(line.netPayRounded),
@@ -70,12 +101,31 @@ export function buildPayrollExportRows(
     [],
     PAYROLL_EXPORT_HEADER,
   ];
+  const unmatchedDeliveryCodes = result.warnings
+    .filter((warning) => warning.startsWith("delivery_units_without_employee:"))
+    .map((warning) => warning.slice("delivery_units_without_employee:".length))
+    .filter((code) => code !== "");
+  if (unmatchedDeliveryCodes.length > 0) {
+    rows.push([
+      `Công giao hàng chưa có nhân viên trong kỳ: ${unmatchedDeliveryCodes.join(", ")}`,
+    ]);
+  }
   for (const group of GROUP_ORDER) {
     const employees = result.employees.filter((line) => line.group === group);
     if (employees.length === 0) continue;
     for (const line of employees) {
       const note = notes.get(line.employeeCode)?.join("; ") ?? (line.flags.includes("terminated") ? "Nghỉ việc trong kỳ" : "");
-      rows.push(lineRow(line, line.employeeCode, line.employeeName, line.employmentType === "part_time" ? "Part-time" : "Chính thức", note));
+      rows.push(lineRow(
+        line,
+        line.employeeCode,
+        line.employeeName,
+        line.employmentType === "part_time"
+          ? "Part-time"
+          : line.employmentType === "delivery" || line.group === "Giao hàng"
+            ? "Giao hàng"
+            : "Chính thức",
+        note,
+      ));
     }
     const summary = result.groups.find((line) => line.group === group);
     if (summary) rows.push(lineRow(summary, "", `Nhóm ${group}`, "", ""));

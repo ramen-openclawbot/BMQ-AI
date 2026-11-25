@@ -210,6 +210,15 @@ verify_jwt = false
 # psp_ session + device-hash auth is enforced inside the function.
 verify_jwt = false
 
+[functions.payslip-delivery-today]
+# psp_ session + device-hash auth is enforced inside the function.
+verify_jwt = false
+
+[functions.payslip-delivery-complete]
+# psp_ session + device-hash auth + consent for drivers; the daily proof
+# retention cron authenticates with x-worker-secret instead.
+verify_jwt = false
+
 [functions.payroll-attendance-selfie-retention]
 # pg_cron calls this with the singleton config worker secret.
 verify_jwt = false
