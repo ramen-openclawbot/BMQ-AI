@@ -1,5 +1,17 @@
-import { useState } from "react";
-import { Loader2, PencilLine, Smartphone, UserPlus } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import {
+  Building2,
+  ChefHat,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  PencilLine,
+  Smartphone,
+  Truck,
+  UserPlus,
+  Warehouse,
+  type LucideIcon,
+} from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import type { EmploymentType, PayrollEmployee, PayrollGroup } from "@/lib/payroll-bn/types.ts";
+import { summarizeCatalog, type CatalogEmployeeSummary } from "@/lib/payroll-bn/catalog-summary.ts";
 import type { BepBnDataSource, BepBnEmployeeContact, BepBnPeriodData } from "./types";
 import { formatAdjustmentValue } from "./format";
 import { MissionGiftBar, MissionGiftButton, useMissionGifts } from "./MissionGift";
@@ -33,160 +46,207 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
   const [editing, setEditing] = useState<PayrollEmployee | null>(null);
   const [open, setOpen] = useState(false);
   const [phoneFor, setPhoneFor] = useState<PayrollEmployee | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<PayrollGroup | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const contactByCode = new Map(source.contacts.map((contact) => [contact.employeeCode, contact]));
   const shiftByCode = new Map((source.shifts ?? []).map((shift) => [shift.employeeCode, shift.shiftStart]));
   const canChange = canEdit && data.period.status !== "locked";
+  const canOpenEditor = canChange || canManagePhones;
   // Gifts follow the active mission campaign, not the period lock.
   const gifts = useMissionGifts(canManagePhones);
+  const summary = useMemo(
+    () =>
+      summarizeCatalog({
+        period: data.period,
+        employees: data.employees,
+        rows: data.rows,
+        measures: data.measures,
+        adjustments: data.adjustments,
+      }),
+    [data],
+  );
+  const selected = summary.groups.find((group) => group.group === selectedGroup) ?? null;
 
   const openEditor = (employee: PayrollEmployee | null) => {
     setEditing(employee);
     setOpen(true);
   };
+  const pickGroup = (group: PayrollGroup) => {
+    const next = selectedGroup === group ? null : group;
+    setSelectedGroup(next);
+    setExpanded(null);
+    // Phones: the list opens below the tiles, so bring it into view.
+    if (next && typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+      window.requestAnimationFrame(() =>
+        document.getElementById("catalog-group-panel")?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+      );
+    }
+  };
 
   return (
-    <Card>
-      <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1.5">
-          <CardTitle className="text-base">Hồ sơ nhân viên · kỳ {data.period.code}</CardTitle>
-          <CardDescription>
-            Mã chấm công, nhóm, loại, lương và đơn giá lưu riêng cho từng kỳ; sửa kỳ này không ảnh hưởng kỳ đã chốt. Đầu mỗi tháng,
-            kỳ mới tự mở và chép danh sách này sang.
-            {canManagePhones ? " Số điện thoại dùng chung mọi kỳ để nhân viên xem phiếu lương tại luong.banhmique.vn." : null}
+    <Card className="overflow-hidden" data-employee-catalog>
+      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pb-3">
+        <div className="min-w-0 space-y-1">
+          <CardTitle className="text-base">Nhân viên · kỳ {data.period.code}</CardTitle>
+          <CardDescription className="text-xs leading-5">
+            Lương và đơn giá lưu riêng từng kỳ; sửa kỳ này không ảnh hưởng kỳ đã chốt.
           </CardDescription>
         </div>
         {canChange ? (
-          <Button variant="outline" className="gap-2 self-start" onClick={() => openEditor(null)}>
+          <Button size="sm" className="shrink-0 gap-1.5" onClick={() => openEditor(null)}>
             <UserPlus className="h-4 w-4" />
-            Thêm nhân viên
+            <span>Thêm</span>
           </Button>
         ) : null}
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         {data.employees.length === 0 ? (
           <p className="text-sm text-muted-foreground">Kỳ này chưa có nhân viên. Thêm nhân viên trước khi lập bảng lương.</p>
         ) : (
           <>
-          {canManagePhones ? <MissionGiftBar gifts={gifts} employees={data.employees} /> : null}
-          {/* Phone: one card per employee, everything readable without sideways scrolling. */}
-          <ul className="space-y-2.5 sm:hidden" data-employee-cards>
-            {data.employees.map((employee) => {
-              const shift = shiftByCode.get(employee.code);
-              const pay: [string, number | null | undefined][] = [
-                ["Lương chính thức", employee.monthlySalary],
-                ["Đơn giá giờ", employee.hourlyRate],
-                ["Đơn giá TC", employee.overtimeRate],
-                ["Lương cứng tính công", employee.deliveryUnitBase],
-                ["Phụ cấp", employee.allowance],
-              ];
-              const shown = pay.filter(([, value]) => value !== null && value !== undefined && value !== 0);
-              return (
-                <li key={employee.code} className="rounded-lg border bg-card p-3" data-employee-card={employee.code}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="break-words text-[15px] font-semibold leading-snug">{employee.name}</p>
-                      <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                        Mã {employee.code} · {employee.group} · {typeLabel(employee.employmentType)}
-                        {shift ? ` · Ca ${shift}` : ""}
-                      </p>
+            <section className="rounded-2xl bg-muted/60 p-4 sm:p-5" data-catalog-summary aria-label="Tổng quan nhân sự">
+              <p className="text-xs font-medium text-muted-foreground">Quỹ lương tháng hiện nay</p>
+              <p className="mt-0.5 break-all text-[28px] font-semibold leading-tight tabular-nums sm:text-4xl" data-catalog-fund>
+                {formatAdjustmentValue(summary.fund)}
+                <span className="ml-1 text-base font-normal text-muted-foreground">đ</span>
+              </p>
+              <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
+                <span className="rounded-full bg-foreground px-2.5 py-1 font-medium text-background tabular-nums" data-catalog-headcount>
+                  {summary.activeCount} người đang làm
+                </span>
+                <span className="rounded-full bg-background px-2.5 py-1 tabular-nums">
+                  Cố định <b className="font-semibold">{formatAdjustmentValue(summary.fixed)}</b>
+                </span>
+                {summary.partTimeCount > 0 ? (
+                  <span className="rounded-full bg-background px-2.5 py-1 tabular-nums">
+                    {summary.estimateAvailable ? (
+                      <>
+                        Part-time tạm tính <b className="font-semibold">{formatAdjustmentValue(summary.partTimeEstimate)}</b>
+                      </>
+                    ) : (
+                      "Part-time chưa tạm tính được"
+                    )}
+                  </span>
+                ) : null}
+                {summary.upcomingCount > 0 ? (
+                  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-900 dark:bg-amber-500/15 dark:text-amber-300">
+                    {summary.upcomingCount} người bắt đầu kỳ sau
+                  </span>
+                ) : null}
+              </div>
+              {summary.partTimeCount > 0 ? (
+                <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
+                  Part-time tính theo giờ đã chấm công từ đầu kỳ đến nay, số cuối tháng sẽ cao hơn.
+                </p>
+              ) : null}
+            </section>
+
+            {canManagePhones ? <MissionGiftBar gifts={gifts} employees={data.employees} /> : null}
+
+            <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4" role="list" data-catalog-groups>
+              {summary.groups.map((group) => {
+                const meta = GROUP_META[group.group];
+                const Icon = meta.icon;
+                const isSelected = selectedGroup === group.group;
+                const share = summary.fund > 0 ? Math.round((group.fund / summary.fund) * 100) : 0;
+                const extras = [
+                  group.partTimeCount > 0 ? `${group.partTimeCount} part-time` : null,
+                  group.upcomingCount > 0 ? `${group.upcomingCount} kỳ sau` : null,
+                ].filter(Boolean);
+                return (
+                  <button
+                    key={group.group}
+                    type="button"
+                    role="listitem"
+                    onClick={() => pickGroup(group.group)}
+                    aria-expanded={isSelected}
+                    aria-controls="catalog-group-panel"
+                    data-catalog-group={group.group}
+                    className={cn(
+                      "group flex min-h-[132px] flex-col rounded-2xl border bg-card p-3.5 text-left transition-[border-color,box-shadow,transform] duration-150 active:scale-[0.98] motion-reduce:transform-none",
+                      isSelected ? "border-foreground shadow-[0_0_0_1px_hsl(var(--foreground))]" : "hover:border-foreground/30",
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={cn("flex h-8 w-8 items-center justify-center rounded-xl", meta.tile)}>
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      {isSelected ? (
+                        <ChevronDown className="h-4 w-4 text-foreground" aria-hidden />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
+                      )}
                     </div>
-                    {canChange || canManagePhones ? (
-                      <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => openEditor(employee)} aria-label={`Sửa ${employee.name}`}>
-                        <PencilLine className="h-4 w-4" />
-                      </Button>
-                    ) : null}
+                    <p className="mt-2.5 text-sm font-semibold">{group.group}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {group.activeCount} người{extras.length > 0 ? ` · ${extras.join(" · ")}` : ""}
+                    </p>
+                    {group.fund === 0 && group.upcomingCount > 0 ? (
+                      <p className="mt-auto pt-2 text-sm font-medium text-amber-700 dark:text-amber-300">Bắt đầu kỳ sau</p>
+                    ) : (
+                      <p className="mt-auto pt-2 text-base font-semibold tabular-nums">{formatAdjustmentValue(group.fund)}</p>
+                    )}
+                    <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted" aria-hidden>
+                      <div className={cn("h-full rounded-full", meta.bar)} style={{ width: `${share}%` }} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {selected ? (
+              <section id="catalog-group-panel" className="rounded-2xl border" data-catalog-group-panel={selected.group}>
+                <header className="flex items-center justify-between gap-3 border-b px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{selected.group}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {selected.employees.length} hồ sơ · quỹ {formatAdjustmentValue(selected.fund)} đ
+                    </p>
                   </div>
-                  <dl className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">
-                    {shown.map(([label, value]) => (
-                      <div key={label} className="min-w-0">
-                        <dt className="text-xs text-muted-foreground">{label}</dt>
-                        <dd className="tabular-nums">{formatAdjustmentValue(value as number)}</dd>
-                      </div>
+                  <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => setSelectedGroup(null)}>
+                    Thu gọn
+                  </Button>
+                </header>
+                {selected.employees.length === 0 ? (
+                  <p className="px-4 py-5 text-sm text-muted-foreground">Nhóm này chưa có nhân viên.</p>
+                ) : (
+                  <ul className="divide-y" data-employee-cards>
+                    {selected.employees.map((item) => (
+                      <EmployeeRow
+                        key={item.employee.code}
+                        item={item}
+                        open={expanded === item.employee.code}
+                        onToggle={() => setExpanded((current) => (current === item.employee.code ? null : item.employee.code))}
+                        shift={shiftByCode.get(item.employee.code)}
+                        canOpenEditor={canOpenEditor}
+                        onEdit={() => openEditor(item.employee)}
+                        phone={
+                          canManagePhones ? (
+                            <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/50 px-3 py-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs text-muted-foreground">SĐT xem phiếu lương</p>
+                                <PhoneCell
+                                  contact={contactByCode.get(item.employee.code)}
+                                  onEdit={() => setPhoneFor(item.employee)}
+                                  name={item.employee.name}
+                                />
+                              </div>
+                              <MissionGiftButton gifts={gifts} employee={item.employee} />
+                            </div>
+                          ) : null
+                        }
+                      />
                     ))}
-                    <div className="min-w-0">
-                      <dt className="text-xs text-muted-foreground">Trạng thái</dt>
-                      <dd className="text-xs leading-5"><EmployeeStatus employee={employee} /></dd>
-                    </div>
-                  </dl>
-                  {canManagePhones ? (
-                    <div className="mt-2.5 flex items-center justify-between gap-3 border-t pt-2.5">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs text-muted-foreground">SĐT xem phiếu lương</p>
-                        <PhoneCell contact={contactByCode.get(employee.code)} onEdit={() => setPhoneFor(employee)} name={employee.name} />
-                      </div>
-                      <MissionGiftButton gifts={gifts} employee={employee} />
-                    </div>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-          <div className="hidden max-h-[520px] overflow-auto rounded-md border sm:block">
-            <table className="w-max min-w-full border-collapse text-sm">
-              <thead className="text-xs [&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-card [&_th]:shadow-[inset_0_-1px_0_hsl(var(--border))] [&_th:first-child]:z-30">
-                <tr>
-                  <th className="left-0 min-w-[132px] px-3 py-2 text-left font-medium sm:min-w-[180px]">Nhân viên</th>
-                  <th className="px-3 py-2 text-left font-medium">Nhóm</th>
-                  <th className="px-3 py-2 text-left font-medium">Loại</th>
-                  <th className="min-w-[110px] px-3 py-2 text-right font-medium">Lương chính thức</th>
-                  <th className="min-w-[96px] px-3 py-2 text-right font-medium">Đơn giá giờ</th>
-                  <th className="min-w-[96px] px-3 py-2 text-right font-medium">Đơn giá TC</th>
-                  <th className="min-w-[96px] px-3 py-2 text-right font-medium">Phụ cấp</th>
-                  <th className="min-w-[150px] px-3 py-2 text-left font-medium">Trạng thái</th>
-                  {canManagePhones ? (
-                    <th className="min-w-[170px] px-3 py-2 text-left font-medium">SĐT xem phiếu lương</th>
-                  ) : null}
-                </tr>
-              </thead>
-              <tbody>
-                {data.employees.map((employee) => (
-                  <tr key={employee.code} className="border-t">
-                    <td className="sticky left-0 z-10 max-w-[150px] bg-card px-3 py-2 sm:max-w-none">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="truncate">{employee.name}</div>
-                          <div className="truncate text-xs text-muted-foreground">
-                            {employee.code}
-                            {shiftByCode.get(employee.code) ? ` · Ca ${shiftByCode.get(employee.code)}` : ""}
-                          </div>
-                        </div>
-                        {canManagePhones ? <MissionGiftButton gifts={gifts} employee={employee} /> : null}
-                        {canChange || canManagePhones ? (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 shrink-0"
-                            onClick={() => openEditor(employee)}
-                            aria-label={`Sửa ${employee.name}`}
-                          >
-                            <PencilLine className="h-3.5 w-3.5" />
-                          </Button>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2">{employee.group}</td>
-                    <td className="whitespace-nowrap px-3 py-2">{typeLabel(employee.employmentType)}</td>
-                    <MoneyCell value={employee.monthlySalary} />
-                    <MoneyCell value={employee.hourlyRate} />
-                    <MoneyCell value={employee.overtimeRate} />
-                    <MoneyCell value={employee.allowance} />
-                    <td className="px-3 py-2 text-xs">
-                      <EmployeeStatus employee={employee} />
-                    </td>
-                    {canManagePhones ? (
-                      <td className="px-3 py-2">
-                        <PhoneCell contact={contactByCode.get(employee.code)} onEdit={() => setPhoneFor(employee)} name={employee.name} />
-                      </td>
-                    ) : null}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                  </ul>
+                )}
+              </section>
+            ) : (
+              <p className="text-center text-xs text-muted-foreground">Bấm vào một nhóm để xem và sửa nhân viên.</p>
+            )}
           </>
         )}
       </CardContent>
-      {canChange || canManagePhones ? (
+      {canOpenEditor ? (
         <EmployeeDialog
           open={open}
           onOpenChange={setOpen}
@@ -211,11 +271,153 @@ export function CatalogSection({ data, source, canEdit, canManagePhones = false 
   );
 }
 
-function MoneyCell({ value }: { value: number | null | undefined }) {
+const GROUP_META: Record<PayrollGroup, { icon: LucideIcon; tile: string; bar: string; avatar: string }> = {
+  "Văn phòng": {
+    icon: Building2,
+    tile: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+    bar: "bg-sky-500",
+    avatar: "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-200",
+  },
+  "Bếp bánh": {
+    icon: ChefHat,
+    tile: "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300",
+    bar: "bg-orange-500",
+    avatar: "bg-orange-100 text-orange-800 dark:bg-orange-500/15 dark:text-orange-200",
+  },
+  "Kho BN": {
+    icon: Warehouse,
+    tile: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+    bar: "bg-violet-500",
+    avatar: "bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-200",
+  },
+  "Giao hàng": {
+    icon: Truck,
+    tile: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+    bar: "bg-emerald-500",
+    avatar: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200",
+  },
+};
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return (parts[parts.length - 1]?.[0] ?? "?").toUpperCase();
+}
+
+function EmployeeRow({
+  item,
+  open,
+  onToggle,
+  shift,
+  canOpenEditor,
+  onEdit,
+  phone,
+}: {
+  item: CatalogEmployeeSummary;
+  open: boolean;
+  onToggle: () => void;
+  shift?: string;
+  canOpenEditor: boolean;
+  onEdit: () => void;
+  phone: ReactNode;
+}) {
+  const { employee, state } = item;
+  const isPartTime = employee.employmentType === "part_time";
+  const pay: [string, number | null | undefined][] = [
+    ["Lương chính thức", employee.monthlySalary],
+    ["Đơn giá giờ", employee.hourlyRate],
+    ["Đơn giá TC", employee.overtimeRate],
+    ["Lương cứng tính công", employee.deliveryUnitBase],
+    ["Phụ cấp", employee.allowance],
+  ];
+  const shown = pay.filter(([, value]) => value !== null && value !== undefined && value !== 0);
+  const detailId = `employee-detail-${employee.code}`;
+  const start = employee.startDate ? employee.startDate.split("-").reverse().slice(0, 2).join("/") : null;
+
   return (
-    <td className="px-3 py-2 text-right tabular-nums">
-      {value === null || value === undefined || value === 0 ? "–" : formatAdjustmentValue(value)}
-    </td>
+    <li data-employee-card={employee.code}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={detailId}
+        className={cn(
+          "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40",
+          state !== "active" && "opacity-70",
+        )}
+      >
+        <span
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
+            GROUP_META[employee.group].avatar,
+          )}
+          aria-hidden
+        >
+          {initials(employee.name)}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block break-words text-sm font-medium leading-snug">{employee.name}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {typeLabel(employee.employmentType)}
+            {shift ? ` · Ca ${shift}` : ""} · Mã {employee.code}
+          </span>
+        </span>
+        <span className="shrink-0 text-right">
+          {state === "left" ? (
+            <Badge variant="secondary" className="font-normal">Nghỉ việc</Badge>
+          ) : state === "upcoming" ? (
+            <Badge variant="outline" className="border-amber-400 font-normal text-amber-800 dark:text-amber-300">
+              Từ {start}
+            </Badge>
+          ) : isPartTime ? (
+            <>
+              <span className="block text-sm font-semibold tabular-nums">
+                {employee.hourlyRate ? `${formatAdjustmentValue(employee.hourlyRate)}/giờ` : "–"}
+              </span>
+              {item.partTimeSoFar !== null ? (
+                <span className="block text-[11px] text-muted-foreground tabular-nums">
+                  tạm {formatAdjustmentValue(item.partTimeSoFar)}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <span className="block text-sm font-semibold tabular-nums">{item.fixed ? formatAdjustmentValue(item.fixed) : "–"}</span>
+          )}
+        </span>
+        <ChevronDown
+          className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150", open && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+      {open ? (
+        <div id={detailId} className="space-y-3 px-4 pb-4 pt-1" data-employee-detail={employee.code}>
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-2.5 rounded-xl border p-3 text-sm sm:grid-cols-3">
+            {shown.map(([label, value]) => (
+              <div key={label} className="min-w-0">
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="tabular-nums">{formatAdjustmentValue(value as number)}</dd>
+              </div>
+            ))}
+            {isPartTime && item.partTimeHours !== null ? (
+              <div className="min-w-0">
+                <dt className="text-xs text-muted-foreground">Giờ đã chấm đến nay</dt>
+                <dd className="tabular-nums">{formatAdjustmentValue(item.partTimeHours)}</dd>
+              </div>
+            ) : null}
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">Trạng thái</dt>
+              <dd className="text-xs leading-5"><EmployeeStatus employee={employee} /></dd>
+            </div>
+          </dl>
+          {phone}
+          {canOpenEditor ? (
+            <Button variant="outline" className="h-10 w-full gap-2" onClick={onEdit}>
+              <PencilLine className="h-4 w-4" />
+              Sửa hồ sơ {employee.name}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </li>
   );
 }
 
