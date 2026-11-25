@@ -18,6 +18,10 @@ NET_PROFIT_MIGRATION_GLOB = "*_finance_net_profit_adjustments.sql"
 NET_PROFIT_MIGRATIONS = sorted(
     (ROOT / "supabase" / "migrations").glob(NET_PROFIT_MIGRATION_GLOB)
 )
+PAYROLL_MIGRATION_GLOB = "*_finance_pnl_payroll_per_person.sql"
+PAYROLL_MIGRATIONS = sorted(
+    (ROOT / "supabase" / "migrations").glob(PAYROLL_MIGRATION_GLOB)
+)
 DRYRUN = ROOT / "supabase" / "tests" / "finance_pnl_accrual_dryrun.sql"
 PRINT_SCRIPT = ROOT / "scripts" / "print_finance_pnl_accrual.mjs"
 VERIFY_SCRIPT = ROOT / "scripts" / "verify_finance_pnl_accrual_live.sh"
@@ -43,6 +47,14 @@ def net_profit_migration_sql() -> str:
         f"expected one {NET_PROFIT_MIGRATION_GLOB}, found {len(NET_PROFIT_MIGRATIONS)}",
     )
     return read(NET_PROFIT_MIGRATIONS[0])
+
+
+def payroll_migration_sql() -> str:
+    assert_true(
+        len(PAYROLL_MIGRATIONS) == 1,
+        f"expected one {PAYROLL_MIGRATION_GLOB}, found {len(PAYROLL_MIGRATIONS)}",
+    )
+    return read(PAYROLL_MIGRATIONS[0])
 
 
 def function_block(sql: str, name: str, args: str) -> tuple[str, str]:
@@ -356,8 +368,59 @@ def test_body_only_live_dryrun_contract() -> None:
         "dry run must assert gross profit and EBITDA arithmetic",
     )
     assert_true(
-        "lương bh gh" in lower and "lương lẻ bếp tân tạo" in lower,
-        "dry run must assert both missing payout families",
+        "lương bh gh" not in lower and "lương lẻ bếp tân tạo" not in lower,
+        "dry run must not require the old T10 payout-family estimates",
+    )
+    for amount in ("256109000", "244613000", "48320000"):
+        assert_true(amount in sql, f"dry run is missing per-person payroll amount {amount}")
+    assert_true(
+        "v_estimate_count <> 3" in lower,
+        "dry run must assert exactly three T10 payroll estimate lines",
+    )
+    assert_true(
+        "ái mi" in lower and "vân anh" in lower,
+        "dry run must assert the T10 exclusion names",
+    )
+    assert_true(
+        "prior_people_aggregate" in lower and "restricted payroll estimate" in lower,
+        "dry run must assert finance-only callers get one nameless aggregate",
+    )
+    assert_true(
+        "2026-11-01" in sql and "SKIP: T11 fallback check" in sql,
+        "dry run must skip the fallback check visibly when live November payroll exists",
+    )
+    assert_true(
+        "role', 'service_role" in lower
+        and "like 'payout_family:%'" in lower
+        and "~ '^[0-9a-f-]{36}:'" in lower,
+        "dry run must assert the merchant-agent service role still sees actual groups",
+    )
+    assert_true(
+        "2026-10-15 03:00:00+00" in sql
+        and "2026-10-31 16:59:59+00" in sql
+        and "2026-10-31 18:00:00+00" in sql
+        and "2026-11-01" in sql
+        and "Lương lẻ T10/2026" in sql,
+        "dry run must exercise the Vietnam-time payout month fallback and boundary",
+    )
+    assert_true(
+        "pending unlabelled payout" in lower
+        and "T09.2026" in sql
+        and "Lương lẻ Bếp_T09/2026" in sql
+        and "T19/2026" in sql
+        and "đợt 2/2026" in sql
+        and "normalize('tháng 9/2026', nfd)" in lower,
+        "dry run must exercise pending, dotted, underscore, invalid, word-boundary and NFD titles",
+    )
+    assert_true(
+        "not public.has_role(ur.user_id, 'owner')" in lower
+        and "restricted flag must exist without an amount" in lower
+        and "restricted dedup warning leaked an amount" in lower,
+        "dry run must exclude owners from the restricted check and hide warning amounts",
+    )
+    assert_true(
+        "SKIP: restricted payroll check" in sql,
+        "dry run must not silently skip the restricted-permission check",
     )
     assert_true(
         "'not_counted'" in lower and "'chưa trừ chênh lệch tồn kho'" in lower,
@@ -375,8 +438,9 @@ def test_verify_script_is_transaction_wrapped_and_cleans_up() -> None:
     assert_true(
         "20261119085657_finance_pnl_accrual.sql" in source
         and "finance_net_profit_adjustments.sql" in source
+        and "finance_pnl_payroll_per_person.sql" in source
         and "finance_pnl_accrual_dryrun.sql" in source,
-        "verify script must combine both migrations and the body-only check",
+        "verify script must combine all migrations and the body-only check",
     )
     assert_true(
         "supabase db query" in source and "--linked" in source,
@@ -384,10 +448,35 @@ def test_verify_script_is_transaction_wrapped_and_cleans_up() -> None:
     )
     assert_true(
         "finance_manual_adjustments" in source
-        and "finance_manual_adjustment_save" in source
-        and "finance_manual_adjustment_void" in source
-        and "finance_manual_adjustment_month_lines" in source,
-        "verify script must assert the new table/functions are gone",
+        and "finance_payroll_carry_exclusions" in source
+        and "manual_rows" in source
+        and "exclusion_table" in source,
+        "verify script must assert no new table or row remains",
+    )
+    assert_true(
+        "pg_get_functiondef" in source
+        and "STATE_BEFORE" in source
+        and "STATE_AFTER" in source
+        and "pnl_hash" in source
+        and "manual_save_hash" in source
+        and "manual_month_hash" in source
+        and "person_key_hash" in source,
+        "verify script must compare the live finance_pnl_accrual and helper definitions",
+    )
+    assert_true(
+        "_finance_pnl_baseline" in source
+        and "non-payroll P&L lines changed" in source
+        and "operating expense excluding payroll changed" in source,
+        "verify script must prove non-payroll lines and opex are unchanged",
+    )
+    assert_true(
+        "DRYRUN-BHXH-2026" in source
+        and source.index("DRYRUN-BHXH-2026") < source.index("_finance_pnl_baseline"),
+        "verify script must create the BHXH row before capturing the baseline",
+    )
+    assert_true(
+        "finance_pnl_accrual_person_key" in source,
+        "verify script must check the person-key helper is rolled back",
     )
     assert_true(
         "proname like 'finance_pnl_accrual%'" not in source,
@@ -662,3 +751,299 @@ def test_dryrun_covers_manual_bhxh_and_net_profit() -> None:
         "below_ebitda",
     ):
         assert_true(fragment in lower, f"dry run is missing manual-adjustment fragment {fragment}")
+
+
+def test_payroll_carry_exclusion_table_contract() -> None:
+    sql = payroll_migration_sql()
+    lower = sql.lower()
+
+    assert_true(
+        "create table if not exists public.finance_payroll_carry_exclusions" in lower,
+        "new migration must create finance_payroll_carry_exclusions",
+    )
+    for fragment in (
+        "id uuid primary key default gen_random_uuid()",
+        "month date not null",
+        "person_name text not null",
+        "reason text not null",
+        "created_at timestamptz not null default now()",
+        "created_by uuid",
+        "extract(day from month) = 1",
+        "unique (month, person_key)",
+        "public.finance_pnl_accrual_person_key(person_name)",
+        "alter table public.finance_payroll_carry_exclusions enable row level security",
+        "revoke all on public.finance_payroll_carry_exclusions from public, anon, authenticated",
+        "on conflict (month, person_key) do nothing",
+    ):
+        assert_true(fragment in lower, f"missing exclusion-table fragment: {fragment}")
+
+    for name in ("Trần Thị Ái Mi", "Trần Thị Vân Anh"):
+        assert_true(
+            name in sql,
+            f"missing seeded exclusion person {name}",
+        )
+    assert_true(
+        sql.count("'Chủ yêu cầu không mang lương T9 qua T10'") == 2,
+        "both exclusions must use the owner-request reason",
+    )
+
+    assert_true(
+        re.search(
+            r"(?im)^\s*grant\s+[^;]*on\s+public\.finance_payroll_carry_exclusions",
+            lower,
+        )
+        is None,
+        "no API role may receive a direct grant on finance_payroll_carry_exclusions",
+    )
+    assert_true(
+        "create policy" not in lower.split("create table if not exists public.finance_payroll_carry_exclusions", 1)[1].split("create or replace function", 1)[0],
+        "finance_payroll_carry_exclusions must have no RLS policy for browser roles",
+    )
+
+
+def test_person_key_helper_normalizes_unicode_and_spaces() -> None:
+    sql = payroll_migration_sql()
+    norm = re.sub(r"\s+", " ", sql.lower())
+    for fragment in (
+        "create or replace function public.finance_pnl_accrual_person_key(p_name text)",
+        "immutable",
+        "normalize(coalesce(p_name, ''), nfc)",
+        "replace(normalize(coalesce(p_name, ''), nfc), chr(160), ' ')",
+        "'[[:space:]]+'",
+        "revoke all on function public.finance_pnl_accrual_person_key(text) from public, anon, authenticated",
+    ):
+        assert_true(fragment in norm, f"person-key helper is missing {fragment}")
+
+    assert_true(
+        norm.count("public.finance_pnl_accrual_person_key(") >= 4,
+        "table, current payslips, prior payslips and payout lines must all use the helper",
+    )
+    assert_true(
+        "lower(btrim(regexp_replace(ps.employee_name" not in norm
+        and "lower(btrim(regexp_replace(spl.employee_name" not in norm,
+        "name normalization must not be duplicated inline",
+    )
+
+
+def test_payout_month_helper_uses_title_then_vn_date() -> None:
+    sql = payroll_migration_sql()
+    norm = re.sub(r"\s+", " ", sql.lower())
+    for fragment in (
+        "create or replace function public.finance_pnl_accrual_payout_month(",
+        "p_period_name text",
+        "p_ceo_paid_at timestamptz",
+        "p_completed_at timestamptz",
+        "p_created_at timestamptz",
+        "normalize(coalesce(p_period_name, ''), nfc)",
+        "\\m(t|tháng)[[:space:]]*([0-9]{1,2})[[:space:]]*[/.-][[:space:]]*([0-9]{4})",
+        "at time zone 'asia/ho_chi_minh'",
+        "date_trunc( 'month', ( coalesce(p_ceo_paid_at, p_completed_at) at time zone 'asia/ho_chi_minh' ) )::date",
+        "make_date((m)[3]::integer, (m)[2]::integer, 1)",
+        "revoke all on function public.finance_pnl_accrual_payout_month(text, timestamptz, timestamptz, timestamptz)",
+        "public.finance_pnl_accrual_payout_month(",
+    ):
+        assert_true(fragment in norm, f"payout-month helper is missing {fragment}")
+
+    assert_true(
+        "date_trunc('month', coalesce(sp.ceo_paid_at" not in norm
+        and "coalesce(p_ceo_paid_at, p_completed_at, p_created_at)" not in norm,
+        "the payout fallback must use a stable paid/completed Vietnam-time month",
+    )
+
+
+def test_payroll_family_normalizes_title_formats() -> None:
+    sql = payroll_migration_sql()
+    norm = re.sub(r"\s+", " ", sql.lower())
+    for fragment in (
+        "create or replace function public.finance_pnl_accrual_payroll_family(p_name text)",
+        "normalize(coalesce(p_name, ''), nfc)",
+        "replace(normalize(coalesce(p_name, ''), nfc), '_', ' ')",
+        "\\m(t|tháng)[[:space:]]*([0-9]{1,2})[[:space:]]*[/.-][[:space:]]*([0-9]{4})",
+        "revoke all on function public.finance_pnl_accrual_payroll_family(text) from public, anon, authenticated",
+    ):
+        assert_true(fragment in norm, f"payroll family helper is missing {fragment}")
+
+
+def test_per_person_payroll_uses_lines_and_normalized_names() -> None:
+    sql = payroll_migration_sql()
+    norm = re.sub(r"\s+", " ", sql.lower())
+    for fragment in (
+        "join public.salary_payout_lines spl",
+        "sp.status <> 'cancelled'",
+        "not exists ( select 1 from public.payroll_bn_payslips ps where ps.period_id = sp.payroll_period_id )",
+        "from current_payslip_persons cp",
+        "from prior_payslip_persons pp",
+        "having sum(net_pay) <> 0",
+        "public.finance_pnl_accrual_person_key(ps.employee_name)",
+        "public.finance_pnl_accrual_person_key(spl.employee_name)",
+        "from current_payout_families",
+        "'payout_family:' || p.family_key",
+        "finance_pnl_accrual_payroll_family",
+    ):
+        assert_true(fragment in norm, f"missing per-person payout fragment: {fragment}")
+
+    assert_true(
+        "employee_code = spl.employee_code" not in norm,
+        "people must not be matched by employee_code across payouts",
+    )
+
+
+def test_payroll_estimates_are_per_person_and_month_scoped() -> None:
+    sql = payroll_migration_sql()
+    norm = re.sub(r"\s+", " ", sql.lower())
+    for fragment in (
+        "prior_manual_persons",
+        "prior_manual_missing",
+        "prior_payslip_missing",
+        "sum(net_pay)::numeric as amount",
+        "public.finance_payroll_carry_exclusions e",
+        "e.month = v_start",
+        "payroll_last_month",
+        "'prior_person:' || pm.person_key || ':manual'",
+        "'prior_person:' || pp.person_key || ':payslip'",
+        "pm.employee_name",
+        "pp.employee_name",
+        "estimate_per_person",
+        "prior_actual_total",
+        "prior_payslip_persons",
+        "prior_payslip_person_groups",
+        "prior_payslip_missing_groups",
+        "prior_manual_lines",
+        "where not (select enabled from estimate_per_person)",
+        "pg.amount > 0",
+    ):
+        assert_true(fragment in norm, f"missing per-person estimate fragment: {fragment}")
+
+    assert_true(
+        "prior_payout_families_missing" not in norm
+        and "from prior_payslip_groups" not in norm
+        and "'payroll_last_month:' || pr.family_key" not in norm,
+        "the old payout-family estimate branches must be removed",
+    )
+    assert_true(
+        "where ml.source = 'payroll'" not in norm,
+        "the fallback must use actual prior payslips/payout lines, not prior estimates",
+    )
+    assert_true(
+        "not exists ( select 1 from current_manual_lines cm where cm.person_key = pm.person_key )" in norm
+        and "not exists ( select 1 from current_manual_lines cm where cm.person_key = pg.person_key )" in norm,
+        "a person paid this month must not also be estimated",
+    )
+
+    assert_true(
+        "'payroll_last_month:' || pm.person_key" not in norm
+        and "'payroll_last_month:' || pp.person_key" not in norm,
+        "source_ref must not expose an employee name",
+    )
+    assert_true(
+        "'payroll_last_month:' || pm.family_names" in norm
+        and "'payroll_last_month:' || pp.group_names" in norm,
+        "estimate source_ref must use a payout family or payslip group label",
+    )
+
+    fallback = norm.split("prior_actual_total as (", 1)[1].split("base_lines as (", 1)[0]
+    assert_true(
+        fallback.count("finance_payroll_carry_exclusions") >= 2,
+        "the no-current-payroll fallback must honour exclusions in both sums",
+    )
+    assert_true(
+        "payout_base_month" in norm
+        and "public.finance_pnl_accrual_payout_month(" in norm
+        and "pb.period_name, pb.ceo_paid_at, pb.completed_at, pb.created_at" in norm,
+        "unparseable payout titles must fall back to the Vietnam-time payout month helper",
+    )
+
+
+def test_payroll_person_detail_is_permission_gated() -> None:
+    sql = payroll_migration_sql()
+    norm = re.sub(r"\s+", " ", sql.lower())
+
+    assert_true(
+        "v_can_view_payroll_people := public.has_role(auth.uid(), 'owner')" in norm,
+        "per-person payroll detail must be owner-only",
+    )
+    assert_true(
+        "has_module_permission(auth.uid(), 'salary_cash'" not in norm
+        and "has_module_permission(auth.uid(), 'payroll'" not in norm
+        and "auth.role()" not in norm,
+        "service_role and finance module permissions must not bypass the owner gate",
+    )
+    for fragment in (
+        "where not v_can_view_payroll_people",
+        "'prior_people_aggregate'",
+        "'payroll_last_month:total'",
+        "payroll_person_detail_restricted",
+        "only payroll totals are shown",
+        "payroll_duplicate_employee_name",
+        "payroll_manual_lines_deduplicated",
+        "payroll_manual_lines_deduplicated_prior_month",
+        "payroll_unlabelled_payout_pending",
+        "payroll_payout_month_fallback",
+        "payroll_name_matched_across_sources",
+        "when v_can_view_payroll_people",
+        "jsonb_build_object('amount'",
+        "'count', v_payroll_name_conflicts",
+    ):
+        assert_true(fragment in norm, f"permission gate is missing {fragment}")
+
+    assert_true(
+        "'amount', v_payroll_name_conflicts" not in norm,
+        "the duplicate-name warning must report a count, not a money amount",
+    )
+
+    assert_true(
+        "current_restricted_actual" not in norm
+        and "payroll_actual:restricted" not in norm
+        and "payout_family:restricted" not in norm,
+        "actual payroll must not have a restricted aggregate branch",
+    )
+    assert_true(
+        "from current_payslip_groups g where v_can_view_payroll_people" not in norm
+        and "from current_payout_families p where v_can_view_payroll_people" not in norm,
+        "actual payslip groups and payout families must be visible to every finance viewer",
+    )
+    assert_true(
+        "g.period_code || ':' || g.group_name" in norm
+        and "'payout_family:' || p.family_key" in norm,
+        "actual payroll must keep the old group/family source_ref format",
+    )
+
+    aggregate = norm.split("'prior_people_aggregate'", 1)[1].split("union all", 1)[0]
+    assert_true(
+        "person_key" not in aggregate,
+        "the restricted aggregate line must not expose a person key",
+    )
+
+
+def test_payroll_person_function_keeps_permissions_and_non_payroll_behavior() -> None:
+    sql = payroll_migration_sql()
+    header, body = function_block(sql, "finance_pnl_accrual", "p_month date")
+    lower_header = header.lower()
+    assert_true("returns jsonb" in lower_header, "replacement must return jsonb")
+    assert_true("security definer" in lower_header, "replacement must be SECURITY DEFINER")
+    assert_true("stable" in lower_header, "replacement must be STABLE")
+    assert_true(
+        "set search_path = public, pg_temp" in lower_header,
+        "replacement must pin search_path",
+    )
+    assert_true(
+        "if not public.finance_can_view(auth.uid()) then" in body.lower(),
+        "replacement must keep the finance_can_view gate",
+    )
+    for fragment in (
+        "from public.finance_month_lines(v_start, v_end) ml",
+        "from public.finance_pnl_accrual_purchase_lines(v_start, v_end) l",
+        "from public.goods_receipts gr",
+        "from public.finance_manual_adjustment_month_lines(v_start) a",
+        "from public.finance_accrual_policies",
+        "v_ebit := v_ebitda - v_depreciation",
+        "v_net_profit := v_ebt - v_cit",
+    ):
+        assert_true(fragment in body.lower(), f"replacement lost non-payroll fragment: {fragment}")
+
+    assert_true(
+        "revoke all on function public.finance_pnl_accrual(date) from public, anon" in sql.lower()
+        and "grant execute on function public.finance_pnl_accrual(date) to authenticated, service_role"
+        in sql.lower(),
+        "replacement must keep the original execute grants",
+    )
