@@ -174,3 +174,25 @@ html .d3-unc.d3-cpr { max-width: 600px; }
 .d3-sal-unc-switch { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin-top: 10px; padding: 0 14px; border: 1px solid var(--d3-line-2, #d6d6d3); border-radius: 12px; background: var(--d3-white, #fdfdfc); font-size: 14px; cursor: pointer; }
 .d3-sal-unc-switch:focus-visible, .d3-sal-method button:focus-visible { outline: 2px solid var(--d3-blue, #3c91e6); outline-offset: 2px; }
 .d3-csp-head > .d3-up-chip { justify-self: start; width: fit-content; margin-top: 8px; }
+
+/* Một slip trả chung cho nhiều phiếu tạm ứng */
+.d3-cs-from { font-size: 10.5px; color: var(--d3-dim, #6b6b69); overflow-wrap: anywhere; }
+.d3-cs-shared { display: grid; gap: 6px; min-width: 0; }
+.d3-cs-shared-go { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 42px; padding: 0 14px; border: 1px solid var(--d3-ink, #272727); border-radius: 12px; background: var(--d3-white, #fdfdfc); color: var(--d3-ink, #272727); font-size: 14px; font-weight: 500; cursor: pointer; }
+.d3-cs-shared-go:focus-visible { outline: 2px solid var(--d3-blue, #3c91e6); outline-offset: 2px; }
+.d3-css-dialog { display: grid; gap: 12px; width: min(100vw - 24px, 480px); max-height: calc(100dvh - 24px); overflow-y: auto; }
+.d3-css-dialog [data-bmq-cash-shared] b, .d3-css-dialog b { font-weight: 500; font-variant-numeric: tabular-nums; }
+.d3-css-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.d3-css-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 10px 12px; border: 1.5px solid transparent; border-radius: 14px; background: var(--d3-card, #f7f7f5); color: var(--d3-ink, #272727); text-align: left; cursor: pointer; }
+.d3-css-row.is-on { border-color: var(--d3-ink, #272727); background: var(--d3-white, #fdfdfc); }
+.d3-css-row:disabled { cursor: default; opacity: 1; }
+.d3-css-row:focus-visible { outline: 2px solid var(--d3-blue, #3c91e6); outline-offset: 2px; }
+.d3-css-box { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; border: 1.5px solid var(--d3-line-2, #d6d6d3); }
+.d3-css-row.is-on .d3-css-box { border-color: var(--d3-ink, #272727); background: var(--d3-ink, #272727); color: #fff; }
+.d3-css-name { display: grid; gap: 2px; min-width: 0; }
+.d3-css-name b { font-size: 14px; overflow-wrap: anywhere; }
+.d3-css-name small { font-size: 12px; color: var(--d3-dim, #6b6b69); }
+.d3-css-amt { font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.d3-css-sum { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; padding: 10px 12px; border-radius: 14px; background: var(--d3-panel, #ececea); font-size: 13px; color: var(--d3-ink-2, #4a4a4a); }
+.d3-css-sum[data-bmq-cash-shared-sum="ok"] { background: #e7f3e3; color: #1f7a10; }
+.d3-css-go { width: 100%; min-height: 46px; }

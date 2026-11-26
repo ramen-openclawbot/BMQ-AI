@@ -4194,6 +4194,18 @@ export type Database = {
         }
         Returns: Json
       }
+      list_cash_shared_slip_candidates: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      submit_cash_shared_slip: {
+        Args: {
+          p_allocations: Json
+          p_idempotency_key: string
+          p_receipt_id: string
+        }
+        Returns: Json
+      }
       ensure_purchase_order_receipt_queue: {
         Args: { p_purchase_order_id: string }
         Returns: string

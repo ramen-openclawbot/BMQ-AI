@@ -35,7 +35,10 @@ const PR = { id: "${PR_ID}", request_number: "PR-QACASH01", title: "Chi phí hô
   payment_status: "paid", payment_method: "cash", total_amount: 1102000, supplier_id: null, supplier_name: null,
   created_by: "staff-mai", requester_name: "Xuan Mai", cash_settlement_status: "awaiting_receipts", cash_settled_at: null, cash_settled_by: null };
 const SPLIT = !!cfg().scenario;
-const ITEMS = SPLIT ? [
+const SHARED = cfg().scenario === "shared";
+const ITEMS = SHARED ? [
+  { id: "i-tu1", product_name: "Tạm ứng trả NCC", amount: 2560000, covered: 0 },
+] : SPLIT ? [
   { id: "i-mo", product_name: "MỠ", amount: 2592000, covered: 0 },
   { id: "i-nac", product_name: "NẠC", amount: 2646000, covered: 0 },
 ] : [
@@ -46,7 +49,7 @@ const ITEMS = SPLIT ? [
 ];
 const RECEIPTS = [];
 // OCR result per upload, in pick order; null = unreadable.
-const OCR = cfg().scenario === "split-auto" ? [5238000] : cfg().scenario === "split-manual" ? [3000000, 2238000] : [252000, 400000, 81000, 49000, null, 55000];
+const OCR = SHARED ? [11133000] : cfg().scenario === "split-auto" ? [5238000] : cfg().scenario === "split-manual" ? [3000000, 2238000] : [252000, 400000, 81000, 49000, null, 55000];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const settlement = () => ({ payment_request: { ...PR }, items: ITEMS.map((i) => ({ ...i })), receipts: RECEIPTS.map((r) => ({ ...r })), evidence: [], attachments: [] });
 function settle(st) {
@@ -75,7 +78,32 @@ function settle(st) {
     if (done) PR.cash_settlement_status = "completed";
     return { data: { status: PR.cash_settlement_status, covered_total: ITEMS.reduce((s, i) => s + i.covered, 0), remaining_total: 0, items: [] }, error: null };
   }
+  if (st.table === "rpc:list_cash_shared_slip_candidates") {
+    window.__qaCalls.push({ fn: "candidates", ...st.args });
+    return { data: [
+      { id: "${PR_ID}", request_number: "PR-EB38298C", is_current: true, remaining_total: 2560000, items: [{ id: "i-tu1", remaining: 2560000 }] },
+      { id: "pr-other-2", request_number: "PR-28A7D748", is_current: false, remaining_total: 4373000, items: [{ id: "i-tu2", remaining: 4373000 }] },
+      { id: "pr-other-3", request_number: "PR-051BA6D6", is_current: false, remaining_total: 4200000, items: [{ id: "i-tu3a", remaining: 3000000 }, { id: "i-tu3b", remaining: 1200000 }] },
+      { id: "pr-other-4", request_number: "PR-0A11CE55", is_current: false, remaining_total: 900000, items: [{ id: "i-tu4", remaining: 900000 }] },
+    ], error: null };
+  }
+  if (st.table === "rpc:submit_cash_shared_slip") {
+    window.__qaCalls.push({ fn: "shared", ...st.args });
+    const r = RECEIPTS.find((x) => x.id === st.args.p_receipt_id);
+    const sum = st.args.p_allocations.reduce((t, a) => t + a.amount, 0);
+    if (!r || r.status !== "uploaded" || Math.round(sum) !== Math.round(r.ocr_amount)) return { data: null, error: { message: "shared_total_mismatch" } };
+    const mine = st.args.p_allocations.filter((a) => a.request_id === "${PR_ID}");
+    for (const a of mine) ITEMS.find((x) => x.id === a.item_id).covered += a.amount;
+    r.status = "allocated"; r.amount = sum; r.payment_request_item_id = null;
+    r.splits = st.args.p_allocations.map((a) => ({ item_id: a.item_id, amount: a.amount, request_id: a.request_id }));
+    PR.cash_settlement_status = "completed";
+    const ids = [...new Set(st.args.p_allocations.map((a) => a.request_id))];
+    const num = { "${PR_ID}": "PR-EB38298C", "pr-other-2": "PR-28A7D748", "pr-other-3": "PR-051BA6D6", "pr-other-4": "PR-0A11CE55" };
+    return { data: { status: "ok", idempotent: false, requests: ids.map((id) => ({ request_id: id, request_number: num[id], status: "completed", covered_total: 0, remaining_total: 0 })) }, error: null };
+  }
   if (st.table === "payment_request_attachments") return { data: [], error: null };
+  // Shell read RPCs (badges, notices) are reads: answer empty instead of counting them as writes.
+  if (st.table === "rpc:get_auto_payment_request_count" || st.table === "rpc:get_expense_due_notices") return { data: null, error: null };
   if (st.table.startsWith("rpc:")) { window.__qaWrites.push(st.table); return { data: null, error: { message: "QA fixture: rpc disabled" } }; }
   if (st.write) { window.__qaWrites.push(st.table + ":" + st.write); return { data: null, error: { message: "QA fixture: writes disabled" }, count: null }; }
   if (st.head) return { data: null, error: null, count: 0 };
@@ -337,6 +365,49 @@ try {
     assert.deepEqual(sub.p_allocations.map((a) => `${a.receipt_id}>${a.item_id}:${a.amount}`), ["rc-1>i-mo:2592000", "rc-1>i-nac:408000", "rc-2>i-nac:2238000"]);
     assert.deepEqual(errors, []);
     console.log("PASS", "manual Cả phiếu");
+    await context.close();
+  }
+  // One 11.133.000 slip pays 3 tạm ứng phiếu of the same requester (2.560.000 + 4.373.000 + 4.200.000).
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1280, height: 900 }]) {
+    const w = viewport.width;
+    const { context, page, errors } = await open({ role: "accountant", scenario: "shared" }, ROUTE, viewport);
+    await page.waitForSelector("[data-bmq-cash-settle='awaiting_receipts']");
+    await page.setInputFiles("[data-bmq-cash-settle-file]", SLIPS.slice(0, 1));
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-cash-settle-receipt]").length === 1, null, { timeout: 20000 });
+    await page.waitForTimeout(200);
+    assert.deepEqual(await states(page, "data-bmq-cash-settle-receipt"), ["open"]);
+    assert.equal(await page.locator("[data-bmq-cash-settle-shared-open]").count(), 1, "shared button for an over-sized slip");
+    assert.deepEqual(await controlsInside(page), [], `controls overflow shared ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/shared-slip-${w}.png`, fullPage: true });
+    await page.locator("[data-bmq-cash-settle-shared-open]").click();
+    await page.waitForSelector("[data-bmq-cash-shared-row]");
+    const pressed = await page.$$eval("[data-bmq-cash-shared-row]", (els) => els.map((e) => `${e.getAttribute("data-bmq-cash-shared-row")}:${e.getAttribute("aria-pressed")}`));
+    assert.deepEqual(pressed, ["PR-EB38298C:true", "PR-28A7D748:true", "PR-051BA6D6:true", "PR-0A11CE55:false"]);
+    assert.equal(await page.locator("[data-bmq-cash-shared-sum]").getAttribute("data-bmq-cash-shared-sum"), "ok");
+    const dlg = await page.$eval("[data-bmq-cash-shared]", (el) => { const r = el.getBoundingClientRect(); return { l: r.left, r: r.right, sw: el.scrollWidth - el.clientWidth }; });
+    assert.ok(dlg.l >= 0 && dlg.r <= w && dlg.sw <= 0, `dialog fits ${w}: ${JSON.stringify(dlg)}`);
+    await page.screenshot({ path: `${EVIDENCE}/shared-dialog-${w}.png` });
+    // Ticking a 4th phiếu breaks the total; unticking restores it.
+    await page.locator("[data-bmq-cash-shared-row='PR-0A11CE55']").click();
+    assert.equal(await page.locator("[data-bmq-cash-shared-sum]").getAttribute("data-bmq-cash-shared-sum"), "mismatch");
+    assert.ok(await page.locator("[data-bmq-cash-shared-confirm]").isDisabled());
+    assert.ok((await page.locator("[data-bmq-cash-shared-hint]").textContent()).includes("Vượt slip 900.000"));
+    await page.screenshot({ path: `${EVIDENCE}/shared-mismatch-${w}.png` });
+    await page.locator("[data-bmq-cash-shared-row='PR-0A11CE55']").click();
+    await page.locator("[data-bmq-cash-shared-confirm]").click();
+    await page.waitForSelector("[data-bmq-cash-settle='completed']", { timeout: 20000 });
+    const sub = (await calls(page)).filter((c) => c.fn === "shared");
+    assert.equal(sub.length, 1);
+    assert.deepEqual(sub[0].p_allocations.map((a) => `${a.request_id}>${a.item_id}:${a.amount}`),
+      [`${PR_ID}>i-tu1:2560000`, "pr-other-2>i-tu2:4373000", "pr-other-3>i-tu3a:3000000", "pr-other-3>i-tu3b:1200000"]);
+    assert.ok(sub[0].p_idempotency_key.startsWith("cash-shared:rc-1:"));
+    assert.ok((await page.locator("[data-bmq-cash-settle-shared-done]").textContent()).includes("3 phiếu"));
+    assert.deepEqual(await page.$$eval("[data-bmq-cash-settle-part]", (els) => els.map((e) => e.textContent.replace(/\s+/g, " ").trim())), ["2.560.000 đ"]);
+    assert.ok(await panelOverflow(page) <= 0, `shared done overflow ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/shared-done-${w}.png`, fullPage: true });
+    assert.deepEqual(await page.evaluate(() => window.__qaWrites), []);
+    assert.deepEqual(errors, [], `page errors shared ${w}`);
+    console.log("PASS", `one slip pays 3 phiếu ${w}`);
     await context.close();
   }
   // A user without payment_requests edit who did not create the phiếu sees it read-only.

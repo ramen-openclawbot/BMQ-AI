@@ -6,7 +6,7 @@
  * when the viewer cannot edit.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ImagePlus, Loader2, Trash2, TriangleAlert } from "lucide-react";
+import { Check, ImagePlus, Layers, Loader2, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import {
   type CashSettlementReceipt,
 } from "@/hooks/useCashSettlement";
 import { matchCashSettlement, splitReceiptAcrossItems } from "@/lib/cash-settlement-match";
+import { CashSharedSlipDialog } from "@/components/payment-requests/CashSharedSlipDialog";
 
 /** Manual choice that spreads one receipt over every khoản still owed (one bank slip for the whole phiếu). */
 const WHOLE_PHIEU = "__all__";
@@ -72,7 +73,10 @@ interface Props {
 }
 
 export function CashSettlementPanel({ requestId, canEdit }: Props) {
-  const { data, isLoading, error, extractReceipts, discard, submit } = useCashSettlement(requestId);
+  const { data, isLoading, error, extractReceipts, discard, submit, submitSharedSlip } = useCashSettlement(requestId);
+  // One slip larger than this phiếu: receipt opened in the "Trả chung cho nhiều phiếu" dialog.
+  const [shared, setShared] = useState<{ id: string; amount: number } | null>(null);
+  const [sharedDone, setSharedDone] = useState<string | null>(null);
   const [reading, setReading] = useState(0);
   const [readErrors, setReadErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -227,6 +231,9 @@ export function CashSettlementPanel({ requestId, canEdit }: Props) {
                       <ReceiptThumb path={r.storage_path} onOpen={setZoom} />
                       {/* A shared slip shows the part that pays this khoản. */}
                       <figcaption data-bmq-cash-settle-part>{vnd((r.splits ?? []).find((sp) => sp.item_id === item.id)?.amount ?? r.amount)}</figcaption>
+                      {r.shared_from_request_number && (
+                        <figcaption className="d3-cs-from" data-bmq-cash-settle-shared-from>slip chung · {r.shared_from_request_number}</figcaption>
+                      )}
                     </figure>
                   ))}
                 </div>
@@ -307,6 +314,19 @@ export function CashSettlementPanel({ requestId, canEdit }: Props) {
                       </select>
                     </div>
                   )}
+                  {editable && !auto && !alloc && !!amount && Math.round(Number(amount)) > Math.round(owedTotal) && (
+                    <div className="d3-cs-shared">
+                      <small>Slip lớn hơn số còn thiếu của phiếu này ({vnd(owedTotal)}).</small>
+                      <button
+                        type="button"
+                        className="d3-cs-shared-go"
+                        onClick={() => setShared({ id: r.id, amount: Number(amount) })}
+                        data-bmq-cash-settle-shared-open
+                      >
+                        <Layers className="h-4 w-4" /> Trả chung cho nhiều phiếu
+                      </button>
+                    </div>
+                  )}
                   {editable && manualItem[r.id] && !alloc && (
                     <small className="is-bad">{manualItem[r.id] === WHOLE_PHIEU ? "Số tiền lớn hơn tổng còn thiếu của phiếu." : "Số tiền lớn hơn phần còn thiếu của khoản này."}</small>
                   )}
@@ -334,6 +354,28 @@ export function CashSettlementPanel({ requestId, canEdit }: Props) {
             Xác nhận đối chiếu ({allocations.length})
           </Button>
         </div>
+      )}
+
+      {sharedDone && (
+        <p className="d3-ub-why is-ok" role="status" data-bmq-cash-settle-shared-done><Check className="h-3.5 w-3.5" /> {sharedDone}</p>
+      )}
+
+      {shared && (
+        <CashSharedSlipDialog
+          open={!!shared}
+          onOpenChange={(o) => !o && setShared(null)}
+          requestId={requestId}
+          receiptId={shared.id}
+          slipAmount={shared.amount}
+          submit={submitSharedSlip}
+          onDone={(result) => {
+            const done = result.requests.filter((q) => q.status === "completed").length;
+            setSharedDone(
+              `Đã ghép slip vào ${result.requests.length} phiếu: ${result.requests.map((q) => q.request_number).join(", ")}` +
+                (done ? ` · ${done} phiếu hoàn tất.` : "."),
+            );
+          }}
+        />
       )}
 
       <Dialog open={!!zoom} onOpenChange={(o) => !o && setZoom(null)}>
