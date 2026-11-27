@@ -15,10 +15,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MIGRATION="$ROOT/supabase/migrations/20261125170000_delivery_tasks.sql"
+MIGRATION_NOTE="$ROOT/supabase/migrations/20261127120000_delivery_task_driver_note.sql"
 CHECK="$ROOT/supabase/tests/delivery_tasks_dryrun.sql"
 PROJECT_REF="cxntbdvfsikwmitapony"
 
-for file in "$MIGRATION" "$CHECK"; do
+for file in "$MIGRATION" "$MIGRATION_NOTE" "$CHECK"; do
   if [[ ! -f "$file" ]]; then
     echo "ERROR: missing $file" >&2
     exit 1
@@ -43,6 +44,8 @@ trap cleanup EXIT
 {
   printf '%s\n' 'begin;'
   cat "$MIGRATION"
+  echo
+  cat "$MIGRATION_NOTE"
   printf '\n'
   cat "$CHECK"
   printf '\n%s\n' 'rollback;'

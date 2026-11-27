@@ -59,6 +59,7 @@ interface DeliveryTaskRow {
   quantity: number | string | null;
   items: unknown;
   dealer_note: string | null;
+  driver_note: string | null;
   status: string;
   completed_at: string | null;
   latitude: number | string | null;
@@ -117,6 +118,7 @@ function publicTask(
     quantity: Number(row.quantity ?? 0),
     items: mapItems(row.items),
     dealer_note: row.dealer_note,
+    driver_note: row.driver_note ?? null,
     status: row.status === "completed" || row.status === "cancelled" ? row.status : "pending",
     completed_at: row.completed_at,
     latitude,
@@ -194,7 +196,7 @@ serve(async (req) => {
         supabase
           .from("delivery_tasks")
           .select(
-            "id, delivery_date, destination_customer_id, destination_name, address, units, sort_order, quantity, items, dealer_note, status, completed_at, latitude, longitude, distance_m, location_attached",
+            "id, delivery_date, destination_customer_id, destination_name, address, units, sort_order, quantity, items, dealer_note, driver_note, status, completed_at, latitude, longitude, distance_m, location_attached",
           )
           .in("delivery_date", completionWindow.allowedDates)
           .eq("employee_code", employeeCode)
@@ -205,7 +207,7 @@ serve(async (req) => {
         supabase
           .from("delivery_tasks")
           .select(
-            "id, delivery_date, destination_customer_id, destination_name, address, units, sort_order, quantity, items, dealer_note, status, completed_at, latitude, longitude, distance_m, location_attached",
+            "id, delivery_date, destination_customer_id, destination_name, address, units, sort_order, quantity, items, dealer_note, driver_note, status, completed_at, latitude, longitude, distance_m, location_attached",
           )
           .eq("employee_code", employeeCode)
           .eq("status", "pending")

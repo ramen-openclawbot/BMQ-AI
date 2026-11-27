@@ -21,6 +21,7 @@ import {
   DELIVERY_PROOF_BUCKET,
   DELIVERY_PROOF_RETENTION_DAYS,
   deliveryProofPath,
+  normalizeDriverNote,
   validateDeliveryCompletion,
 } from "../_shared/delivery-tasks.ts";
 
@@ -212,6 +213,11 @@ serve(async (req) => {
       return error(req, "Thiếu việc giao hàng cần hoàn thành.", 400, "task_required");
     }
 
+    const noteCheck = normalizeDriverNote(form.get("note"));
+    if (!noteCheck.ok) {
+      return error(req, noteCheck.message, noteCheck.httpStatus, noteCheck.code);
+    }
+
     const photoEntry = form.get("photo");
     const photo = photoEntry && typeof photoEntry === "object" && "size" in photoEntry
       ? (photoEntry as File)
@@ -400,6 +406,7 @@ serve(async (req) => {
       p_longitude: longitude,
       p_accuracy_m: accuracyM,
       p_device_captured_at: isoInstant(textField(form, "device_captured_at")),
+      p_driver_note: noteCheck.note,
     });
 
     if (rpcResult.error) {
@@ -420,6 +427,9 @@ serve(async (req) => {
         await supabase.storage.from(DELIVERY_PROOF_BUCKET).remove([photoPath]);
       }
 
+      if (message.includes("delivery_note_too_long")) {
+        return error(req, "Ghi chú tối đa 500 ký tự.", 400, "delivery_note_too_long");
+      }
       if (message.includes("delivery_task_not_pending")) {
         return error(req, "Việc giao hàng này đã hoàn thành.", 409, "delivery_already_completed");
       }

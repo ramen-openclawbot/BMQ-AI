@@ -1,9 +1,13 @@
 -- ============================================================================
--- Rollback-only dry run for the delivery tasks migration.
+-- Rollback-only dry run for the delivery tasks migrations.
 --
 -- This file is body-only (no begin/commit/rollback); the verify script wraps it
 -- in one transaction that is always rolled back. It uses only the real dealer
 -- data of 2026-11-25 and never leaves a row, bucket or cron behind.
+--
+-- The wrapper MUST concatenate BOTH 20261125170000_delivery_tasks.sql and
+-- 20261127120000_delivery_task_driver_note.sql before this body: the note checks
+-- call the 10-argument complete_delivery_task and read driver_note.
 -- ============================================================================
 
 create temporary table if not exists _delivery_dryrun (
@@ -204,6 +208,7 @@ declare
   v_customer public.mini_crm_customers%rowtype;
   v_verified_before timestamptz;
   v_result jsonb;
+  v_duplicate_accepted boolean := false;
 begin
   select t.*
   into v_task
@@ -230,6 +235,14 @@ begin
   set before_verified_at = v_verified_before
   where task_id = v_task.id;
 
+  -- The fixture order date is fixed (2026-11-25), so completion would be
+  -- outside the normal today/yesterday window on any later run. Mark the task
+  -- as an owner-reopened point for this rolled-back test only; the RPC then
+  -- accepts the fixed date. Section 11 still exercises the real reopen RPC.
+  update public.delivery_tasks
+  set reopened_at = now()
+  where id = v_task.id;
+
   perform set_config('request.jwt.claim.sub', '', true);
   perform set_config('request.jwt.claim.role', 'service_role', true);
   perform set_config(
@@ -247,7 +260,8 @@ begin
     p_latitude => 10.123456,
     p_longitude => 106.654321,
     p_accuracy_m => 8,
-    p_device_captured_at => now() - interval '2 minutes'
+    p_device_captured_at => now() - interval '2 minutes',
+    p_driver_note => '  Giao trước 7h  '
   );
 
   select * into v_task
@@ -276,6 +290,9 @@ begin
   if v_task.photo_path <> 'DRYRUN/2026-11-25/proof.jpg' then
     raise exception 'CHECK FAIL: photo_path was not stored';
   end if;
+  if v_task.driver_note is distinct from 'Giao trước 7h' then
+    raise exception 'CHECK FAIL: driver_note was not trimmed/stored (got %)', v_task.driver_note;
+  end if;
   if (v_result->>'location_attached')::boolean is not true then
     raise exception 'CHECK FAIL: completion RPC did not report location_attached';
   end if;
@@ -294,6 +311,34 @@ begin
     select before_verified_at from _delivery_dryrun where task_id = v_task.id
   ) then
     raise exception 'CHECK FAIL: location_verified_at must not be set by delivery completion';
+  end if;
+
+  -- 4b) A duplicate completion is still rejected and must not clear the note.
+  begin
+    perform public.complete_delivery_task(
+      p_task_id => v_task.id,
+      p_employee_code => 'DRYRUN_DRV',
+      p_session_id => null,
+      p_device_hash => null,
+      p_photo_path => 'DRYRUN/2026-11-25/proof-duplicate.jpg',
+      p_latitude => 10.123456,
+      p_longitude => 106.654321,
+      p_accuracy_m => 8,
+      p_device_captured_at => now(),
+      p_driver_note => null
+    );
+    v_duplicate_accepted := true;
+  exception when sqlstate 'P0001' then
+    null;
+  end;
+
+  if v_duplicate_accepted then
+    raise exception 'CHECK FAIL: a duplicate completion was accepted';
+  end if;
+
+  select * into v_task from public.delivery_tasks where id = v_task.id;
+  if v_task.driver_note is distinct from 'Giao trước 7h' then
+    raise exception 'CHECK FAIL: duplicate completion cleared the saved driver_note';
   end if;
 end $$;
 
@@ -688,6 +733,13 @@ begin
   end if;
   if v_task.photo_path is not null or v_task.completed_at is not null then
     raise exception 'CHECK FAIL: reopen did not clear the completion evidence';
+  end if;
+  if v_task.driver_note is not null then
+    raise exception 'CHECK FAIL: reopen left the driver note on the pending task';
+  end if;
+  if (v_task.reopen_evidence->>'driver_note') is distinct from 'Giao trước 7h' then
+    raise exception 'CHECK FAIL: reopen evidence lost the driver note (got %)',
+      v_task.reopen_evidence->>'driver_note';
   end if;
 
   -- The first completion attached this pin; reopen must remove it (unless a

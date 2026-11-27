@@ -42,6 +42,9 @@ export interface DeliveryPanelProps {
  * dealer orders and decides everything; this screen shows the stops and sends a
  * photo + location when the driver finishes one. Hidden for non-drivers.
  */
+/** Same limit as the server: code points after trimming. */
+const NOTE_MAX = 500;
+
 export function DeliveryPanel({ source, attendance, onSessionExpired }: DeliveryPanelProps) {
   const [data, setData] = useState<DeliveryToday | null>(null);
   const [loading, setLoading] = useState(true);
@@ -317,6 +320,9 @@ function StopSheet({
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [photo, setPhoto] = useState<{ blob: Blob; url: string } | null>(null);
+  const [note, setNote] = useState("");
+  const noteLength = [...note.trim()].length;
+  const noteTooLong = noteLength > NOTE_MAX;
   const [location, setLocation] = useState<LocationState>({ status: "idle" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -361,7 +367,7 @@ function StopSheet({
   };
 
   const complete = async () => {
-    if (!photo || location.status !== "ok") return;
+    if (!photo || location.status !== "ok" || noteTooLong) return;
     setBusy(true);
     setError(null);
     try {
@@ -372,6 +378,7 @@ function StopSheet({
         longitude: location.point.longitude,
         accuracyM: location.point.accuracyM,
         capturedAt: location.at,
+        note: note.trim() || undefined,
       });
       onDone(`Đã giao ${task.destinationName} lúc ${timeLabel(result.completedAt) || timeLabel(new Date().toISOString())}`);
     } catch (err) {
@@ -438,7 +445,14 @@ function StopSheet({
               {task.locationAttached ? " · vị trí đã gắn cho điểm này" : ""}
             </span>
           </div>
-        ) : (
+        ) : null}
+        {done && task.driverNote ? (
+          <div className="mt-3 rounded-[16px] border border-[#eee8e5] bg-white px-4 py-3" data-delivery-note-saved>
+            <p className="text-[12.5px] font-bold text-[#8a8687]">Ghi chú</p>
+            <p className="mt-0.5 whitespace-pre-wrap break-words text-[14.5px] leading-6 text-[#211d1e]">{task.driverNote}</p>
+          </div>
+        ) : null}
+        {done ? null : (
           <>
             <input
               ref={fileRef}
@@ -494,6 +508,26 @@ function StopSheet({
               ) : null}
             </div>
 
+            <label className="mt-3 block" data-delivery-note>
+              <span className="flex items-baseline justify-between px-1 text-[13px]">
+                <b className="text-[#211d1e]">Ghi chú</b>
+                <span className={noteTooLong ? "font-bold text-red-700" : "text-[#8a8687]"}>
+                  {noteLength > 0 ? `${noteLength}/${NOTE_MAX}` : "Không bắt buộc"}
+                </span>
+              </span>
+              <textarea
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                disabled={busy}
+                rows={3}
+                placeholder="Phản hồi của đại lý về bánh, đổi trả, thiếu hàng…"
+                className={cn(
+                  "mt-1.5 block w-full resize-none rounded-[16px] border bg-white px-4 py-3 text-[16px] leading-6 text-[#211d1e] outline-none placeholder:text-[#b4adaf] focus:border-[#dc4f78] focus:ring-2 focus:ring-[#dc4f78]/20",
+                  noteTooLong ? "border-red-300" : "border-[#eee8e5]",
+                )}
+              />
+            </label>
+
             {error ? (
               <p role="alert" className="mt-3 rounded-[14px] border border-red-200 bg-red-50 px-3 py-2.5 text-[13.5px] text-red-700">{error}</p>
             ) : null}
@@ -501,8 +535,8 @@ function StopSheet({
             <Button
               type="button"
               className="mt-4 h-14 w-full rounded-2xl border-0 text-[18px] font-bold text-white shadow-none hover:brightness-95 disabled:opacity-100 disabled:[background:#e9d9df]"
-              style={photo && location.status === "ok" && !busy ? BRAND_GRADIENT : undefined}
-              disabled={!photo || location.status !== "ok" || busy}
+              style={photo && location.status === "ok" && !busy && !noteTooLong ? BRAND_GRADIENT : undefined}
+              disabled={!photo || location.status !== "ok" || busy || noteTooLong}
               onClick={() => void complete()}
               data-delivery-complete
             >

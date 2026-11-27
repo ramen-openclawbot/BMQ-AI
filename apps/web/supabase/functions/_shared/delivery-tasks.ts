@@ -19,6 +19,7 @@ export const DELIVERY_PROOF_MAX_BYTES = 3 * 1024 * 1024;
 export const DELIVERY_PROOF_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 export const DELIVERY_PROOF_RETENTION_DAYS = 90;
 export const DELIVERY_UNIT_STEP = 0.25;
+export const DELIVERY_DRIVER_NOTE_MAX_LENGTH = 500;
 
 /** Files are kept for 90 days; older objects are removed by the daily cron. */
 export const DELIVERY_PROOF_RETENTION_MAX_PER_RUN = 1000;
@@ -240,6 +241,41 @@ export function validateDeliveryCompletion(
     lng,
   );
   return { ok: true, ...decision };
+}
+
+export type DeliveryDriverNoteCheck =
+  | { ok: true; note: string | null }
+  | { ok: false; code: "delivery_note_too_long"; message: string; httpStatus: 400 };
+
+/**
+ * Optional driver note on completion:
+ *   - normalise CRLF (multipart FormData turns textarea line breaks into CRLF);
+ *   - drop NUL and non-printing controls, keeping newline and tab (PostgreSQL
+ *     text cannot store NUL);
+ *   - trim, empty becomes null;
+ *   - more than 500 characters is rejected.
+ * The database enforces the 1..500 length with btrim; this helper additionally
+ * normalises line breaks/whitespace and control characters before the Edge
+ * Function uploads the photo, so unstoreable input is rejected early.
+ */
+export function normalizeDriverNote(value: unknown): DeliveryDriverNoteCheck {
+  const note = typeof value === "string"
+    ? value
+      .replace(/\r\n?/g, "\n")
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "")
+      .trim()
+    : "";
+  if (note === "") return { ok: true, note: null };
+  // Count code points, matching PostgreSQL length() rather than UTF-16 units.
+  if ([...note].length > DELIVERY_DRIVER_NOTE_MAX_LENGTH) {
+    return {
+      ok: false,
+      code: "delivery_note_too_long",
+      message: "Ghi chú tối đa 500 ký tự.",
+      httpStatus: 400,
+    };
+  }
+  return { ok: true, note };
 }
 
 /** Storage path: <employee>/<date>/<task>.<ext> inside delivery-proofs. */

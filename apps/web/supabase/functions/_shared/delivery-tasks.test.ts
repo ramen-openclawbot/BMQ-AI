@@ -10,6 +10,7 @@ import {
   distanceMeters,
   haversineMeters,
   isValidDeliveryUnits,
+  normalizeDriverNote,
   validateDeliveryCompletion,
 } from "./delivery-tasks.ts";
 
@@ -243,4 +244,48 @@ test("delivery units per day: base only when something was completed", () => {
   assert.equal(isValidDeliveryUnits(0.25), true);
   assert.equal(isValidDeliveryUnits(0.3), false);
   assert.equal(isValidDeliveryUnits(-0.25), false);
+});
+
+test("driver note is optional, trimmed and limited to 500 characters", () => {
+  assert.deepEqual(normalizeDriverNote(null), { ok: true, note: null });
+  assert.deepEqual(normalizeDriverNote(undefined), { ok: true, note: null });
+  assert.deepEqual(normalizeDriverNote("   \n\t  "), { ok: true, note: null });
+  assert.deepEqual(normalizeDriverNote("  Giao trước 7h  "), {
+    ok: true,
+    note: "Giao trước 7h",
+  });
+
+  const exactly500 = "a".repeat(500);
+  assert.deepEqual(normalizeDriverNote(exactly500), { ok: true, note: exactly500 });
+
+  const tooLong = normalizeDriverNote("a".repeat(501));
+  assert.equal(tooLong.ok, false);
+  assert.deepEqual(tooLong, {
+    ok: false,
+    code: "delivery_note_too_long",
+    message: "Ghi chú tối đa 500 ký tự.",
+    httpStatus: 400,
+  });
+  // The length limit applies after trimming, like the database btrim rule.
+  assert.deepEqual(normalizeDriverNote(`  ${"a".repeat(500)}  `), {
+    ok: true,
+    note: exactly500,
+  });
+
+  // Browsers send textarea line breaks as CRLF in multipart FormData. They must
+  // count as one character each and be stored as LF, not rejected as too long.
+  const multiline500 = `${"a".repeat(200)}\n${"b".repeat(200)}\n${"c".repeat(98)}`;
+  assert.deepEqual(normalizeDriverNote(multiline500.replace(/\n/g, "\r\n")), {
+    ok: true,
+    note: multiline500,
+  });
+
+  // PostgreSQL text cannot store NUL; other non-printing controls are dropped
+  // too, while a textarea's newline and tab are kept.
+  assert.deepEqual(normalizeDriverNote("ok\u0000"), { ok: true, note: "ok" });
+  assert.deepEqual(normalizeDriverNote("\u0000 \t\n"), { ok: true, note: null });
+  assert.deepEqual(normalizeDriverNote("a\tb\nc\u0007"), {
+    ok: true,
+    note: "a\tb\nc",
+  });
 });

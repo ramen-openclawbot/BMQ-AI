@@ -30,6 +30,7 @@ interface AdminTask {
   distance_m: number | string | null;
   location_attached: boolean | null;
   photo_path: string | null;
+  driver_note: string | null;
   changed_after_completion: boolean | null;
 }
 interface AdminAssignment {
@@ -245,6 +246,11 @@ function TodayView({ drivers, canEdit }: { drivers: PayrollEmployee[]; canEdit: 
                               {task.location_attached ? " · vị trí mới" : ""}
                               {task.changed_after_completion ? " · đơn đổi sau khi giao" : ""}
                             </p>
+                            {task.driver_note ? (
+                              <p className="mt-0.5 line-clamp-2 break-words text-xs text-amber-800" title={task.driver_note}>
+                                Ghi chú: {task.driver_note}
+                              </p>
+                            ) : null}
                           </div>
                         </li>
                       ))}
@@ -283,7 +289,7 @@ function PhotoDialog({ task, onClose }: { task: AdminTask; onClose: () => void }
   });
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={(event) => event.target === event.currentTarget && onClose()}>
-      <div role="dialog" aria-modal="true" aria-label="Ảnh giao hàng" className="w-full max-w-md overflow-hidden rounded-2xl bg-background shadow-xl">
+      <div role="dialog" aria-modal="true" aria-label="Ảnh giao hàng" className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-2xl bg-background shadow-xl">
         <div className="relative flex h-72 items-center justify-center bg-muted">
           {photo.isLoading ? <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> : photo.data ? (
             <img src={photo.data} alt={`Ảnh giao ${task.destination_name ?? ""}`} className="h-full w-full object-contain" />
@@ -297,6 +303,12 @@ function PhotoDialog({ task, onClose }: { task: AdminTask; onClose: () => void }
         <div className="space-y-1 p-4 text-sm">
           <p className="font-semibold">{task.destination_name}</p>
           <p className="text-muted-foreground">Tài xế {task.driver_name ?? task.employee_code ?? "—"} · giao lúc {clock(task.completed_at)} · {fmt.format(num(task.quantity))} bánh</p>
+          {task.driver_note ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="text-xs font-semibold text-amber-900">Ghi chú của tài xế</p>
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-amber-950">{task.driver_note}</p>
+            </div>
+          ) : null}
           <p className="flex items-center gap-1.5 text-muted-foreground">
             {task.location_attached ? <MapPinPlus className="h-4 w-4 text-amber-600" /> : <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
             {task.location_attached

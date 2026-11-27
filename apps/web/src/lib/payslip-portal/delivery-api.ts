@@ -31,6 +31,7 @@ export interface DeliveryTask {
   quantity: number;
   items: DeliveryItem[];
   dealerNote: string | null;
+  driverNote: string | null;
   status: DeliveryTaskStatus;
   completedAt: string | null;
   locationAttached: boolean;
@@ -59,6 +60,7 @@ export interface DeliveryCompleteInput {
   longitude: number;
   accuracyM: number;
   capturedAt: string;
+  note?: string;
 }
 
 export interface DeliveryCompleteResult {
@@ -108,6 +110,7 @@ function defaultStorage(): PayslipStorage {
 const DELIVERY_ERRORS: Record<string, string> = {
   consent_required: "Bạn cần đồng ý điều khoản chấm công (ảnh và vị trí) ở phần Chấm công trước.",
   delivery_photo_required: "Cần chụp ảnh bánh giao trước khi hoàn thành.",
+  delivery_note_too_long: "Ghi chú tối đa 500 ký tự.",
   delivery_task_not_found: "Không tìm thấy điểm giao này. Vui lòng tải lại.",
   delivery_not_assigned: "Điểm giao này không còn giao cho bạn. Vui lòng tải lại.",
   delivery_already_completed: "Điểm này đã được hoàn thành.",
@@ -155,6 +158,7 @@ export function normalizeDeliveryTask(raw: Record<string, unknown>): DeliveryTas
       quantity: num(item.quantity),
     })),
     dealerNote: strOrNull(raw.dealer_note),
+    driverNote: strOrNull(raw.driver_note),
     status,
     completedAt: strOrNull(raw.completed_at),
     locationAttached: raw.location_attached === true,
@@ -237,6 +241,8 @@ export function createPayrollDeliveryApi(options: PayrollDeliveryApiOptions = {}
       form.append("longitude", String(input.longitude));
       form.append("accuracy_m", String(input.accuracyM));
       form.append("device_captured_at", input.capturedAt);
+      const note = input.note?.trim();
+      if (note) form.append("note", note);
       form.append(
         "photo",
         input.photo,
