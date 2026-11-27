@@ -494,12 +494,6 @@ function StopSheet({
               ) : null}
             </div>
 
-            {!task.hasLocation ? (
-              <p className="mt-3 rounded-[14px] bg-[#fff5f8] px-3 py-2.5 text-[13px] leading-6 text-[#80566a]">
-                Điểm này chưa có vị trí. Vị trí lúc bấm Hoàn thành sẽ được <b>gắn luôn cho điểm</b>, lần sau mở chỉ đường chính xác.
-              </p>
-            ) : null}
-
             {error ? (
               <p role="alert" className="mt-3 rounded-[14px] border border-red-200 bg-red-50 px-3 py-2.5 text-[13.5px] text-red-700">{error}</p>
             ) : null}
