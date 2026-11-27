@@ -16,6 +16,10 @@ export const HACCP_EXCEL_FILE_NAME = "Thong-tin-HACCP-Q7.xlsx";
 
 export interface HaccpAttachment {
   section: HaccpSectionId;
+  /** Optional supplier folder under the section, e.g. 01-Nha-cung-cap/<name>/. */
+  folder?: string;
+  /** Stable supplier/entry identity; two same-named suppliers get distinct folders. */
+  folderKey?: string;
   name: string;
   bytes: Uint8Array;
 }
@@ -324,6 +328,17 @@ export function safeZipName(raw: string, used: Set<string>): string {
   return candidate;
 }
 
+/** Safe, unique supplier folder name under a section. */
+export function safeZipFolder(raw: string): string {
+  const text = ascii(String(raw ?? ""))
+    .replace(CONTROL_CHARS, "")
+    .replace(/[^A-Za-z0-9._ -]+/g, "-")
+    .replace(/\s+/g, " ")
+    .slice(0, 80)
+    .replace(/^[.\-\s]+|[.\-\s]+$/g, "");
+  return text || "Nha-cung-cap";
+}
+
 /** Excel plus every attachment, grouped into one folder per dossier section. */
 export async function buildHaccpZip(
   template: ArrayBuffer,
@@ -335,13 +350,37 @@ export async function buildHaccpZip(
   const zip = new JSZip();
   zip.file(HACCP_EXCEL_FILE_NAME, workbook);
 
-  const used = new Map<HaccpSectionId, Set<string>>();
+  const used = new Map<string, Set<string>>();
+  const supplierFolders = new Map<string, string>();
+  const usedSupplierFolders = new Set<string>();
+
   for (const attachment of attachments) {
     if (!attachment || attachment.bytes.byteLength === 0) continue;
-    const folder = zip.folder(HACCP_ZIP_FOLDERS[attachment.section]);
+    const sectionFolder = HACCP_ZIP_FOLDERS[attachment.section];
+    let folderPath = sectionFolder;
+
+    if (attachment.folder) {
+      const identity = attachment.folderKey ?? attachment.folder;
+      const key = `${attachment.section}\u0000${identity}`;
+      let subfolder = supplierFolders.get(key);
+      if (!subfolder) {
+        const base = safeZipFolder(attachment.folder);
+        subfolder = base;
+        let index = 2;
+        while (usedSupplierFolders.has(`${sectionFolder}/${subfolder}`.toLowerCase())) {
+          subfolder = `${base} (${index})`;
+          index += 1;
+        }
+        usedSupplierFolders.add(`${sectionFolder}/${subfolder}`.toLowerCase());
+        supplierFolders.set(key, subfolder);
+      }
+      folderPath = `${sectionFolder}/${subfolder}`;
+    }
+
+    const folder = zip.folder(folderPath);
     if (!folder) continue;
-    const names = used.get(attachment.section) ?? new Set<string>();
-    used.set(attachment.section, names);
+    const names = used.get(folderPath) ?? new Set<string>();
+    used.set(folderPath, names);
     folder.file(safeZipName(attachment.name, names), attachment.bytes);
   }
 

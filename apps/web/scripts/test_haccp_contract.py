@@ -21,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "supabase/migrations/20261128100000_haccp_dossier.sql"
 PREFILL_MIGRATION = ROOT / "supabase/migrations/20261128120000_haccp_prefill_q7_skus.sql"
+SUPPLIER_MIGRATION = ROOT / "supabase/migrations/20261128140000_haccp_supplier_single_source.sql"
 CONFIG = ROOT / "supabase/config.toml"
 SCHEMA = ROOT / "src/lib/haccp-schema.ts"
 EXPORT = ROOT / "src/lib/haccp-export.ts"
@@ -61,6 +62,7 @@ def read(path: Path) -> str:
 
 sql = read(MIGRATION)
 prefill = read(PREFILL_MIGRATION)
+supplier_sql = read(SUPPLIER_MIGRATION)
 config = read(CONFIG)
 schema = read(SCHEMA)
 export = read(EXPORT)
@@ -259,6 +261,81 @@ delete_file_block = re.search(r"create or replace function public\.haccp_delete_
 check(delete_file_block is not None, "cannot isolate haccp_delete_file")
 if delete_file_block:
     check("set version = e.version + 1" in delete_file_block.group(1), "delete_file does not bump the entry version")
+
+# ---------------------------------------------------------------------------
+# Single-source supplier contact facts (new migration)
+# ---------------------------------------------------------------------------
+check("create or replace function public.haccp_entry_payload(p_id uuid)" in supplier_sql, "supplier payload replacement missing")
+check("'linked', true" in supplier_sql and "'supplier_id', s.id" in supplier_sql, "linked supplier metadata missing")
+check("e.source_key = 'suppliers:' || s.id::text" in supplier_sql, "payload does not join the supplier by source_key")
+check("'items', coalesce(e.\"values\" ->> 'items', '')" in supplier_sql, "linked items must stay in haccp_entries")
+check("s.contact_name" in supplier_sql and "'contact', left(coalesce(" in supplier_sql, "contact must come from suppliers.contact_name")
+check("'name', left(coalesce(s.name, ''), 1000)" in supplier_sql, "name must come from suppliers.name")
+
+check("create or replace function public.haccp_save_entry(" in supplier_sql, "save_entry replacement missing")
+check("supplier_read_only" in supplier_sql, "supplier_read_only guard missing")
+check("update public.suppliers s" in supplier_sql, "supplier catalogue update missing")
+supplier_update = re.search(r"update public\.suppliers s(.*?)where s\.id", supplier_sql, re.S)
+check(supplier_update is not None, "cannot isolate the suppliers update")
+if supplier_update:
+    block = supplier_update.group(1)
+    check("phone = case" in block and "then v_new_phone" in block, "phone sync missing")
+    check("address = case" in block and "then v_new_address" in block, "address sync missing")
+    check("contact_name = case" in block and "then v_new_contact" in block, "contact_name sync missing")
+    check("v_phone_requested := p_values ? 'phone'" in supplier_sql, "phone must only sync when the user changed it")
+    check("v_store_values := coalesce(v_prev_values" in supplier_sql, "partial supplier saves must merge stored values")
+    check("public.has_role(v_actor, 'staff')" in supplier_sql and "public.has_role(v_actor, 'warehouse')" in supplier_sql, "catalogue writes need supplier role permission")
+    check("length(btrim(coalesce(s.phone, ''))) > 40" in supplier_sql, "truncated legacy phone must not write back")
+    check(re.search(r"(?<!_)\bname\s*=", block) is None, "supplier name must not be changed")
+    check("updated_at" not in block, "supplier update must not touch other columns")
+check("v_source_key like 'suppliers:%'" in supplier_sql, "save_entry does not resolve the linked source_key")
+check("supplier_read_only" in handler and "supplier_read_only" in supplier_sql, "server must return supplier_read_only")
+
+check("supplier_papers_in_attp" in supplier_sql, "supplier file guard missing")
+check("where e.source_key = 'suppliers:' || s.id::text" in supplier_sql, "only linked supplier rows should reject HACCP files")
+check("e.source_key = 'suppliers:' || s.id::text" in supplier_sql, "contact backfill must key on source_key")
+link_supplier_guards = 0
+for function in ["haccp_link_save_entry", "haccp_link_delete_entry", "haccp_link_add_file", "haccp_link_delete_file"]:
+    block = re.search(rf"create or replace function public\.{function}\(.*?\$\$;", supplier_sql, re.S)
+    check(block is not None, f"{function}: replacement missing")
+    if block:
+        link_supplier_guards += 1 if "supplier_read_only" in block.group(0) else 0
+check(link_supplier_guards == 4, "all four link entry/file functions must reject suppliers")
+
+papers_block = re.search(r"create or replace function public\.haccp_supplier_papers\(\)(.*?)\$\$;", supplier_sql, re.S)
+check(papers_block is not None, "haccp_supplier_papers missing")
+if papers_block:
+    block = papers_block.group(0)
+    check("public.kho_attp_checklist(180)" in block, "supplier papers must read kho_attp_checklist(180)")
+    check("food_safety_certificates" in block, "supplier papers must read certificates")
+    for field in ["'id'", "'cert_type'", "'cert_no'", "'expires_on'", "'file_path'", "'file_name'", "'mime_type'"]:
+        check(field in block, f"supplier papers missing {field}")
+    for total in ["'done'", "'total'", "'pct'"]:
+        check(total in block, f"supplier papers missing {total}")
+    check("supplier_id" in block and "entry_id" in block, "supplier papers must key by entry and supplier")
+    check("vault_certs" in block and "c.owner_kind = 'supplier'" in block, "supplier-owned vault certificates must be included")
+    check("coalesce(t.pct, 0)" in block, "suppliers outside the checklist must not claim 100%")
+check("grant execute on function public.haccp_supplier_papers() to authenticated, service_role;" in supplier_sql, "supplier papers grant missing")
+check("revoke all on function public.haccp_supplier_papers() from public, anon;" in supplier_sql, "anon must not call supplier papers")
+
+check("supplier_read_only" in handler, "handler must return supplier_read_only")
+check('tableId === "suppliers"' in handler, "handler must block supplier save_row")
+check('asString(body.table_id, 40) === "suppliers"' in handler, "handler must block supplier delete_row")
+check('asString(url.searchParams.get("table_id"), 40) === "suppliers"' in handler, "handler must block supplier upload")
+check("loadSupplierPapers" in api and "haccp_supplier_papers" in api, "loadSupplierPapers missing")
+check("CERT_BUCKET = \"food-safety-docs\"" in api, "ATTP bucket signing missing")
+check("supplierLinked" in api and "linkedEntryIds" in api, "manager must reject/upload only linked supplier rows")
+check("HaccpLinkedRow" in api and "row.linked = true" in api, "linked flag should be exposed to the client")
+check("folderKey" in export and "folderKey" in hook, "ZIP supplier folders must use a stable supplier/entry key")
+check("saveValues" in api and "delete saveValues[field]" in api, "client must send only changed supplier contacts")
+check("if (!supplierLinked && entryId)" in api, "old supplier files must stay removable while new uploads are blocked")
+check("hasLinkedSupplierRows" in hook, "supplier papers should load only for a loaded dossier with linked rows")
+check("paper.mimeType === \"image/heic\"" in hook, "HEIC certificates need the right extension")
+check(".slice(0, 80)\n    .replace" in export, "ZIP folder names must trim after cutting to 80 chars")
+check('table === "suppliers"' in api and "supplierReadOnlyError" in api, "link store must reject suppliers with clear copy")
+check("supplierPapers" in hook and "loadSupplierPapers" in hook, "useHaccp supplierPapers missing")
+check("folder:" in hook and "paper.url" in hook, "ZIP must attach ATTP papers under supplier folders")
+check("folder?: string" in export and "safeZipFolder" in export, "ZIP supplier subfolders missing")
 
 # The migration must never write to source systems.
 for statement in ["insert into public.suppliers", "update public.suppliers", "delete from public.suppliers",

@@ -166,6 +166,198 @@ begin
   raise notice 'HACCP smoke: prefill suppliers first=%, repeat=%', v_first, v_second;
 end $$;
 
+-- Single-source supplier contact facts + link read-only + ATTP papers.
+do $$
+declare
+  v_actor uuid;
+  v_supplier_id uuid;
+  v_supplier_name text;
+  v_entry_id uuid;
+  v_token text;
+  v_hash text;
+  v_payload jsonb;
+begin
+  select ur.user_id
+    into v_actor
+  from public.user_roles ur
+  where ur.role = 'owner'
+  order by ur.created_at, ur.id
+  limit 1;
+
+  if v_actor is null then
+    raise notice 'HACCP smoke: no owner account, skipping supplier test';
+    return;
+  end if;
+
+  perform set_config(
+    'request.jwt.claims',
+    jsonb_build_object('sub', v_actor, 'role', 'authenticated')::text,
+    true
+  );
+  perform set_config('request.jwt.claim.sub', v_actor::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+  select s.id, s.name
+    into v_supplier_id, v_supplier_name
+  from public.suppliers s
+  where not exists (
+    select 1 from public.haccp_entries e
+    where e.source_key = 'suppliers:' || s.id::text
+  )
+  order by s.id
+  limit 1;
+
+  if v_supplier_id is null then
+    raise notice 'HACCP smoke: every supplier already has a HACCP row, skipping supplier test';
+    return;
+  end if;
+
+  insert into public.haccp_entries (table_id, "values", source_key, entered_by_name)
+  values (
+    'suppliers',
+    jsonb_build_object(
+      'name', 'Tên trong HACCP không được dùng',
+      'items', 'Bột mì',
+      'phone', '000',
+      'address', 'Địa chỉ cũ',
+      'contact', 'Người cũ'
+    ),
+    'suppliers:' || v_supplier_id::text,
+    'app'
+  )
+  returning id into v_entry_id;
+
+  perform public.haccp_save_entry(
+    p_id => v_entry_id,
+    p_table_id => 'suppliers',
+    p_values => jsonb_build_object(
+      'name', 'Tên trong HACCP không được dùng',
+      'items', 'Bột mì',
+      'phone', '0909 123 456',
+      'address', 'Địa chỉ mới',
+      'contact', 'Chị Lan'
+    ),
+    p_entered_by_name => 'Smoke',
+    p_version => 1,
+    p_request_id => gen_random_uuid(),
+    p_position => null,
+    p_source_key => null
+  );
+
+  if not exists (
+    select 1 from public.suppliers s
+    where s.id = v_supplier_id
+      and s.name = v_supplier_name
+      and s.phone = '0909 123 456'
+      and s.address = 'Địa chỉ mới'
+      and s.contact_name = 'Chị Lan'
+  ) then
+    raise exception 'HACCP smoke: manager save did not sync supplier phone/address/contact only';
+  end if;
+
+  v_payload := public.haccp_entry_payload(v_entry_id);
+  if v_payload -> 'values' ->> 'items' <> 'Bột mì'
+     or v_payload -> 'values' ->> 'name' <> v_supplier_name
+     or v_payload ->> 'supplier_id' <> v_supplier_id::text then
+    raise exception 'HACCP smoke: linked supplier payload is not single-source';
+  end if;
+
+  -- An items-only save must not overwrite a newer catalogue phone.
+  update public.suppliers
+     set phone = '0999 999 999'
+   where id = v_supplier_id;
+  perform public.haccp_save_entry(
+    p_id => v_entry_id,
+    p_table_id => 'suppliers',
+    p_values => jsonb_build_object(
+      'name', v_supplier_name,
+      'items', 'Bột mì mới'
+    ),
+    p_entered_by_name => 'Smoke',
+    p_version => (select version from public.haccp_entries where id = v_entry_id),
+    p_request_id => gen_random_uuid(),
+    p_position => null,
+    p_source_key => null
+  );
+  if (select phone from public.suppliers where id = v_supplier_id) <> '0999 999 999' then
+    raise exception 'HACCP smoke: items-only save overwrote a newer supplier phone';
+  end if;
+
+  -- A legacy catalogue phone over 40 chars must not block an items-only save
+  -- and must not be written back truncated.
+  update public.suppliers
+     set phone = '0900 000 101 / 0900 000 102 / gặp chị Lan'
+   where id = v_supplier_id;
+  v_payload := public.haccp_entry_payload(v_entry_id);
+  perform public.haccp_save_entry(
+    p_id => v_entry_id,
+    p_table_id => 'suppliers',
+    p_values => jsonb_build_object(
+      'name', v_supplier_name,
+      'items', 'Bột mì 3',
+      'phone', left(v_payload -> 'values' ->> 'phone', 40)
+    ),
+    p_entered_by_name => 'Smoke',
+    p_version => (select version from public.haccp_entries where id = v_entry_id),
+    p_request_id => gen_random_uuid(),
+    p_position => null,
+    p_source_key => null
+  );
+  if (select phone from public.suppliers where id = v_supplier_id)
+     <> '0900 000 101 / 0900 000 102 / gặp chị Lan' then
+    raise exception 'HACCP smoke: over-long catalogue phone was truncated on save';
+  end if;
+
+  -- A staff link can never save this row.
+  v_payload := public.haccp_create_upload_link(7, gen_random_uuid());
+  v_token := v_payload ->> 'token';
+  v_hash := encode(extensions.digest(convert_to(v_token, 'UTF8'), 'sha256'), 'hex');
+
+  perform set_config('request.jwt.claim.role', 'service_role', true);
+  perform set_config(
+    'request.jwt.claims',
+    jsonb_build_object('sub', v_actor, 'role', 'service_role')::text,
+    true
+  );
+
+  begin
+    perform public.haccp_link_save_entry(
+      p_token_hash => v_hash,
+      p_id => v_entry_id,
+      p_table_id => 'suppliers',
+      p_values => jsonb_build_object(
+        'name', 'Link sửa',
+        'items', 'Bột mì',
+        'phone', '000',
+        'address', 'x',
+        'contact', 'x'
+      ),
+      p_who => 'Smoke link',
+      p_version => 2,
+      p_request_id => gen_random_uuid(),
+      p_position => null
+    );
+    raise exception 'HACCP smoke: staff link saved a supplier row';
+  exception
+    when others then
+      if sqlerrm not like '%supplier_read_only%' then
+        raise;
+      end if;
+  end;
+
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  perform set_config(
+    'request.jwt.claims',
+    jsonb_build_object('sub', v_actor, 'role', 'authenticated')::text,
+    true
+  );
+
+  v_payload := public.haccp_supplier_papers();
+  if jsonb_typeof(v_payload) <> 'array' then
+    raise exception 'HACCP smoke: haccp_supplier_papers did not return an array';
+  end if;
+end $$;
+
 rollback;
 
 select 'HACCP SMOKE: PASS (rolled back)' as result;

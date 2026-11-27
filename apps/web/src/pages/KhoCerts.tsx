@@ -1,25 +1,14 @@
-import { Suspense, lazy, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { FileSearch, FileText, Plus, Search, Upload, X } from "lucide-react";
+import { FileSearch, FileText, Search, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useKhoItems } from "@/hooks/useKhoItems";
-import {
-  foodCertFileUrl, uploadFoodCertFile, useArchiveFoodCert, useFoodCerts, useFoodManufacturers,
-  useUpsertFoodCert, useUpsertFoodManufacturer,
-} from "@/hooks/useKhoLots";
-import {
-  FOOD_CERT_OWNER_KIND_LABELS, FOOD_CERT_TYPE_LABELS, expiryTone,
-  type FoodCert, type FoodCertOwnerKind, type FoodCertType,
-} from "@/lib/kho-lots";
+import { foodCertFileUrl, useArchiveFoodCert, useFoodCerts } from "@/hooks/useKhoLots";
+import { FOOD_CERT_TYPE_LABELS, expiryTone, type FoodCert } from "@/lib/kho-lots";
 import { searchKey } from "@/lib/kho-items";
 import { cn } from "@/lib/utils";
-import { KhoDialog } from "@/components/kho/KhoDialog";
 import { KhoTraceDialog } from "@/components/kho/KhoTraceDialog";
 import { AttpChecklist, type AttpAction } from "@/components/kho/AttpChecklist";
 import { AttpUploadDialog } from "@/components/kho/AttpUploadDialog";
@@ -33,8 +22,6 @@ const PAGES: Page[] = ["checklist", "papers", "haccp"];
 // The HACCP workbook (owner 28/11) lives here as a tab; load its exporter only when opened.
 const HaccpDossierRoute = lazy(() => import("@/pages/HaccpDossierRoute"));
 const dmy = (iso?: string | null) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "");
-const CERT_TYPES = Object.keys(FOOD_CERT_TYPE_LABELS) as FoodCertType[];
-const OWNER_KINDS = Object.keys(FOOD_CERT_OWNER_KIND_LABELS) as FoodCertOwnerKind[];
 
 function expiryLabel(cert: FoodCert): { text: string; tone: "expired" | "soon" | "ok" | null } {
   if (!cert.expires_on || cert.days_left === null) return { text: "không ghi hạn", tone: null };
@@ -58,7 +45,6 @@ export default function KhoCerts() {
   const archive = useArchiveFoodCert();
   const [view, setView] = useState<View>("all");
   const [query, setQuery] = useState("");
-  const [adding, setAdding] = useState(false);
   const [tracing, setTracing] = useState(false);
   const [params, setParams] = useSearchParams();
   const page: Page = PAGES.includes(params.get("tab") as Page) ? (params.get("tab") as Page) : "checklist";
@@ -102,11 +88,20 @@ export default function KhoCerts() {
         </div>
       </header>
 
-      <div className="d3-kho-seg d3-attp-pages" role="tablist" aria-label="An toàn thực phẩm">
-        {([["checklist", "Checklist"], ["papers", `Giấy tờ${certs.data ? ` (${rows.length})` : ""}`], ["haccp", "Hồ sơ HACCP"]] as const).map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={page === id} className={cn(page === id && "is-on")} onClick={() => setPage(id)} data-bmq-attp-page={id}>{label}</button>
-        ))}
+      <div className="d3-kho-tabs d3-fs-tabs" role="tablist" aria-label="An toàn thực phẩm">
+        {([["attp", "Giấy tờ ATTP"], ["haccp", "Hồ sơ HACCP"]] as const).map(([id, label]) => {
+          const on = id === "haccp" ? page === "haccp" : page !== "haccp";
+          return <button key={id} type="button" role="tab" aria-selected={on} className={cn(on && "is-on")} onClick={() => setPage(id === "haccp" ? "haccp" : "checklist")} data-bmq-fs-tab={id}>{label}</button>;
+        })}
       </div>
+
+      {page !== "haccp" ? (
+        <div className="d3-kho-seg is-small d3-attp-pages" role="group" aria-label="Cách xem giấy tờ">
+          {([["checklist", "Checklist"], ["papers", `Tất cả giấy${certs.data ? ` (${rows.length})` : ""}`]] as const).map(([id, label]) => (
+            <button key={id} type="button" aria-pressed={page === id} className={cn(page === id && "is-on")} onClick={() => setPage(id)} data-bmq-attp-page={id}>{label}</button>
+          ))}
+        </div>
+      ) : null}
 
       {page === "haccp" ? <Suspense fallback={<LoadingState label="Đang mở hồ sơ HACCP" />}><HaccpDossierRoute embedded /></Suspense> : page === "checklist" ? <AttpChecklist canEdit={canEdit} onAction={setAttp} /> : (
 
@@ -124,7 +119,6 @@ export default function KhoCerts() {
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm nhà sản xuất, số giấy…" aria-label="Tìm giấy tờ" enterKeyHint="search" data-bmq-cert-search />
             {query ? <button type="button" onClick={() => setQuery("")} aria-label="Xóa tìm kiếm"><X /></button> : null}
           </span>
-          {canEdit ? <Button variant="outline" onClick={() => setAdding(true)} data-bmq-cert-add><Plus className="mr-1.5 h-4 w-4" />Nhập tay</Button> : null}
         </div>
         <p className="d3-kho-hint">Giấy chứng nhận cơ sở đủ điều kiện ATTP, phiếu kiểm nghiệm và bản công bố của nhà sản xuất từng nguyên liệu. Nút “Truy xuất” dựng báo cáo theo mẫu KFM cho từng lệnh sản xuất và đính kèm các giấy này.</p>
 
@@ -157,122 +151,14 @@ export default function KhoCerts() {
           </ul>
         ) : (
           <p className="d3-kho-empty" data-bmq-cert-empty>
-            {rows.length ? "Không có giấy tờ nào khớp bộ lọc." : canEdit ? "Chưa có giấy tờ nào. Bấm “Thêm giấy” để tải lên giấy chứng nhận ATTP đầu tiên." : "Chưa có giấy tờ nào."}
+            {rows.length ? "Không có giấy tờ nào khớp bộ lọc." : canEdit ? "Chưa có giấy tờ nào. Bấm “Tải giấy lên” để thêm giấy chứng nhận ATTP đầu tiên." : "Chưa có giấy tờ nào."}
           </p>
         )}
       </section>
       )}
       {attp ? <AttpUploadDialog action={attp === "new" ? null : attp} onClose={() => setAttp(null)} /> : null}
-      {adding ? <CertForm onClose={() => setAdding(false)} /> : null}
       {tracing ? <KhoTraceDialog onClose={() => setTracing(false)} /> : null}
       {dialog}
     </div>
-  );
-}
-
-function CertForm({ onClose }: { onClose: () => void }) {
-  const { toast } = useToast();
-  const upsert = useUpsertFoodCert();
-  const makeMaker = useUpsertFoodManufacturer();
-  const makers = useFoodManufacturers();
-  const items = useKhoItems();
-  const suppliers = useQuery({
-    queryKey: ["suppliers-min"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("suppliers").select("id, name").order("name");
-      if (error) throw error;
-      return (data ?? []) as { id: string; name: string }[];
-    },
-  });
-  const [certType, setCertType] = useState<FoodCertType>("attp_facility");
-  const [ownerKind, setOwnerKind] = useState<FoodCertOwnerKind>("manufacturer");
-  const [ownerText, setOwnerText] = useState("");
-  const [certNo, setCertNo] = useState("");
-  const [issuer, setIssuer] = useState("");
-  const [issuedOn, setIssuedOn] = useState("");
-  const [expiresOn, setExpiresOn] = useState("");
-  const [note, setNote] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const options = useMemo(() => {
-    if (ownerKind === "manufacturer") return (makers.data ?? []).map((m) => ({ id: m.id, name: m.name }));
-    if (ownerKind === "item") return (items.data?.items ?? []).filter((i) => i.active).map((i) => ({ id: i.id, name: i.name }));
-    if (ownerKind === "supplier") return suppliers.data ?? [];
-    return [];
-  }, [ownerKind, makers.data, items.data, suppliers.data]);
-  const match = options.find((o) => searchKey(o.name) === searchKey(ownerText)) ?? null;
-  const ownerOk = ownerKind === "company" || Boolean(match) || (ownerKind === "manufacturer" && ownerText.trim().length >= 2);
-  const datesOk = !(issuedOn && expiresOn && expiresOn < issuedOn);
-
-  const save = async () => {
-    if (!file || !ownerOk || !datesOk) return;
-    setBusy(true);
-    setError(null);
-    try {
-      let ownerId: string | null = ownerKind === "company" ? null : match?.id ?? null;
-      if (ownerKind === "manufacturer" && !ownerId) ownerId = (await makeMaker.mutateAsync(ownerText.trim())).id;
-      const up = await uploadFoodCertFile(file);
-      await upsert.mutateAsync({
-        ownerKind, ownerId, certType, certNo: certNo.trim() || null, issuer: issuer.trim() || null,
-        issuedOn: issuedOn || null, expiresOn: expiresOn || null, filePath: up.file_path, fileName: up.file_name,
-        mimeType: up.mime_type, note: note.trim() || null,
-      });
-      toast({ title: "Đã lưu giấy vào hồ sơ ATTP" });
-      onClose();
-    } catch {
-      setError("Chưa lưu được giấy. Kiểm tra file (PDF hoặc ảnh, tối đa 20 MB) rồi thử lại.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <KhoDialog title="Thêm giấy ATTP" sub="Tải lên giấy chứng nhận, phiếu kiểm nghiệm hoặc bản công bố" onClose={onClose} wide data={{ "data-bmq-cert-form": "" }}>
-      <div className="d3-kho-field"><span>Loại giấy</span>
-        <div className="d3-kho-seg d3-kr-reasons" role="group" aria-label="Loại giấy">
-          {CERT_TYPES.map((t) => (
-            <button key={t} type="button" aria-pressed={certType === t} className={cn(certType === t && "is-on")} onClick={() => setCertType(t)} data-bmq-cert-type={t}>{FOOD_CERT_TYPE_LABELS[t]}</button>
-          ))}
-        </div>
-      </div>
-      <div className="d3-kho-field"><span>Của</span>
-        <div className="d3-kho-seg is-small d3-kr-reasons" role="group" aria-label="Giấy của">
-          {OWNER_KINDS.map((k) => (
-            <button key={k} type="button" aria-pressed={ownerKind === k} className={cn(ownerKind === k && "is-on")} onClick={() => { setOwnerKind(k); setOwnerText(""); }} data-bmq-cert-owner-kind={k}>{FOOD_CERT_OWNER_KIND_LABELS[k]}</button>
-          ))}
-        </div>
-      </div>
-      {ownerKind !== "company" ? (
-        <label className="d3-kho-field"><span>{FOOD_CERT_OWNER_KIND_LABELS[ownerKind]}</span>
-          <Input value={ownerText} onChange={(e) => setOwnerText(e.target.value)} list="cert-owner-options" maxLength={160}
-            placeholder={ownerKind === "manufacturer" ? "Ví dụ: Cty TNHH Interflour Vietnam" : "Gõ để chọn"} data-bmq-cert-owner />
-          <datalist id="cert-owner-options">{options.map((o) => <option key={o.id} value={o.name} />)}</datalist>
-          {ownerKind === "manufacturer" && ownerText.trim().length >= 2 && !match ? <small className="d3-kho-quiet">Nhà sản xuất mới, sẽ được thêm vào danh sách.</small> : null}
-          {ownerKind !== "manufacturer" && ownerText && !match ? <small className="d3-kho-quiet">Chọn đúng tên trong danh sách.</small> : null}
-        </label>
-      ) : null}
-      <div className="d3-cert-grid">
-        <label className="d3-kho-field"><span>Số giấy</span><Input value={certNo} onChange={(e) => setCertNo(e.target.value)} maxLength={80} data-bmq-cert-no /></label>
-        <label className="d3-kho-field"><span>Cơ quan cấp</span><Input value={issuer} onChange={(e) => setIssuer(e.target.value)} maxLength={160} placeholder="Ví dụ: Sở Y tế TP.HCM" data-bmq-cert-issuer /></label>
-        <label className="d3-kho-field"><span>Ngày cấp</span><Input type="date" value={issuedOn} onChange={(e) => setIssuedOn(e.target.value)} data-bmq-cert-issued /></label>
-        <label className="d3-kho-field"><span>Ngày hết hạn</span><Input type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} data-bmq-cert-expires /></label>
-      </div>
-      {!datesOk ? <p className="d3-kho-error">Ngày hết hạn phải sau ngày cấp.</p> : null}
-      <label className="d3-kho-field"><span>Ghi chú</span><Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} data-bmq-cert-note /></label>
-      <div className="d3-kho-field"><span>File giấy tờ</span>
-        <input ref={fileRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} data-bmq-cert-file />
-        <Button type="button" variant="outline" className="justify-self-start" onClick={() => fileRef.current?.click()} data-bmq-cert-file-pick>
-          <FileText className="mr-1.5 h-4 w-4" />{file ? file.name : "Chọn PDF hoặc ảnh"}
-        </Button>
-      </div>
-      {error ? <p className="d3-kho-error">{error}</p> : null}
-      <div className="d3-kho-actions">
-        <Button disabled={!file || !ownerOk || !datesOk || busy} onClick={() => void save()} data-bmq-cert-save>{busy ? "Đang lưu…" : "Lưu giấy"}</Button>
-        <Button variant="outline" onClick={onClose}>Thôi</Button>
-      </div>
-    </KhoDialog>
   );
 }

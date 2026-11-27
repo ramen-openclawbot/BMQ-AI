@@ -29,6 +29,8 @@ export type HaccpErrorCode =
   | "empty_file"
   | "invalid_content"
   | "invalid_values"
+  | "supplier_read_only"
+  | "supplier_papers_in_attp"
   | "body_limit"
   | "not_found"
   | "stale_version"
@@ -60,6 +62,8 @@ export const HACCP_MESSAGES: Record<HaccpErrorCode, string> = {
   empty_file: "File rỗng.",
   invalid_content: "Nội dung file không khớp định dạng.",
   invalid_values: "Thông tin nhập vượt giới hạn cho phép (số điện thoại tối đa 40 ký tự).",
+  supplier_read_only: "Link nhân viên không được sửa nhà cung cấp.",
+  supplier_papers_in_attp: "Giấy tờ nhà cung cấp được quản lý trong mục ATTP, không thêm vào HACCP.",
   body_limit: "Dữ liệu gửi lên quá lớn.",
   not_found: "Không tìm thấy dữ liệu.",
   stale_version: "Dòng đã được người khác sửa. Vui lòng tải lại.",
@@ -361,6 +365,12 @@ export function createHaccpUploadHandler(deps: HaccpUploadDeps, options: HaccpHa
     if (message.includes("invalid_values")) {
       return jsonResponse({ ok: false, code: "invalid_values", error: HACCP_MESSAGES.invalid_values }, 400, headers);
     }
+    if (message.includes("supplier_read_only")) {
+      return jsonResponse({ ok: false, code: "supplier_read_only", error: HACCP_MESSAGES.supplier_read_only }, 403, headers);
+    }
+    if (message.includes("supplier_papers_in_attp")) {
+      return jsonResponse({ ok: false, code: "supplier_papers_in_attp", error: HACCP_MESSAGES.supplier_papers_in_attp }, 403, headers);
+    }
     if (message.includes("entry_not_found") || message.includes("file_not_found")) {
       return jsonResponse({ ok: false, code: "not_found", error: HACCP_MESSAGES.not_found }, 404, headers);
     }
@@ -392,8 +402,8 @@ export function createHaccpUploadHandler(deps: HaccpUploadDeps, options: HaccpHa
     };
     return {
       entries: await Promise.all(entries.map(async (entry) => ({
-        // source_key carries internal ids (supplier, employee code): never send it.
-        ...Object.fromEntries(Object.entries(entry).filter(([key]) => key !== "source_key")) as HaccpEntryRecord,
+        // source_key and supplier_id carry internal ids: never send them on the public link.
+        ...Object.fromEntries(Object.entries(entry).filter(([key]) => key !== "source_key" && key !== "supplier_id")) as HaccpEntryRecord,
         values: entry.values ?? {},
         files: await Promise.all((entry.files ?? []).map(sign)),
       }))),
@@ -445,6 +455,9 @@ export function createHaccpUploadHandler(deps: HaccpUploadDeps, options: HaccpHa
 
       const action = String(url.searchParams.get("action") ?? "").trim();
       if (action === "upload") {
+        if (asString(url.searchParams.get("table_id"), 40) === "suppliers") {
+          throw new HaccpUploadError("supplier_read_only", 403);
+        }
         const rawMime = String(request.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
         if (!EXTENSIONS[rawMime]) throw new HaccpUploadError("unsupported_type", 415);
         const declared = Number(request.headers.get("content-length") ?? "0");
@@ -518,6 +531,7 @@ export function createHaccpUploadHandler(deps: HaccpUploadDeps, options: HaccpHa
       if (body.action === "save_row") {
         const tableId = asString(body.table_id, 40);
         if (!TABLE_KEYS[tableId]) throw new HaccpUploadError("invalid_request", 400);
+        if (tableId === "suppliers") throw new HaccpUploadError("supplier_read_only", 403);
         const id = body.id === null || body.id === undefined || body.id === "" ? null : body.id;
         if (id !== null && !isUuid(id)) throw new HaccpUploadError("invalid_request", 400);
         const version = body.version === null || body.version === undefined ? null : Number(body.version);
@@ -540,6 +554,9 @@ export function createHaccpUploadHandler(deps: HaccpUploadDeps, options: HaccpHa
       }
 
       if (body.action === "delete_row") {
+        if (asString(body.table_id, 40) === "suppliers") {
+          throw new HaccpUploadError("supplier_read_only", 403);
+        }
         const id = body.id;
         const version = Number(body.version);
         if (!isUuid(id) || !Number.isInteger(version) || version < 1) {

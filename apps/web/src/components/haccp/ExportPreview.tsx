@@ -9,8 +9,10 @@ import type { HaccpStore } from "./store";
 const LETTERS = "ABCDEFGHIJ";
 
 /** What the workbook will look like: the template's sheets and columns, filled with the dossier. */
-export function ExportPreview({ store, start, onClose, onDownload }: {
+export function ExportPreview({ store, start, onClose, onDownload, paperCount = 0 }: {
   store: HaccpStore;
+  /** Supplier ATTP papers the ZIP adds from the vault. */
+  paperCount?: number;
   start: HaccpSectionId;
   onClose: () => void;
   onDownload: (zip: boolean) => void | Promise<void>;
@@ -23,7 +25,7 @@ export function ExportPreview({ store, start, onClose, onDownload }: {
   };
   const section = HACCP_SECTIONS.find((s) => s.id === id)!;
   const gaps = HACCP_SECTIONS.reduce((n, s) => n + haccpProgress(s, store.data, store.layoutFiles).missingCells, 0);
-  const fileCount = store.layoutFiles.length + Object.values(store.data).flat().reduce((n, r) => n + r.files.length, 0);
+  const fileCount = paperCount + store.layoutFiles.length + Object.values(store.data).flat().reduce((n, r) => n + r.files.length, 0);
 
   return (
     <KhoDialog title="Xem trước file Excel" sub="Giữ đúng 7 sheet và các cột của mẫu đơn vị tư vấn gửi" onClose={onClose} wide data={{ "data-hc-export": "" }}>

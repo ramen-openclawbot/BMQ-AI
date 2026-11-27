@@ -32,6 +32,7 @@ export default function HaccpDossierRoute({ embedded = false }: { embedded?: boo
     <HaccpDossier
       store={haccp.store}
       embedded={embedded}
+      supplierPapers={haccp.supplierPapers}
       who={profile?.full_name?.trim() || "Quản lý"}
       onOpenStaff={() => { if (haccp.store.link.url) window.open(haccp.store.link.url, "_blank", "noopener"); }}
       onDownload={async (zip) => {

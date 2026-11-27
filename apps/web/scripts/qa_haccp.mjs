@@ -34,7 +34,7 @@ const file = (n, name, type) => ({ id: uid(n), name, size: 2048, type, path: "ha
 const entry = (n, table_id, values, by = "app", files = []) => ({ id: uid(n), table_id, values, position: n, version: 1, by, files });
 const db = {
   entries: [
-    entry(1, "suppliers", { name: "NCC Bột mì (mẫu)", items: "Bột mì", phone: "0900000001", address: "Quận 7", contact: "Chị Lan" }, "app", [file(51, "attp.pdf", "application/pdf")]),
+    { ...entry(1, "suppliers", { name: "NCC Bột mì (mẫu)", items: "Bột mì", phone: "0900000001", address: "Quận 7", contact: "Chị Lan" }, "app", [file(51, "attp.pdf", "application/pdf")]), linked: true, supplier_id: "sup-1" },
     entry(2, "suppliers", { name: "NCC Trứng (mẫu)", items: "Trứng gà", phone: "", address: "", contact: "" }),
     entry(3, "measure", { name: "Cân 30 kg", code: "CAN-01", range: "0-30 kg", origin: "VN", qty: "1", place: "Khu cân", calibrated: "Có" }, "Chị Bích"),
   ],
@@ -57,6 +57,7 @@ function rpc(name, a = {}) {
   if (name === "haccp_add_file") { const f = file(++seq, a.p_file_name, a.p_mime_type); if (a.p_layout) db.files.push(f); else { const e = db.entries.find((x) => x.id === a.p_entry_id); e.files.push(f); e.version++; } return ok({ id: f.id }); }
   if (name === "haccp_delete_file") { db.files = db.files.filter((f) => f.id !== a.p_file_id); db.entries.forEach((e) => { e.files = e.files.filter((f) => f.id !== a.p_file_id); }); return ok({}); }
   if (name === "haccp_prefill") { if (db.entries.some((e) => e.table_id === a.p_table_id && e.values.name === "NCC Bơ (mẫu)")) return ok(0); db.entries.push(entry(++seq, a.p_table_id, { name: "NCC Bơ (mẫu)", items: "Bơ", phone: "", address: "", contact: "" })); return ok(1); }
+  if (name === "haccp_supplier_papers") return ok([{ entry_id: uid(1), supplier_id: "sup-1", supplier_name: "NCC Bột mì (mẫu)", done: 1, total: 2, pct: 50, papers: [{ id: "c1", cert_type: "attp_facility", cert_no: "123/ATTP", expires_on: "2027-01-01", file_path: "certs/c1.pdf", file_name: "gcn-attp.pdf", mime_type: "application/pdf" }] }]);
   if (name === "haccp_create_upload_link") { db.link = { id: uid(900), days: a.p_days, expires_at: new Date(Date.now() + a.p_days * 864e5).toISOString(), active: true }; return ok({ link_id: db.link.id, token: "${TOKEN}" }); }
   if (name === "haccp_revoke_upload_link") { db.link = { ...db.link, active: false, revoked_at: new Date().toISOString() }; return ok({ revoked: true }); }
   return ok(null);
@@ -189,7 +190,7 @@ try {
     const { context, page, errors } = await open("/warehouse/ho-so-haccp", vp);
     await page.waitForSelector("[data-hc-page]", { timeout: 40000 });
     assert.match(page.url(), /\/warehouse\/ho-so-attp\?tab=haccp$/, "old link lands on the HACCP tab");
-    assert.equal(await page.locator("[data-bmq-attp-page='haccp'][aria-selected='true']").count(), 1, "HACCP tab selected");
+    assert.equal(await page.locator("[data-bmq-fs-tab='haccp'][aria-selected='true']").count(), 1, "HACCP tab selected");
     await page.evaluate(() => document.fonts.ready);
     await noSpill(page, "manager", vp);
     await shot(page, `manager-${vp.width}`, true);
@@ -204,6 +205,17 @@ try {
     let all = await calls(page);
     assert.ok(all.some((c) => c.startsWith("haccp_save_entry:") && c.includes('"p_version":1') && c.includes("Quản lý QA") && c.includes("0900000002")), "row saved with version and name");
     assert.ok(all.some((c) => c.startsWith("upload:haccp/") && !c.includes("..")), "file stored without double dots");
+
+    // a catalogue supplier: name fixed, papers come from the ATTP vault, no new upload
+    await page.locator(row(1)).click();
+    await page.waitForSelector("[data-hc-row-dialog] [data-hc-papers]");
+    assert.equal(await page.locator("[data-hc-row-dialog] input#hc-name").getAttribute("readonly"), "", "linked name is read-only");
+    assert.equal(await page.locator("[data-hc-row-dialog] input[type=file]").count(), 0, "no upload on a linked supplier");
+    assert.match(await page.locator("[data-hc-papers]").innerText(), /đủ 1\/2[\s\S]*Số 123\/ATTP/, "vault papers listed");
+    await shot(page, `linked-supplier-${vp.width}`);
+    await page.keyboard.press("Escape");
+    await closed(page, "[data-hc-row-dialog]");
+    assert.ok(await page.locator("[data-hc-attp-chip]:visible").first().isVisible(), "ATTP chip on the supplier row");
 
     // a failed save keeps the dialog and the typed text
     await page.evaluate(() => localStorage.setItem("qa-fail", "stale"));
@@ -251,7 +263,7 @@ try {
     assert.equal(wb.getWorksheet("Danh sách thiết bị đo lường").getCell("B3").text, "Cân 30 kg");
     const zipPath = await download(page, "[data-hc-zip]");
     const names = Object.keys((await JSZip.loadAsync(fs.readFileSync(zipPath))).files);
-    assert.ok(names.some((n) => n.endsWith(".xlsx")) && names.some((n) => n.startsWith("01-Nha-cung-cap/") && n.endsWith(".pdf")), `zip contents ${names}`);
+    assert.ok(names.some((n) => n.endsWith(".xlsx")) && names.includes("01-Nha-cung-cap/NCC Bot mi -mau/gcn-attp.pdf"), `zip contents ${names}`);
     await page.keyboard.press("Escape");
     await closed(page, "[data-hc-export]");
 
@@ -275,6 +287,10 @@ try {
     await noSpill(s, "staff-home", vp);
     await shot(s, `staff-home-${vp.width}`, true);
     await s.locator(".hc-who input").fill("Chị Hoa QA");
+    await s.locator("[data-hc-staff-section='suppliers']").click();
+    await s.waitForSelector("[data-hc-suppliers-readonly]");
+    assert.equal(await s.locator("[data-hc-add='suppliers']").count(), 0, "staff cannot add a supplier");
+    await s.locator("[data-hc-back]").click();
     await s.locator("[data-hc-staff-section='machines']").click();
     assert.equal(await s.locator("[data-hc-pull]").count(), 0, "no pull from app for staff");
     await s.locator("[data-hc-add='machines']").click();
@@ -311,7 +327,7 @@ try {
   await denied.page.waitForSelector("[data-hc-page]", { timeout: 40000 });
   await denied.page.evaluate(() => localStorage.setItem("qa-fail", "denied"));
   await denied.page.reload();
-  await denied.page.getByText("chưa có quyền sửa Kho").waitFor({ timeout: 20000 });
+  await denied.page.getByText("chưa có quyền sửa (Kho").waitFor({ timeout: 20000 });
   await denied.context.close();
   pass("manager without Kho edit sees a clear message");
 } finally {

@@ -6,12 +6,14 @@ import { ExportPreview } from "@/components/haccp/ExportPreview";
 import { SectionBody } from "@/components/haccp/SectionBody";
 import { ShareDialog } from "@/components/haccp/ShareDialog";
 import type { HaccpStore } from "@/components/haccp/store";
+import type { HaccpSupplierPapers } from "@/lib/haccp-api";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-kho.css";
 import "@/styles/bmq-haccp.css";
 
 /** Hồ sơ HACCP bếp Quận 7: seven sheets, one place to fill them, one button to export. */
-export default function HaccpDossier({ store, who, onOpenStaff, onDownload, embedded = false }: {
+export default function HaccpDossier({ store, who, onOpenStaff, onDownload, embedded = false, supplierPapers = {} }: {
+  supplierPapers?: Record<string, HaccpSupplierPapers>;
   /** Shown as a tab of "An toàn thực phẩm": that page owns the title. */
   embedded?: boolean;
   store: HaccpStore;
@@ -81,10 +83,10 @@ export default function HaccpDossier({ store, who, onOpenStaff, onDownload, embe
           </div>
           <span className="hc-sheet-tag">Sheet “{current.section.sheet}”</span>
         </div>
-        <SectionBody key={active} section={current.section} store={store} who={who} manager />
+        <SectionBody key={active} section={current.section} store={store} who={who} manager papers={supplierPapers} />
       </section>
 
-      {exporting ? <ExportPreview store={store} start={active} onClose={() => setExporting(false)} onDownload={onDownload} /> : null}
+      {exporting ? <ExportPreview store={store} paperCount={Object.values(supplierPapers).reduce((n, p) => n + p.papers.length, 0)} start={active} onClose={() => setExporting(false)} onDownload={onDownload} /> : null}
       {sharing ? <ShareDialog store={store} onClose={() => setSharing(false)} onPreview={onOpenStaff} /> : null}
     </div>
   );

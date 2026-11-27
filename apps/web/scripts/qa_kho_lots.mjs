@@ -470,23 +470,9 @@ try {
     await page.keyboard.press("Escape");
     await page.waitForSelector("[data-bmq-trace]", { state: "detached" });
     pass(`Truy xuất pick → report → Excel + zip ${vp.width}`);
-    await page.locator("[data-bmq-cert-add]").click();
-    await dialogInView(page, "[data-bmq-cert-form]", vp);
-    await page.locator("[data-bmq-cert-type='coa']").click();
-    await page.locator("[data-bmq-cert-owner]").fill("Cty CP Đường Quảng Ngãi");
-    await page.locator("[data-bmq-cert-no]").fill("KN-01");
-    await page.locator("[data-bmq-cert-issued]").fill("2026-03-03");
-    await page.locator("[data-bmq-cert-expires]").fill("2027-03-02");
-    await page.locator("[data-bmq-cert-file]").setInputFiles({ name: "coa-duong.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 qa") });
-    await noSpill(page, "certs-form", vp);
-    await shot(page, `certs-form-${vp.width}.png`, false);
-    await page.locator("[data-bmq-cert-save]").click();
-    await page.waitForSelector("[data-bmq-cert-form]", { state: "detached", timeout: 5000 });
-    const cs = await calls(page);
-    assert.ok(cs.some((c) => c.startsWith("rpc:food_manufacturer_upsert:") && c.includes("Quảng Ngãi")), "new manufacturer created");
-    assert.ok(cs.some((c) => c.startsWith("upload:certs/") && c.endsWith("/coa-duong.pdf")), "file uploaded under certs/");
-    assert.ok(cs.some((c) => c.startsWith("rpc:food_cert_upsert:") && c.includes('"p_cert_type":"coa"') && c.includes('"p_owner_id":"m9"') && c.includes('"p_expires_on":"2027-03-02"')), "certificate saved");
-    pass(`add a COA for a new manufacturer ${vp.width}`);
+    assert.equal(await page.locator("[data-bmq-cert-add], [data-bmq-attp-page='haccp']").count(), 0, "no manual-entry button and no third tab");
+    assert.equal(await page.locator("[data-bmq-fs-tab]").count(), 2, "two feature tabs");
+    pass(`one way to add a paper, two tabs ${vp.width}`);
     assert.deepEqual(errors, [], `page errors ${vp.width}`);
     await context.close();
 

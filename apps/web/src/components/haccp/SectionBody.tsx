@@ -5,11 +5,18 @@ import { cn } from "@/lib/utils";
 import { haccpMissing, type HaccpRow, type HaccpSection, type HaccpTable } from "@/lib/haccp-schema";
 import { FileDrop, FileList_ } from "./Files";
 import { RowDialog } from "./RowDialog";
+import type { HaccpLinkedRow, HaccpSupplierPapers } from "@/lib/haccp-api";
 import { haccpErrorText, type HaccpStore } from "./store";
 
 const newRow = (who: string): HaccpRow => ({ id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, values: {}, files: [], by: who });
 
-export function SectionBody({ section, store, who, manager }: { section: HaccpSection; store: HaccpStore; who: string; manager: boolean }) {
+export function SectionBody({ section, store, who, manager, papers = {} }: { section: HaccpSection; store: HaccpStore; who: string; manager: boolean; papers?: Record<string, HaccpSupplierPapers> }) {
+  const linked = (row: HaccpRow) => Boolean((row as HaccpLinkedRow).linked);
+  const attpChip = (row: HaccpRow) => {
+    const p = papers[row.id];
+    if (!p || !p.total) return null;
+    return <span className={cn("hc-state", p.done >= p.total ? "is-done" : "is-gap")} data-hc-attp-chip>ATTP {p.done}/{p.total}</span>;
+  };
   const [editing, setEditing] = useState<{ table: HaccpTable; row: HaccpRow; isNew: boolean } | null>(null);
   const [onlyGaps, setOnlyGaps] = useState(false);
   const { toast } = useToast();
@@ -70,6 +77,8 @@ export function SectionBody({ section, store, who, manager }: { section: HaccpSe
         const rows = onlyGaps ? all.filter((r) => haccpMissing(table, r).length) : all;
         const open = (row: HaccpRow) => setEditing({ table, row, isNew: false });
         const isProcess = table.id === "process";
+        // Suppliers come from the catalogue: the staff link only views them.
+        const staffSuppliers = !manager && table.id === "suppliers";
         const [first, ...rest] = table.fields.filter((f) => f.required);
         return (
           <div key={table.id} className="hc-block" data-hc-table={table.id}>
@@ -77,9 +86,10 @@ export function SectionBody({ section, store, who, manager }: { section: HaccpSe
               <h3>{table.title}<small>{all.length} dòng</small></h3>
               <div className="hc-block-acts">
                 {manager && table.fromApp ? <button type="button" className="hc-btn" disabled={pulling} onClick={() => void pull(table)} data-hc-pull={table.id}><Database />{pulling ? "Đang lấy…" : "Lấy từ app"}</button> : null}
-                <button type="button" className="hc-btn is-ink" onClick={() => setEditing({ table, row: newRow(who), isNew: true })} data-hc-add={table.id}><Plus />Thêm {table.one}</button>
+                {staffSuppliers ? null : <button type="button" className="hc-btn is-ink" onClick={() => setEditing({ table, row: newRow(who), isNew: true })} data-hc-add={table.id}><Plus />Thêm {table.one}</button>}
               </div>
             </div>
+            {staffSuppliers ? <p className="hc-staff-note" data-hc-suppliers-readonly>Quản lý cập nhật nhà cung cấp từ danh mục. Thông tin sai hay thiếu, báo quản lý.</p> : null}
 
             {!rows.length ? (
               <p className="hc-empty">{all.length ? "Không còn dòng nào thiếu thông tin." : `Chưa có ${table.one} nào. Bấm “Thêm ${table.one}” để bắt đầu.`}</p>
@@ -124,13 +134,13 @@ export function SectionBody({ section, store, who, manager }: { section: HaccpSe
                               <td key={f.key} className={cn(f.kind === "long" && "is-long", f.kind === "number" && "is-num")}>
                                 {i === 0 ? (
                                   <button type="button" className="hc-first" onClick={(e) => { e.stopPropagation(); open(row); }}>
-                                    <b>{cell}</b><small>{row.by === "app" ? "Từ BMQ AI" : `${row.by} nhập`}</small>
+                                    <b>{cell}</b><small>{linked(row) ? "Danh mục Nhà cung cấp" : row.by === "app" ? "Từ BMQ AI" : `${row.by} nhập`}</small>
                                   </button>
                                 ) : cell}
                               </td>
                             );
                           })}
-                          <td className="is-file">{row.files.length ? <span className="hc-clip"><Paperclip />{row.files.length}</span> : <span className="hc-dash">–</span>}</td>
+                          <td className="is-file">{attpChip(row) ?? (row.files.length ? <span className="hc-clip"><Paperclip />{row.files.length}</span> : <span className="hc-dash">–</span>)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -148,7 +158,7 @@ export function SectionBody({ section, store, who, manager }: { section: HaccpSe
                           </span>
                           <span className="hc-card-line">{rest.map((f) => (row.values[f.key] && f.kind === "number" ? `${f.label}: ${row.values[f.key]}` : row.values[f.key])).filter(Boolean).slice(0, 3).join(" · ") || "Chưa có thông tin"}</span>
                           {gaps.length ? <span className="hc-card-gaps">Cần: {gaps.map((f) => f.label.toLowerCase()).join(", ")}</span> : null}
-                          <span className="hc-card-foot">{row.by === "app" ? "Từ BMQ AI" : `${row.by} nhập`}{row.files.length ? <span className="hc-clip"><Paperclip />{row.files.length}</span> : null}</span>
+                          <span className="hc-card-foot">{linked(row) ? "Danh mục Nhà cung cấp" : row.by === "app" ? "Từ BMQ AI" : `${row.by} nhập`}{attpChip(row) ?? (row.files.length ? <span className="hc-clip"><Paperclip />{row.files.length}</span> : null)}</span>
                         </button>
                       </li>
                     );
@@ -165,6 +175,9 @@ export function SectionBody({ section, store, who, manager }: { section: HaccpSe
           table={editing.table}
           row={editing.row}
           isNew={editing.isNew}
+          readOnly={!manager && editing.table.id === "suppliers"}
+          linked={manager && linked(editing.row)}
+          papers={papers[editing.row.id]}
           onClose={() => setEditing(null)}
           onSave={async (row) => { if (await attempt(() => store.saveRow(editing.table.id, { ...row, by: who }, who), "Đã lưu")) setEditing(null); }}
           onRemove={async () => { if (await attempt(() => store.removeRow(editing.table.id, editing.row.id, who, editing.row.version), "Đã xoá dòng")) setEditing(null); }}

@@ -13,6 +13,7 @@ import {
   buildHaccpWorkbook,
   buildHaccpZip,
   haccpCellText,
+  safeZipFolder,
   safeZipName,
   sanitizeCellValue,
 } from "./haccp-export.ts";
@@ -276,10 +277,12 @@ test("formula-looking input is written as text, not as a formula", async () => {
   assert.equal(text(s, "F3"), "+1+1");
 });
 
-test("ZIP contains the workbook and deduplicated, path-safe attachment folders", async () => {
+test("ZIP contains the workbook and per-supplier ATTP folders", async () => {
   const bytes = await buildHaccpZip(templateBuffer(), FULL, LAYOUT_FILES, [
-    { section: "suppliers", name: "../giay-attp.pdf", bytes: new Uint8Array([1, 2, 3]) },
-    { section: "suppliers", name: "giay-attp.pdf", bytes: new Uint8Array([4, 5]) },
+    { section: "suppliers", folder: "Nhà cung cấp A", folderKey: "supplier:a", name: "../giay-attp.pdf", bytes: new Uint8Array([1, 2, 3]) },
+    { section: "suppliers", folder: "Nhà cung cấp A", folderKey: "supplier:a", name: "giay-attp.pdf", bytes: new Uint8Array([4, 5]) },
+    { section: "suppliers", folder: "Nhà cung cấp B", folderKey: "supplier:b", name: "giay-attp.pdf", bytes: new Uint8Array([8]) },
+    { section: "suppliers", folder: "Nhà cung cấp A", folderKey: "supplier:c", name: "y.pdf", bytes: new Uint8Array([9]) },
     { section: "layout", name: "So do!!.png", bytes: new Uint8Array([6]) },
     { section: "process", name: "quy-trinh.docx", bytes: new Uint8Array([7]) },
   ]);
@@ -287,11 +290,16 @@ test("ZIP contains the workbook and deduplicated, path-safe attachment folders",
   assert.ok(zip.file(HACCP_EXCEL_FILE_NAME), "workbook at the ZIP root");
 
   const names = Object.keys(zip.files).filter((name) => !zip.files[name].dir);
-  const supplierFolder = `${HACCP_ZIP_FOLDERS.suppliers}/`;
-  const supplierFiles = names.filter((name) => name.startsWith(supplierFolder));
-  assert.equal(supplierFiles.length, 2);
-  assert.ok(supplierFiles.every((name) => !name.includes("..")));
-  assert.equal(new Set(supplierFiles).size, 2);
+  const supplierA = `${HACCP_ZIP_FOLDERS.suppliers}/Nha cung cap A/`;
+  const supplierB = `${HACCP_ZIP_FOLDERS.suppliers}/Nha cung cap B/`;
+  assert.ok(names.includes(`${supplierA}giay-attp.pdf`));
+  assert.ok(names.includes(`${supplierA}giay-attp (2).pdf`));
+  assert.ok(names.includes(`${supplierB}giay-attp.pdf`), "same file name is allowed in another supplier folder");
+  assert.ok(
+    names.includes(`${HACCP_ZIP_FOLDERS.suppliers}/Nha cung cap A (2)/y.pdf`),
+    "two suppliers with exactly the same name must not share one folder",
+  );
+  assert.ok(names.every((name) => !name.includes("..")));
   assert.ok(names.includes(`${HACCP_ZIP_FOLDERS.layout}/So-do.png`));
   assert.ok(names.includes(`${HACCP_ZIP_FOLDERS.process}/quy-trinh.docx`));
 
@@ -299,6 +307,10 @@ test("ZIP contains the workbook and deduplicated, path-safe attachment folders",
   assert.equal(safeZipName("a/b.pdf", used), "a-b.pdf");
   assert.equal(safeZipName("a-b.pdf", used), "a-b (2).pdf");
   assert.equal(safeZipName("../../x", used), "x");
+  assert.equal(safeZipFolder("Nhà cung cấp A"), "Nha cung cap A");
+  assert.equal(safeZipFolder(""), "Nha-cung-cap");
+  assert.equal(safeZipFolder(`${"a".repeat(79)} `), "a".repeat(79));
+  assert.equal(safeZipFolder(`${"a".repeat(79)}.`), "a".repeat(79));
 });
 
 test("header titles, merged cells, widths, fonts and borders match the template", async () => {

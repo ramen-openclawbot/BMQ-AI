@@ -1250,6 +1250,8 @@ html.bmq-d3 .d3-trace-back:hover { background: rgba(0, 0, 0, .04); }
 /* Checklist hồ sơ ATTP (owner 24/10, approved demo). */
 .d3-kho { --attp-ok: #1d7a10; --attp-wait: #1f5f9e; --attp-wait-bg: #e1ecf8; --attp-warn: #d8a238; --attp-rest: #dcdcd8; }
 .d3-attp-pages { align-self: flex-start; }
+/* An toàn thực phẩm: two feature tabs, then the paper view switch. */
+.d3-fs-tabs { margin: 0; }
 .d3-attp { display: grid; gap: 14px; min-width: 0; }
 .d3-attp-sum { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 24px; align-items: end; }
 .d3-attp-big { display: flex; align-items: baseline; gap: 12px; }

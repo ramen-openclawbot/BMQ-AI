@@ -10,6 +10,7 @@ import {
   createHaccpUploadHandler,
   detectFileKind,
   mimeMatchesKind,
+  parseValues,
   safeUploadName,
   sha256Hex,
   type HaccpEntryRecord,
@@ -239,9 +240,9 @@ test("save_row whitelists schema keys and keeps the version", async () => {
   const handler = createHaccpUploadHandler(deps);
   const response = await handler(jsonRequest(TOKEN, {
     action: "save_row",
-    table_id: "suppliers",
+    table_id: "machines",
     id: ENTRY_ID,
-    values: { name: "Bột mì", items: "Bột", phone: "0900", address: "Q7", contact: "Lan" },
+    values: { name: "Lò nướng", symbol: "LO-01", qty: "1", origin: "Việt Nam", spec: "380 V", year: "2024", maintenance: "6", note: "" },
     who: "Lan",
     version: 2,
     request_id: REQUEST_ID,
@@ -252,7 +253,7 @@ test("save_row whitelists schema keys and keeps the version", async () => {
 
   const bad = await handler(jsonRequest(TOKEN, {
     action: "save_row",
-    table_id: "suppliers",
+    table_id: "machines",
     id: null,
     values: { salary: "10000000" },
     who: "Lan",
@@ -262,22 +263,11 @@ test("save_row whitelists schema keys and keeps the version", async () => {
   assert.equal(state.saveCalls, 1);
 });
 
-test("a supplier phone over 40 characters gets a clear invalid_values error", async () => {
-  const { state, deps } = fresh();
-  const handler = createHaccpUploadHandler(deps);
-  const response = await handler(jsonRequest(TOKEN, {
-    action: "save_row",
-    table_id: "suppliers",
-    id: null,
-    values: { name: "Bột mì", phone: "0900 000 101 / 0900 000 102 / gặp chị Lan" },
-    who: "Lan",
-    request_id: REQUEST_ID,
-  }));
-  assert.equal(response.status, 400);
-  const body = await response.json() as { code: string; error: string };
-  assert.equal(body.code, "invalid_values");
-  assert.match(body.error, /40 ký tự/);
-  assert.equal(state.saveCalls, 0);
+test("a supplier phone over 40 characters is rejected by the value parser", () => {
+  assert.throws(
+    () => parseValues("suppliers", { phone: "0900 000 101 / 0900 000 102 / gặp chị Lan" }),
+    (error: unknown) => error instanceof HaccpUploadError && error.code === "invalid_values",
+  );
 });
 
 test("upload accepts jpeg/png/webp/pdf/docx/xlsx with matching magic bytes", async () => {
@@ -356,6 +346,68 @@ test("storage is cleaned up when recording the file fails", async () => {
   }));
   assert.equal(response.status, 500);
   assert.equal(state.removed.length, 1);
+});
+
+test("the staff link cannot save, delete or add a file to a supplier row", async () => {
+  const { state, deps } = fresh();
+  const handler = createHaccpUploadHandler(deps);
+
+  const save = await handler(jsonRequest(TOKEN, {
+    action: "save_row",
+    table_id: "suppliers",
+    id: ENTRY_ID,
+    values: { name: "Bột mì", phone: "0900", address: "Q7", contact: "Lan", items: "Bột" },
+    who: "Lan",
+    version: 2,
+    request_id: REQUEST_ID,
+  }));
+  assert.equal(save.status, 403);
+  assert.equal((await save.json() as { code: string }).code, "supplier_read_only");
+  assert.equal(state.saveCalls, 0);
+
+  const remove = await handler(jsonRequest(TOKEN, {
+    action: "delete_row",
+    table_id: "suppliers",
+    id: ENTRY_ID,
+    version: 2,
+    request_id: REQUEST_ID,
+    who: "Lan",
+  }));
+  assert.equal(remove.status, 403);
+  assert.equal((await remove.json() as { code: string }).code, "supplier_read_only");
+  assert.equal(state.deleteCalls, 0);
+
+  const params = new URLSearchParams({
+    t: TOKEN,
+    action: "upload",
+    entry_id: ENTRY_ID,
+    table_id: "suppliers",
+    who: "Lan",
+    request_id: REQUEST_ID,
+  });
+  const upload = await handler(new Request(`https://example.test/functions/v1/haccp-upload?${params}`, {
+    method: "POST",
+    headers: { "content-type": "image/jpeg", "x-file-name": "giay.jpg" },
+    body: JPEG,
+  }));
+  assert.equal(upload.status, 403);
+  assert.equal((await upload.json() as { code: string }).code, "supplier_read_only");
+  assert.equal(state.uploads.length, 0);
+  assert.equal(state.addFileCalls, 0);
+});
+
+test("a database supplier_read_only error is returned as 403", async () => {
+  const { deps } = fresh();
+  deps.deleteEntry = async () => { throw new HaccpUploadError("supplier_read_only", 403); };
+  const handler = createHaccpUploadHandler(deps);
+  const response = await handler(jsonRequest(TOKEN, {
+    action: "delete_row",
+    id: ENTRY_ID,
+    version: 2,
+    request_id: REQUEST_ID,
+  }));
+  assert.equal(response.status, 403);
+  assert.equal((await response.json() as { code: string }).code, "supplier_read_only");
 });
 
 test("writes are rate limited per link", async () => {

@@ -17,7 +17,10 @@ import {
   haccpEmptyData,
   loadLinkSnapshot,
   loadManagerSnapshot,
+  loadSupplierPapers,
   type HaccpRawSnapshot,
+  type HaccpSupplierCert,
+  type HaccpSupplierPapers,
 } from "@/lib/haccp-api";
 import {
   HACCP_EXCEL_FILE_NAME,
@@ -48,6 +51,8 @@ export interface UseHaccpResult {
   buildZip: () => Promise<Blob>;
   exportExcel: () => Promise<void>;
   exportZip: () => Promise<void>;
+  /** Current ATTP papers, keyed by supplier HACCP entry id. */
+  supplierPapers: Record<string, HaccpSupplierPapers>;
 }
 
 const TABLE_IDS: HaccpTableId[] = ["suppliers", "team", "staff", "measure", "machines", "chemicals", "process"];
@@ -86,15 +91,48 @@ function emptyStore(): HaccpStore {
   };
 }
 
+function paperFileName(paper: HaccpSupplierCert): string {
+  if (paper.fileName) return paper.fileName;
+  const extension = paper.mimeType === "application/pdf"
+    ? "pdf"
+    : paper.mimeType?.includes("wordprocessingml")
+      ? "docx"
+      : paper.mimeType?.includes("spreadsheetml")
+        ? "xlsx"
+        : paper.mimeType === "image/png"
+          ? "png"
+          : paper.mimeType === "image/webp"
+            ? "webp"
+            : paper.mimeType === "image/heic"
+              ? "heic"
+              : "jpg";
+  return `giay-ATTP-${paper.certNo || paper.id || "ncc"}.${extension}`;
+}
+
 async function collectAttachments(
   store: HaccpStore,
+  supplierPapers: HaccpSupplierPapers[] = [],
 ): Promise<{ attachments: HaccpAttachment[]; missing: string[] }> {
-  const jobs: { section: HaccpAttachment["section"]; file: { name: string; url?: string } }[] = [];
+  const jobs: {
+    section: HaccpAttachment["section"];
+    folder?: string;
+    folderKey?: string;
+    file: { name: string; url?: string };
+  }[] = [];
   const missing: string[] = [];
+  const papersByEntry = new Map(supplierPapers.map((paper) => [paper.entryId, paper]));
+
   for (const table of TABLE_IDS) {
     for (const row of store.data[table]) {
+      const paperInfo = table === "suppliers" ? papersByEntry.get(row.id) : undefined;
+      const folder = table === "suppliers" ? row.values.name || "Nha-cung-cap" : undefined;
+      const folderKey = table === "suppliers"
+        ? paperInfo
+          ? `supplier:${paperInfo.supplierId}`
+          : `entry:${row.id}`
+        : undefined;
       for (const file of row.files) {
-        if (file.url) jobs.push({ section: HACCP_TABLE_SECTION[table], file });
+        if (file.url) jobs.push({ section: HACCP_TABLE_SECTION[table], folder, folderKey, file });
         else missing.push(file.name);
       }
     }
@@ -103,12 +141,23 @@ async function collectAttachments(
     if (file.url) jobs.push({ section: "layout", file });
     else missing.push(file.name);
   }
+  for (const supplier of supplierPapers) {
+    const folder = supplier.supplierName || "Nha-cung-cap";
+    const folderKey = `supplier:${supplier.supplierId}`;
+    for (const paper of supplier.papers) {
+      const name = paperFileName(paper);
+      if (paper.url) jobs.push({ section: "suppliers", folder, folderKey, file: { name, url: paper.url } });
+      else missing.push(`${folder}/${name}`);
+    }
+  }
 
   const downloaded = await Promise.allSettled(jobs.map(async (job): Promise<HaccpAttachment> => {
     const response = await fetch(job.file.url as string);
     if (!response.ok) throw new Error("file_unavailable");
     return {
       section: job.section,
+      folder: job.folder,
+      folderKey: job.folderKey,
       name: job.file.name,
       bytes: new Uint8Array(await response.arrayBuffer()),
     };
@@ -117,7 +166,7 @@ async function collectAttachments(
   const attachments: HaccpAttachment[] = [];
   downloaded.forEach((result, index) => {
     if (result.status === "fulfilled") attachments.push(result.value);
-    else missing.push(jobs[index].file.name);
+    else missing.push(`${jobs[index].folder ? `${jobs[index].folder}/` : ""}${jobs[index].file.name}`);
   });
   return { attachments, missing };
 }
@@ -153,9 +202,26 @@ export function useHaccp(options: UseHaccpOptions): UseHaccpResult {
     queryFn: fetchSnapshot,
   });
 
+  const hasLinkedSupplierRows = query.data?.entries?.some((entry) => entry.linked === true) ?? false;
+  const papersQuery = useQuery<HaccpSupplierPapers[]>({
+    queryKey: ["haccp-supplier-papers"],
+    enabled: options.mode === "manage" && hasLinkedSupplierRows,
+    retry: false,
+    refetchOnWindowFocus: true,
+    queryFn: loadSupplierPapers,
+  });
+
   const refresh = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["haccp"] });
-  }, [queryClient]);
+    if (options.mode === "manage") {
+      await queryClient.invalidateQueries({ queryKey: ["haccp-supplier-papers"] });
+    }
+  }, [options.mode, queryClient]);
+
+  const supplierPapers = useMemo<Record<string, HaccpSupplierPapers>>(
+    () => Object.fromEntries((papersQuery.data ?? []).map((paper) => [paper.entryId, paper])),
+    [papersQuery.data],
+  );
 
   const store = useMemo<HaccpStore>(() => {
     if (!query.data) return emptyStore();
@@ -184,7 +250,8 @@ export function useHaccp(options: UseHaccpOptions): UseHaccpResult {
     const freshStore = options.mode === "manage"
       ? createManagerStore(freshSnapshot, refresh)
       : createLinkStore(token, freshSnapshot, refresh);
-    const { attachments, missing } = await collectAttachments(freshStore);
+    const freshPapers = options.mode === "manage" ? await loadSupplierPapers() : [];
+    const { attachments, missing } = await collectAttachments(freshStore, freshPapers);
     if (missing.length) {
       throw new HaccpApiError(
         "attachment_missing",
@@ -213,5 +280,6 @@ export function useHaccp(options: UseHaccpOptions): UseHaccpResult {
     buildZip,
     exportExcel,
     exportZip,
+    supplierPapers,
   };
 }

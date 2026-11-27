@@ -29,6 +29,9 @@ export interface HaccpRawEntry {
   position?: number;
   version?: number;
   by?: string;
+  source_key?: string | null;
+  linked?: boolean;
+  supplier_id?: string | null;
   files?: HaccpRawFile[];
 }
 
@@ -37,6 +40,30 @@ export interface HaccpRawSnapshot {
   files: HaccpRawFile[];
   link: { id?: string; days?: number; expires_at?: string; revoked_at?: string | null; active?: boolean } | null;
   activity: { id: string; who: string; text: string; at: string }[];
+}
+
+/** A row may carry the linked catalogue supplier flag for read-only UI. */
+export type HaccpLinkedRow = HaccpRow & { linked?: boolean; supplierId?: string };
+
+export interface HaccpSupplierCert {
+  id: string;
+  certType: string;
+  certNo: string | null;
+  expiresOn: string | null;
+  filePath: string | null;
+  fileName: string | null;
+  mimeType: string | null;
+  url: string | null;
+}
+
+export interface HaccpSupplierPapers {
+  entryId: string;
+  supplierId: string;
+  supplierName: string;
+  done: number;
+  total: number;
+  pct: number;
+  papers: HaccpSupplierCert[];
 }
 
 export class HaccpApiError extends Error {
@@ -49,7 +76,13 @@ export class HaccpApiError extends Error {
   }
 }
 
+/** A real failure code: SectionBody must keep the dialog open, not treat it as saved. */
+function supplierReadOnlyError(message: string): HaccpApiError {
+  return new HaccpApiError("supplier_read_only", message);
+}
+
 const BUCKET = "haccp-docs";
+const CERT_BUCKET = "food-safety-docs";
 const TOKEN_KEY = "bmq-haccp-link-token";
 const TOKEN_ID_KEY = "bmq-haccp-link-id";
 const SIGNED_URL_SECONDS = 3600;
@@ -86,6 +119,9 @@ function newRequestId(): string {
 function validateValues(table: HaccpTableId, values: Record<string, string>): void {
   if (table === "suppliers" && (values.phone ?? "").length > 40) {
     throw new HaccpApiError("invalid_values", "Số điện thoại tối đa 40 ký tự.");
+  }
+  if (table === "suppliers" && (values.contact ?? "").trim().length > 120) {
+    throw new HaccpApiError("invalid_values", "Người liên hệ tối đa 120 ký tự.");
   }
   for (const [key, value] of Object.entries(values)) {
     if (typeof value === "string" && value.length > 1000) {
@@ -182,13 +218,17 @@ function normalizeSnapshot(raw: HaccpRawSnapshot, linkUrl: string): {
   const data = haccpEmptyData();
   for (const entry of raw.entries ?? []) {
     if (!TABLE_IDS.includes(entry.table_id)) continue;
-    const row: HaccpRow = {
+    const row: HaccpLinkedRow = {
       id: entry.id,
       values: entry.values ?? {},
       files: (entry.files ?? []).map(mapFile),
       by: entry.by || "Quản lý",
       version: Number(entry.version ?? 1),
     };
+    if (entry.linked === true) {
+      row.linked = true;
+      if (entry.supplier_id) row.supplierId = entry.supplier_id;
+    }
     data[entry.table_id].push(row);
   }
   const rawLink = raw.link ?? {};
@@ -331,6 +371,7 @@ async function uploadLinkFile(
   entryId: string | null,
   file: HaccpFile,
   who: string,
+  tableId?: HaccpTableId,
 ): Promise<void> {
   if (!file.file) return;
   const query = new URLSearchParams({
@@ -339,6 +380,7 @@ async function uploadLinkFile(
     who,
     request_id: newRequestId(),
   });
+  if (tableId) query.set("table_id", tableId);
   if (entryId) query.set("entry_id", entryId);
   else query.set("layout", "1");
   const response = await fetch(`${apiBase()}/functions/v1/haccp-upload?${query}`, {
@@ -418,19 +460,44 @@ export function createManagerStore(
 ): HaccpStore {
   const stored = managerLink(snapshot);
   const normalized = normalizeSnapshot(snapshot, managerLinkUrl(stored.token));
+  const linkedEntryIds = new Set(
+    (snapshot.entries ?? [])
+      .filter((entry) => entry.linked === true)
+      .map((entry) => entry.id),
+  );
 
   return {
     ...normalized,
     saveRow: async (table, row, who) => {
-      validateValues(table, row.values);
       const id = isUuid(row.id) ? row.id : null;
       const original = rowById(normalized.data, id);
+      const supplierLinked = table === "suppliers" && id !== null && linkedEntryIds.has(id);
+      // Send only contact fields the manager changed from the displayed
+      // catalogue values. An items-only save then cannot overwrite a newer
+      // supplier-page edit, and clearing a displayed value is still explicit.
+      const saveValues = { ...row.values };
+      if (supplierLinked && original) {
+        for (const field of ["phone", "address", "contact"] as const) {
+          if (saveValues[field] === original.values[field]) delete saveValues[field];
+        }
+      }
+      validateValues(table, saveValues);
+      if (supplierLinked && original && row.values.name !== original.values.name) {
+        throw supplierReadOnlyError(
+          "Tên nhà cung cấp lấy từ danh mục Nhà cung cấp. Sửa tên tại danh mục, không sửa trong HACCP.",
+        );
+      }
+      if (supplierLinked && row.files.some((file) => file.file)) {
+        throw supplierReadOnlyError(
+          "Không thêm file mới cho nhà cung cấp tại HACCP. Giấy tờ hiện hành nằm trong mục ATTP.",
+        );
+      }
       const failed: string[] = [];
       try {
         const saved = await db.rpc("haccp_save_entry", {
           p_id: id,
           p_table_id: table,
-          p_values: row.values,
+          p_values: saveValues,
           p_entered_by_name: who,
           p_version: id ? row.version ?? null : null,
           p_request_id: newRequestId(),
@@ -440,6 +507,9 @@ export function createManagerStore(
         if (saved.error) throw new HaccpApiError("save_failed", errorText(saved.error));
         const entryId = String((saved.data as { id?: string } | null)?.id ?? id ?? "");
 
+        // Managers may remove an old HACCP file from a linked supplier row,
+        // but new supplier papers live in ATTP. A manually added, unlinked
+        // supplier row may still attach its own evidence.
         for (const fileId of removedFileIds(original, row)) {
           const deleted = await db.rpc("haccp_delete_file", {
             p_file_id: fileId,
@@ -449,7 +519,7 @@ export function createManagerStore(
           if (deleted.error) failed.push(`xoá file ${fileId}: ${errorText(deleted.error)}`);
         }
 
-        if (entryId) {
+        if (!supplierLinked && entryId) {
           failed.push(...await attemptUploads(row.files, (file) => uploadManagerFile(entryId, file, who)));
         }
         const attachmentFailure = attachmentError(failed, entryId);
@@ -542,6 +612,7 @@ export function createLinkStore(
   return {
     ...normalized,
     saveRow: async (table, row, who) => {
+      if (table === "suppliers") throw supplierReadOnlyError("Link nhân viên không được sửa nhà cung cấp.");
       validateValues(table, row.values);
       lastWho = who;
       const id = isUuid(row.id) ? row.id : null;
@@ -573,7 +644,7 @@ export function createLinkStore(
         }
 
         if (entryId) {
-          failed.push(...await attemptUploads(row.files, (file) => uploadLinkFile(token, entryId, file, who)));
+          failed.push(...await attemptUploads(row.files, (file) => uploadLinkFile(token, entryId, file, who, table)));
         }
         const attachmentFailure = attachmentError(failed, entryId);
         if (attachmentFailure) throw attachmentFailure;
@@ -581,12 +652,14 @@ export function createLinkStore(
         await refresh();
       }
     },
-    removeRow: async (_table, rowId, who, version) => {
+    removeRow: async (table, rowId, who, version) => {
+      if (table === "suppliers") throw supplierReadOnlyError("Link nhân viên không được xoá nhà cung cấp.");
       if (!isUuid(rowId)) return;
       const row = rowById(normalized.data, rowId);
       try {
         await edgeJson(token, {
           action: "delete_row",
+          table_id: table,
           id: rowId,
           version: version ?? row?.version ?? null,
           request_id: newRequestId(),
@@ -621,6 +694,45 @@ export function createLinkStore(
     createLink: () => undefined,
     revokeLink: () => undefined,
   };
+}
+
+/** Current ATTP papers, keyed later by the HACCP supplier entry id. */
+export async function loadSupplierPapers(): Promise<HaccpSupplierPapers[]> {
+  const { data, error } = await db.rpc("haccp_supplier_papers");
+  if (error) throw new HaccpApiError("supplier_papers_failed", errorText(error));
+  const rows = Array.isArray(data) ? data : [];
+  return Promise.all(rows.map(async (raw) => {
+    const row = raw as Record<string, unknown>;
+    const rawPapers = Array.isArray(row.papers) ? row.papers : [];
+    const papers = await Promise.all(rawPapers.map(async (rawPaper): Promise<HaccpSupplierCert> => {
+      const paper = rawPaper as Record<string, unknown>;
+      const filePath = paper.file_path ? String(paper.file_path) : null;
+      let url: string | null = null;
+      if (filePath) {
+        const signed = await supabase.storage.from(CERT_BUCKET).createSignedUrl(filePath, SIGNED_URL_SECONDS);
+        url = signed.error ? null : signed.data?.signedUrl ?? null;
+      }
+      return {
+        id: String(paper.id ?? ""),
+        certType: String(paper.cert_type ?? ""),
+        certNo: paper.cert_no ? String(paper.cert_no) : null,
+        expiresOn: paper.expires_on ? String(paper.expires_on) : null,
+        filePath,
+        fileName: paper.file_name ? String(paper.file_name) : null,
+        mimeType: paper.mime_type ? String(paper.mime_type) : null,
+        url,
+      };
+    }));
+    return {
+      entryId: String(row.entry_id ?? ""),
+      supplierId: String(row.supplier_id ?? ""),
+      supplierName: String(row.supplier_name ?? ""),
+      done: numberOrZero(row.done as number | string | undefined),
+      total: numberOrZero(row.total as number | string | undefined),
+      pct: numberOrZero(row.pct as number | string | undefined),
+      papers,
+    };
+  }));
 }
 
 export async function loadManagerSnapshot(): Promise<{ snapshot: HaccpRawSnapshot; store: (refresh: () => Promise<void>) => HaccpStore }> {
