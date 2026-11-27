@@ -139,8 +139,13 @@ export function GpsAttendanceAdmin({ employees }: GpsAttendanceAdminProps) {
     return map;
   }, [list?.gates]);
 
+  // Today's shift is still running: a check-in without a check-out is not an
+  // issue until the Vietnam day is over (the staff portal applies the same rule).
+  const todayVn = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
   const pendingDays = (list?.days ?? []).filter(
-    (day) => day.status === "missing_in" || day.status === "missing_out",
+    (day) =>
+      day.status === "missing_in" ||
+      (day.status === "missing_out" && day.work_date < todayVn),
   );
   const flagged = (list?.events ?? []).filter((event) => event.suspected_proxy);
   const recent = (list?.events ?? []).slice(0, 40);
