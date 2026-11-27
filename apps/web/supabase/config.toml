@@ -377,6 +377,13 @@ verify_jwt = false
 # request_id and sends one Vietnamese order email. No cron and no automatic send.
 verify_jwt = false
 
+[functions.haccp-upload]
+# verify_jwt disabled: this is the public HACCP staff link and has no user
+# session. The 32-byte URL token is hashed in the handler, then expiry/revocation
+# is re-checked by service_role-only RPCs. Files go to the private haccp-docs
+# bucket; responses never contain storage paths or the token.
+verify_jwt = false
+
 [functions.supplier-order-upload]
 # verify_jwt disabled: this is a public one-time link for suppliers and has no
 # user session. The URL token is hashed and resolved server-side; only jpeg/png/

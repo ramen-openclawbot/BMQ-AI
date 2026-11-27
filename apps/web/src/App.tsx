@@ -19,6 +19,8 @@ const DealerSignupPage = lazy(() => import("@/pages/DealerSignupPage"));
 const DealerBankSlipPage = lazy(() => import("@/pages/DealerBankSlipPage"));
 // Supplier delivery-invoice upload page (public link from the order email).
 const SupplierUploadPortal = lazy(() => import("@/pages/SupplierUploadPortal"));
+// HACCP dossier upload page (public staff link created in Kho → Hồ sơ HACCP).
+const HaccpStaffPortal = lazy(() => import("@/pages/HaccpStaffPortal"));
 const ADMIN_APP_TITLE = "BMQ AI Quản Trị";
 const DEALER_APP_TITLE = "BMQ Đặt Hàng";
 const VNAGENT_ADMIN_TITLE = "VNAgent · Data Admin";
@@ -150,6 +152,16 @@ function App() {
     return (
       <Suspense fallback={<PageLoader />}>
         <SupplierUploadPortal token={supplierToken} />
+      </Suspense>
+    );
+  }
+
+  // Kitchen staff link to the HACCP dossier: no login, no internal providers.
+  if (/^\/nop-ho-so\/?$/.test(window.location.pathname)) {
+    document.title = "BMQ · Nộp hồ sơ HACCP";
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <HaccpStaffPortal token={new URLSearchParams(window.location.search).get("t") ?? ""} />
       </Suspense>
     );
   }
