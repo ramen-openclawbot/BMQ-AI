@@ -1,4 +1,5 @@
--- Rollback-only smoke test for 20261128100000_haccp_dossier.sql.
+-- Rollback-only smoke test for 20261128100000_haccp_dossier.sql and
+-- 20261128120000_haccp_prefill_q7_skus.sql.
 -- Run after the migration is applied to a disposable/local database:
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/smoke_haccp_dossier.sql
 -- Every write is rolled back; no production row is created or changed.
@@ -124,6 +125,45 @@ begin
   ) then
     raise exception 'HACCP smoke: link revocation failed';
   end if;
+end $$;
+
+-- Call the Q7/SKU prefill as a real owner, then prove a second press is a no-op.
+-- The JWT claim settings and every inserted row are local to this transaction.
+do $$
+declare
+  v_actor uuid;
+  v_first integer;
+  v_second integer;
+begin
+  select ur.user_id
+    into v_actor
+  from public.user_roles ur
+  where ur.role = 'owner'
+  order by ur.created_at, ur.id
+  limit 1;
+
+  if v_actor is null then
+    raise notice 'HACCP smoke: no owner account, skipping prefill call';
+    return;
+  end if;
+
+  perform set_config(
+    'request.jwt.claims',
+    jsonb_build_object('sub', v_actor, 'role', 'authenticated')::text,
+    true
+  );
+  perform set_config('request.jwt.claim.sub', v_actor::text, true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+  v_first := public.haccp_prefill('suppliers');
+  v_second := public.haccp_prefill('suppliers');
+  if v_second <> 0 then
+    raise exception 'HACCP smoke: prefill suppliers duplicated % rows on the second call', v_second;
+  end if;
+
+  perform public.haccp_prefill('staff');
+  perform public.haccp_prefill('chemicals');
+  raise notice 'HACCP smoke: prefill suppliers first=%, repeat=%', v_first, v_second;
 end $$;
 
 rollback;

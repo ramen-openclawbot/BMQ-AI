@@ -20,6 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "supabase/migrations/20261128100000_haccp_dossier.sql"
+PREFILL_MIGRATION = ROOT / "supabase/migrations/20261128120000_haccp_prefill_q7_skus.sql"
 CONFIG = ROOT / "supabase/config.toml"
 SCHEMA = ROOT / "src/lib/haccp-schema.ts"
 EXPORT = ROOT / "src/lib/haccp-export.ts"
@@ -59,6 +60,7 @@ def read(path: Path) -> str:
 
 
 sql = read(MIGRATION)
+prefill = read(PREFILL_MIGRATION)
 config = read(CONFIG)
 schema = read(SCHEMA)
 export = read(EXPORT)
@@ -144,35 +146,79 @@ for function in [
     check(grant is not None and "authenticated" not in grant.group(1), f"{function}: must not be granted to authenticated")
 
 # ---------------------------------------------------------------------------
-# Prefill: supplier facts, payroll name/department only, cleaning chemicals
+# Prefill (new migration): Q7 SKUs in production, their supplier materials,
+# Q7 packaging, and Q7-only cleaning chemicals. Staff is unchanged.
 # ---------------------------------------------------------------------------
-check("p_table_id = 'suppliers'" in sql, "prefill: suppliers branch missing")
-check("gr.status in ('confirmed', 'received')" in sql, "prefill: supplier receipts must be confirmed/received")
-check("gr.receipt_date >= current_date - 180" in sql, "prefill: supplier window must be 180 days")
-check("coalesce(gr.receiving_location, s.default_receiving_location, 'tan_tao') = 'q7'" in sql, "prefill: legacy Q7 receipts missing")
-check("q7_item.pastry_q7 = true" in sql, "prefill: central receipts for pastry_q7 items must count as Q7 supply")
-check("q7_item.id = public.kho_receipt_line_item(gri.id)" in sql, "prefill: receipt lines must resolve to the kitchen item")
-check("gri.product_name" in sql, "prefill: supplier item names missing")
-check("s.phone" in sql and "s.address" in sql and "s.contact_name" in sql, "prefill: supplier phone/address/contact missing")
+check("create or replace function public.haccp_prefill(p_table_id text)" in prefill, "prefill: replacement function missing")
+check("returns integer" in prefill and "security definer" in prefill, "prefill: signature/security changed")
+check(
+    "grant execute on function public.haccp_prefill(text) to authenticated, service_role;" in prefill,
+    "prefill: grants changed",
+)
+check("p_table_id = 'suppliers'" in prefill, "prefill: suppliers branch missing")
+check("from public.production_orders po" in prefill, "prefill: production_orders missing")
+check("join public.production_order_items poi on poi.production_order_id = po.id" in prefill, "prefill: production_order_items missing")
+check("po.location_code = 'q7'" in prefill, "prefill: must be Q7 production only")
+check("po.status not in ('draft', 'cancelled')" in prefill, "prefill: draft and cancelled production orders must be excluded")
+check(
+    "coalesce(" in prefill
+    and "(po.completed_at at time zone 'Asia/Ho_Chi_Minh')::date" in prefill
+    and "between v_today - 14 and v_today" in prefill,
+    "prefill: production window must be bounded to the last 14 Vietnam days",
+)
+check("v_today date := (now() at time zone 'Asia/Ho_Chi_Minh')::date" in prefill, "prefill: Vietnam date missing")
+check("with recursive produced_skus" in prefill, "prefill: recipe expansion must be recursive")
+check("from public.sku_formulations f" in prefill, "prefill: sku_formulations missing")
+check("public.cogs_resolve_child_sku(" in prefill, "prefill: child SKU must use cogs_resolve_child_sku")
+check("f.material_code" in prefill, "prefill: child resolver must see material_code")
+check("formulation_edges" in prefill, "prefill: resolved formulation edges missing")
+check("r.depth < 4" in prefill, "prefill: recipe depth must be capped at 4")
+check("not (e.child_sku_id = any (r.path))" in prefill, "prefill: recipe cycle guard missing")
+check("e.canonical_material_id" in prefill, "prefill: leaf canonical_material_id missing")
+check("lm.canonical_material_id = kii.canonical_material_id" in prefill, "prefill: canonical material is not joined to kitchen items")
+check("kii.merged_into_id is not null" in prefill, "prefill: merged_into_id chain missing")
+check("public.cogs_ingredient_stock_map m" in prefill, "prefill: COGS stock mapping missing")
+check("m.action = 'deduct'" in prefill and "m.status in ('auto', 'confirmed')" in prefill, "prefill: COGS mapping filter missing")
+check("m.location = 'q7'" in prefill, "prefill: COGS stock mapping must be Q7")
+check("public.q7_material_issue_material_mappings m" in prefill, "prefill: approved Q7 mapping missing")
+check("m.approval_status = 'approved'" in prefill, "prefill: approved Q7 mapping filter missing")
+check("kii.item_class = 'packaging_supply'" in prefill, "prefill: Q7 packaging_supply filter missing")
+check("kii.pastry_q7 = true" in prefill, "prefill: Q7 pastry item filter missing")
+check("kii.active = true" in prefill, "prefill: packaging must be active")
+check("kii.name !~*" in prefill, "prefill: packaging exclusion regex must be negated")
+for term in ["giấy\\s*a[45]", "mực\\s*in", "giấy\\s*vệ\\s*sinh", "nước\\s+(uống|tinh\\s*khiết|suối|đóng\\s*bình)", "cồn(\\s|$)", "rửa", "nước\\s+tẩy", "mút(\\s|$)", "túi\\s*rác", "xịt\\s*thơm", "khử\\s*trùng", "sát\\s*khuẩn", "javel", "cloramin", "lau"]:
+    check(term in prefill, f"prefill: packaging exclusion missing {term}")
+check("nước(\\s*$" not in prefill, "prefill: packaging ending in 'nước' must not be excluded")
+check("receipt_lines as materialized" in prefill, "prefill: receipt lines must materialize the item id once")
+check("public.kho_receipt_line_item(gri.id)" in prefill, "prefill: receipt lines must resolve with kho_receipt_line_item")
+check("gr.status in ('confirmed', 'received')" in prefill, "prefill: supplier receipts must be confirmed/received")
+check("gr.receipt_date >= v_today - 180" in prefill, "prefill: supplier window must be 180 Vietnam days")
+check("select distinct supplier_id, name" in prefill, "prefill: item names must deduplicate on the exact live name")
+check("distinct on (supplier_id" not in prefill, "prefill: normalized-name dedupe must be removed")
+check("string_agg(n.name, ', ' order by n.name)" in prefill, "prefill: supplier items must be distinct kitchen names")
+check("'suppliers:' || l.id::text" in prefill, "prefill: supplier source_key changed")
+# Approved rule: pulling only adds missing rows. It never edits, deletes or restores one.
+check(re.search(r"update\s+public\.haccp_entries", prefill) is None, "prefill: must not update existing rows")
+check(re.search(r"delete\s+from\s+public\.haccp", prefill) is None and "deleted_at =" not in prefill, "prefill: must not delete rows")
+check("into v_payload" in prefill and "from jsonb_array_elements(v_payload) p" in prefill, "prefill: writes must read the materialised payload")
+check("from payload p" not in prefill, "prefill: CTE payload cannot be referenced across statements")
 
-supplier_block = re.search(r"if p_table_id = 'suppliers' then(.*?)elsif p_table_id = 'staff' then", sql, re.S)
+supplier_block = re.search(r"if p_table_id = 'suppliers' then(.*?)elsif p_table_id = 'staff' then", prefill, re.S)
 check(supplier_block is not None, "prefill: cannot isolate the supplier branch")
 if supplier_block:
     block = supplier_block.group(1)
-    check("left(coalesce(n.name, ''), 1000)" in block, "prefill suppliers: name is not truncated")
-    check("left(coalesce(n.items, ''), 1000)" in block, "prefill suppliers: items is not truncated")
-    check("left(coalesce(n.phone, ''), 40)" in block, "prefill suppliers: phone is not truncated")
-    check("left(coalesce(n.address, ''), 1000)" in block, "prefill suppliers: address is not truncated")
-    check("left(coalesce(n.contact_name, ''), 1000)" in block, "prefill suppliers: contact is not truncated")
+    check("left(coalesce(l.name, ''), 1000)" in block, "prefill suppliers: name is not truncated")
+    check("left(coalesce(l.items, ''), 1000)" in block, "prefill suppliers: items is not truncated")
+    check("left(coalesce(l.phone, ''), 40)" in block, "prefill suppliers: phone is not truncated")
+    check("left(coalesce(l.address, ''), 1000)" in block, "prefill suppliers: address is not truncated")
+    check("left(coalesce(l.contact_name, ''), 1000)" in block, "prefill suppliers: contact is not truncated")
+    check("receiving_location" not in block, "prefill: the old receiving_location filter must be removed")
 
-check("p_table_id = 'staff'" in sql, "prefill: staff branch missing")
-check("p.date_to desc" in sql and "limit 1" in sql, "prefill: latest payroll period missing")
-check("e.group_name = 'Bếp bánh'" in sql, "prefill: staff must be the Bếp bánh group")
-check("p_table_id = 'chemicals'" in sql, "prefill: chemicals branch missing")
-check("kii.active = true" in sql, "prefill: chemicals must be active stock items")
-check("tẩy rửa" in sql and "cồn" in sql and "khử trùng" in sql, "prefill: cleaning-chemical name matcher missing")
+check("p_table_id = 'staff'" in prefill, "prefill: staff branch missing")
+check("p.date_to desc" in prefill and "limit 1" in prefill, "prefill: latest payroll period missing")
+check("e.group_name = 'Bếp bánh'" in prefill, "prefill: staff must be the Bếp bánh group")
 
-staff_block = re.search(r"elsif p_table_id = 'staff' then(.*?)elsif p_table_id = 'chemicals' then", sql, re.S)
+staff_block = re.search(r"elsif p_table_id = 'staff' then(.*?)elsif p_table_id = 'chemicals' then", prefill, re.S)
 check(staff_block is not None, "prefill: cannot isolate the staff branch")
 if staff_block:
     block = staff_block.group(1)
@@ -183,10 +229,18 @@ if staff_block:
     check("left(coalesce(p.employee_name, ''), 1000)" in block, "prefill staff: name is not truncated")
     check("left(coalesce(p.department, ''), 1000)" in block, "prefill staff: department is not truncated")
 
-chemicals_block = re.search(r"elsif p_table_id = 'chemicals' then(.*?)else\n\s*raise exception 'invalid_table_id'", sql, re.S)
+chemicals_block = re.search(r"elsif p_table_id = 'chemicals' then(.*?)else\n\s*raise exception 'invalid_table_id'", prefill, re.S)
 check(chemicals_block is not None, "prefill: cannot isolate the chemicals branch")
 if chemicals_block:
-    check("left(coalesce(m.name, ''), 1000)" in chemicals_block.group(1), "prefill chemicals: name is not truncated")
+    block = chemicals_block.group(1)
+    check("kii.active = true" in block, "prefill: chemicals must be active stock items")
+    check("kii.pastry_q7 = true" in block, "prefill: chemicals must be Q7 pastry items")
+    check("kii.merged_into_id is null" in block, "prefill: merged chemicals must be excluded")
+    check("tẩy rửa" in block and "cồn" in block and "khử trùng" in block, "prefill: cleaning-chemical name matcher missing")
+    check("left(coalesce(m.name, ''), 1000)" in block, "prefill chemicals: name is not truncated")
+
+check("on conflict (source_key) do nothing" in prefill, "prefill: repeated pulls must not duplicate or overwrite")
+check("'staff:' || p.employee_code" in prefill and "'chemicals:' || m.id::text" in prefill, "prefill: source_key changed")
 
 # Deleting must name the acting person, not the original editor/uploader.
 check("p_who text default null" in sql, "delete RPCs must accept the acting name")
@@ -210,8 +264,11 @@ if delete_file_block:
 for statement in ["insert into public.suppliers", "update public.suppliers", "delete from public.suppliers",
                   "insert into public.goods_receipts", "update public.goods_receipts", "delete from public.goods_receipts",
                   "insert into public.kitchen_inventory_items", "update public.kitchen_inventory_items",
-                  "insert into public.payroll_bn_period_employees", "update public.payroll_bn_period_employees"]:
+                  "insert into public.payroll_bn_period_employees", "update public.payroll_bn_period_employees",
+                  "insert into public.production_orders", "update public.production_orders",
+                  "insert into public.sku_formulations", "update public.sku_formulations"]:
     check(statement not in sql, f"migration must not write source data: {statement}")
+    check(statement not in prefill, f"prefill migration must not write source data: {statement}")
 
 # ---------------------------------------------------------------------------
 # Edge config + handler contract
