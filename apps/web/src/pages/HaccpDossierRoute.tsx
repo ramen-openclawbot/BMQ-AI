@@ -9,11 +9,11 @@ import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-haccp.css";
 
 /** /warehouse/ho-so-haccp: the dossier on real data, for people who may edit Kho. */
-export default function HaccpDossierRoute() {
+export default function HaccpDossierRoute({ embedded = false }: { embedded?: boolean }) {
   const { profile } = useAuth();
   const { toast } = useToast();
   const haccp = useHaccp({ mode: "manage" });
-  useEffect(() => { window.scrollTo(0, 0); }, []);
+  useEffect(() => { if (!embedded) window.scrollTo(0, 0); }, [embedded]);
 
   if (!haccp.ready) {
     if (haccp.error) {
@@ -31,6 +31,7 @@ export default function HaccpDossierRoute() {
   return (
     <HaccpDossier
       store={haccp.store}
+      embedded={embedded}
       who={profile?.full_name?.trim() || "Quản lý"}
       onOpenStaff={() => { if (haccp.store.link.url) window.open(haccp.store.link.url, "_blank", "noopener"); }}
       onDownload={async (zip) => {

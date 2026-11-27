@@ -11,7 +11,9 @@ import "@/styles/bmq-kho.css";
 import "@/styles/bmq-haccp.css";
 
 /** Hồ sơ HACCP bếp Quận 7: seven sheets, one place to fill them, one button to export. */
-export default function HaccpDossier({ store, who, onOpenStaff, onDownload }: {
+export default function HaccpDossier({ store, who, onOpenStaff, onDownload, embedded = false }: {
+  /** Shown as a tab of "An toàn thực phẩm": that page owns the title. */
+  embedded?: boolean;
   store: HaccpStore;
   who: string;
   onOpenStaff: () => void;
@@ -34,11 +36,13 @@ export default function HaccpDossier({ store, who, onOpenStaff, onDownload }: {
 
   return (
     <div className="d3-wh d3-kho hc min-w-0" data-hc-page>
-      <header className="d3-wh-head">
-        <div className="min-w-0">
-          <h1>Hồ sơ <b>HACCP</b></h1>
-          <p className="d3-wh-tag">Bếp Quận 7 · thông tin gửi đơn vị tư vấn ISO an toàn thực phẩm</p>
-        </div>
+      <header className={cn("d3-wh-head", embedded && "hc-embedded-head")}>
+        {embedded ? null : (
+          <div className="min-w-0">
+            <h1>Hồ sơ <b>HACCP</b></h1>
+            <p className="d3-wh-tag">Bếp Quận 7 · thông tin gửi đơn vị tư vấn ISO an toàn thực phẩm</p>
+          </div>
+        )}
         <div className="hc-head-acts">
           <button type="button" className="hc-btn is-lg" onClick={() => setSharing(true)} data-hc-share-open><Link2 />Link cho nhân viên</button>
           <button type="button" className="hc-btn is-ink is-lg" onClick={() => setExporting(true)} data-hc-export-open><Download />Xuất Excel</button>

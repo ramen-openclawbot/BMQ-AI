@@ -59,7 +59,6 @@ const KhoAuditLog = lazy(() => import("@/pages/KhoAuditLog"));
 const KhoRevenue = lazy(() => import("@/pages/KhoRevenue"));
 const KhoReview = lazy(() => import("@/pages/KhoReview"));
 const KhoCerts = lazy(() => import("@/pages/KhoCerts"));
-const HaccpDossierRoute = lazy(() => import("@/pages/HaccpDossierRoute"));
 const BepBnPayroll = lazy(() => import("@/pages/BepBnPayroll"));
 const VNAgentDataAdmin = lazy(() => import("@/pages/VNAgentDataAdmin"));
 
@@ -315,7 +314,8 @@ export function AppRoutes() {
         <Route path="/warehouse/tru-kho-demo" element={<Navigate to="/warehouse/tru-kho" replace />} />
         <Route path="/warehouse/ra-soat" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoReview /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/ho-so-attp" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoCerts /></Suspense></ModuleRoute>} />
-        <Route path="/warehouse/ho-so-haccp" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><HaccpDossierRoute /></Suspense></ModuleRoute>} />
+        {/* Hồ sơ HACCP is a tab of An toàn thực phẩm (owner 28/11); the old link lands on it. */}
+        <Route path="/warehouse/ho-so-haccp" element={<Navigate to="/warehouse/ho-so-attp?tab=haccp" replace />} />
         <Route path="/warehouse/stock-ledger" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockLedger /></Suspense></ModuleRoute>} />
         {/* Owner 22/10: Mua so với dùng and Giá vốn → Kho removed (decisions go through chat); old links land on Danh mục kho. */}
         <Route path="/warehouse/purchase-usage" element={<Navigate to="/warehouse/danh-muc" replace />} />

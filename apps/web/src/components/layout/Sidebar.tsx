@@ -123,7 +123,6 @@ export const navItems: NavItem[] = [
       { icon: Hourglass, labelKey: "khoHolds", path: "/warehouse/tru-kho", section: "operations", moduleKey: "inventory" },
       { icon: FileSearch, labelKey: "khoReview", path: "/warehouse/ra-soat", section: "operations", moduleKey: "inventory" },
       { icon: ShieldCheck, labelKey: "khoCerts", path: "/warehouse/ho-so-attp", section: "operations", moduleKey: "inventory" },
-      { icon: ClipboardList, labelKey: "khoHaccp", path: "/warehouse/ho-so-haccp", section: "operations", moduleKey: "inventory" },
       { icon: ClipboardList, labelKey: "stockLedger", path: "/warehouse/stock-ledger", section: "operations", moduleKey: "inventory" },
       { icon: GitMerge, labelKey: "catalogCleanup", path: "/warehouse/catalog-cleanup", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
       { icon: Boxes, labelKey: "tanTaoWarehouse", path: "/warehouse/tan-tao", section: "operations", moduleKey: "inventory" },

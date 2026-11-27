@@ -12,7 +12,6 @@ interface Translations {
   khoCount: string;
   khoReview: string;
   khoCerts: string;
-  khoHaccp: string;
   khoAudit: string;
   khoHolds: string;
   warehouseSlips: string;
@@ -226,8 +225,7 @@ const translations: Record<Language, Translations> = {
     khoCatalog: "Warehouse catalogue",
     khoCount: "Stock count",
     khoReview: "Receipt review",
-    khoCerts: "Food safety files",
-    khoHaccp: "HACCP dossier",
+    khoCerts: "Food safety",
     khoAudit: "Warehouse log",
     khoHolds: "Revenue deductions",
     warehouseSlips: "Stock slips",
@@ -439,8 +437,7 @@ const translations: Record<Language, Translations> = {
     khoCatalog: "Danh mục kho",
     khoCount: "Kiểm kê",
     khoReview: "Rà soát nhập kho",
-    khoCerts: "Hồ sơ ATTP",
-    khoHaccp: "Hồ sơ HACCP",
+    khoCerts: "An toàn thực phẩm",
     khoAudit: "Nhật ký kho",
     khoHolds: "Trừ kho theo doanh thu",
     warehouseSlips: "Phiếu kho",

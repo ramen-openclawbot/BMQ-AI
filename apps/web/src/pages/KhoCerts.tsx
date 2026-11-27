@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { FileSearch, FileText, Plus, Search, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,10 @@ import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-kho.css";
 
 type View = "all" | "soon" | "expired";
+type Page = "checklist" | "papers" | "haccp";
+const PAGES: Page[] = ["checklist", "papers", "haccp"];
+// The HACCP workbook (owner 28/11) lives here as a tab; load its exporter only when opened.
+const HaccpDossierRoute = lazy(() => import("@/pages/HaccpDossierRoute"));
 const dmy = (iso?: string | null) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "");
 const CERT_TYPES = Object.keys(FOOD_CERT_TYPE_LABELS) as FoodCertType[];
 const OWNER_KINDS = Object.keys(FOOD_CERT_OWNER_KIND_LABELS) as FoodCertOwnerKind[];
@@ -55,7 +60,9 @@ export default function KhoCerts() {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [tracing, setTracing] = useState(false);
-  const [page, setPage] = useState<"checklist" | "papers">("checklist");
+  const [params, setParams] = useSearchParams();
+  const page: Page = PAGES.includes(params.get("tab") as Page) ? (params.get("tab") as Page) : "checklist";
+  const setPage = (next: Page) => setParams(next === "checklist" ? {} : { tab: next }, { replace: true });
   const [attp, setAttp] = useState<AttpAction | "new" | null>(null);
   const rows = certs.data ?? [];
   const soon = rows.filter((c) => expiryTone(c.days_left) === "soon").length;
@@ -86,22 +93,22 @@ export default function KhoCerts() {
     <div className="d3-wh d3-kho min-w-0" data-bmq-kho-certs>
       <header className="d3-wh-head">
         <div className="min-w-0">
-          <h1>Hồ sơ ATTP</h1>
-          <p className="d3-wh-tag">{certs.isLoading ? "Đang đọc hồ sơ…" : certs.isError ? "Chưa đọc được" : `${rows.length} giấy tờ${soon ? ` · ${soon} sắp hết hạn` : ""}${expired ? ` · ${expired} đã hết hạn` : ""}`}</p>
+          <h1>An toàn thực phẩm</h1>
+          <p className="d3-wh-tag">{page === "haccp" ? "Hồ sơ HACCP bếp Quận 7 gửi đơn vị tư vấn ISO" : certs.isLoading ? "Đang đọc hồ sơ…" : certs.isError ? "Chưa đọc được" : `${rows.length} giấy tờ${soon ? ` · ${soon} sắp hết hạn` : ""}${expired ? ` · ${expired} đã hết hạn` : ""}`}</p>
         </div>
         <div className="d3-kho-head-acts">
           <Button variant={canEdit ? "outline" : "default"} onClick={() => setTracing(true)} data-bmq-trace-open><FileSearch className="mr-1.5 h-4 w-4" />Truy xuất</Button>
-          {canEdit ? <Button onClick={() => setAttp("new")} data-bmq-attp-new><Upload className="mr-1.5 h-4 w-4" />Tải giấy lên</Button> : null}
+          {canEdit && page !== "haccp" ? <Button onClick={() => setAttp("new")} data-bmq-attp-new><Upload className="mr-1.5 h-4 w-4" />Tải giấy lên</Button> : null}
         </div>
       </header>
 
-      <div className="d3-kho-seg d3-attp-pages" role="tablist" aria-label="Hồ sơ ATTP">
-        {([["checklist", "Checklist hồ sơ"], ["papers", `Tất cả giấy${certs.data ? ` (${rows.length})` : ""}`]] as const).map(([id, label]) => (
+      <div className="d3-kho-seg d3-attp-pages" role="tablist" aria-label="An toàn thực phẩm">
+        {([["checklist", "Checklist"], ["papers", `Giấy tờ${certs.data ? ` (${rows.length})` : ""}`], ["haccp", "Hồ sơ HACCP"]] as const).map(([id, label]) => (
           <button key={id} type="button" role="tab" aria-selected={page === id} className={cn(page === id && "is-on")} onClick={() => setPage(id)} data-bmq-attp-page={id}>{label}</button>
         ))}
       </div>
 
-      {page === "checklist" ? <AttpChecklist canEdit={canEdit} onAction={setAttp} /> : (
+      {page === "haccp" ? <Suspense fallback={<LoadingState label="Đang mở hồ sơ HACCP" />}><HaccpDossierRoute embedded /></Suspense> : page === "checklist" ? <AttpChecklist canEdit={canEdit} onAction={setAttp} /> : (
 
       <section className="d3-wh-card d3-kho-card">
         <div className="d3-kho-tabs" role="tablist" aria-label="Lọc theo hạn">

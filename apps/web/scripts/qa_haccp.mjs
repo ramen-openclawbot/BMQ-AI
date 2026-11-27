@@ -188,6 +188,8 @@ try {
     const row = (n) => (desktop ? `tr[data-hc-row='00000000-0000-4000-8000-${String(n).padStart(12, "0")}'] .hc-first` : `[data-hc-card='00000000-0000-4000-8000-${String(n).padStart(12, "0")}']`);
     const { context, page, errors } = await open("/warehouse/ho-so-haccp", vp);
     await page.waitForSelector("[data-hc-page]", { timeout: 40000 });
+    assert.match(page.url(), /\/warehouse\/ho-so-attp\?tab=haccp$/, "old link lands on the HACCP tab");
+    assert.equal(await page.locator("[data-bmq-attp-page='haccp'][aria-selected='true']").count(), 1, "HACCP tab selected");
     await page.evaluate(() => document.fonts.ready);
     await noSpill(page, "manager", vp);
     await shot(page, `manager-${vp.width}`, true);

@@ -1366,8 +1366,10 @@ html.bmq-d3 .d3-attp-ok:hover:not(:disabled) { background: #16630c; }
   .d3-attp-tools .d3-kho-seg { width: 100%; }
   html.bmq-d3 .d3-attp-tools .d3-kho-seg button { flex: 1; }
   .d3-attp-chips { width: 100%; overflow-x: auto; scrollbar-width: none; }
-  .d3-attp-pages { width: 100%; }
-  html.bmq-d3 .d3-attp-pages button { flex: 1; }
+  /* Three tabs stay on one row; a very narrow phone scrolls them instead of wrapping. */
+  .d3-attp-pages { width: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .d3-attp-pages::-webkit-scrollbar { display: none; }
+  html.bmq-d3 .d3-attp-pages button { flex: 1 0 auto; padding: 0 10px; }
   .d3-attp-rv { grid-template-columns: 1fr; gap: 14px; }
   .d3-attp-doc { position: static; }
   .d3-attp-doc img { max-height: 220px; }
