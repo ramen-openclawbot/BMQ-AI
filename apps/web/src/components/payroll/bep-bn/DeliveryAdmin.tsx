@@ -13,7 +13,7 @@ import type { PayrollEmployee } from "@/lib/payroll-bn/types.ts";
 /* ------------------------------------------------------------------ data */
 
 interface TaskItem { product_name?: string; quantity?: number | string }
-interface AdminTask {
+export interface AdminTask {
   id: string;
   delivery_date: string;
   destination_customer_id: string;
@@ -277,7 +277,7 @@ function Tile({ label, value, hint, warn }: { label: string; value: string; hint
   );
 }
 
-function PhotoDialog({ task, onClose }: { task: AdminTask; onClose: () => void }) {
+export function PhotoDialog({ task, onClose }: { task: AdminTask; onClose: () => void }) {
   const photo = useQuery({
     queryKey: ["delivery-admin", "photo", task.photo_path],
     queryFn: async () => {

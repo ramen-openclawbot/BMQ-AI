@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarPlus, Loader2, Lock, Send } from "lucide-react";
+import { CalendarPlus, ChevronDown, Loader2, Lock, Send } from "lucide-react";
+import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +26,7 @@ import { applyIssueReviews } from "@/lib/payroll-bn/issue-review.ts";
 import { AttendanceSection, UploadCard } from "./AttendanceSection";
 import { PayrollDraftSection } from "./PayrollDraftSection";
 import { CatalogSection } from "./CatalogSection";
+import { TodayOverview, type TodayTarget } from "./TodayOverview";
 import type { BepBnPeriodData, BepBnPeriodSummary, UseBepBnData } from "./types";
 import { LoadingState } from "@/components/ui/loading";
 
@@ -33,13 +36,29 @@ interface BepBnPayrollPanelProps {
   canLock: boolean;
 }
 
-type PanelTab = "attendance" | "payroll" | "employees" | "gps" | "shifts" | "board" | "delivery";
+type PanelTab = "today" | "attendance" | "payroll" | "settings";
+type SettingsSection = "employees" | "delivery" | "shifts" | "gps";
 
 export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPanelProps) {
   const { toast } = useToast();
   const [periodId, setPeriodId] = useState<string | null>(null);
-  const [tab, setTab] = useState<PanelTab>("attendance");
+  const [tab, setTab] = useState<PanelTab>("today");
+  const [openSections, setOpenSections] = useState<Set<SettingsSection>>(() => new Set<SettingsSection>(["employees"]));
+  const toggleSection = (key: SettingsSection) =>
+    setOpenSections((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const goSettings = (key: SettingsSection) => {
+    setOpenSections((current) => new Set(current).add(key));
+    setTab("settings");
+    window.requestAnimationFrame(() => document.getElementById(`payroll-section-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  const goFromToday = (target: TodayTarget) => goSettings(target);
   const [confirmLock, setConfirmLock] = useState(false);
+  const [boardOpen, setBoardOpen] = useState(false);
   const [locking, setLocking] = useState(false);
   const source = useData(periodId);
 
@@ -126,7 +145,7 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
 
   return (
     <div className="space-y-4">
-      {source.periods.length > 0 ? (
+      {source.periods.length > 0 && tab !== "today" ? (
         <Card>
           <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -175,15 +194,16 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
       {source.dataError ? <ErrorCard message={source.dataError} /> : null}
 
       <Tabs value={tab} onValueChange={(value) => setTab(value as PanelTab)} className="space-y-4">
-        <TabsList className="max-w-full justify-start overflow-x-auto [&>*]:shrink-0">
-          <TabsTrigger value="attendance">Chấm công</TabsTrigger>
-          <TabsTrigger value="payroll">Bảng lương</TabsTrigger>
-          <TabsTrigger value="employees">Hồ sơ nhân viên</TabsTrigger>
-          <TabsTrigger value="delivery">Giao hàng</TabsTrigger>
-          {canEdit ? <TabsTrigger value="gps">Chấm công GPS</TabsTrigger> : null}
-          {canEdit ? <TabsTrigger value="shifts">Xếp ca</TabsTrigger> : null}
-          {canEdit ? <TabsTrigger value="board">Bảng chấm công</TabsTrigger> : null}
+        <TabsList className="grid h-auto w-full grid-cols-4 gap-1 p-1">
+          <TabsTrigger value="today" className="px-1 py-2 text-xs sm:text-sm">Hôm nay</TabsTrigger>
+          <TabsTrigger value="attendance" className="px-1 py-2 text-xs sm:text-sm">Chấm công</TabsTrigger>
+          <TabsTrigger value="payroll" className="px-1 py-2 text-xs sm:text-sm">Bảng lương</TabsTrigger>
+          <TabsTrigger value="settings" className="px-1 py-2 text-xs sm:text-sm">Nhân viên</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="today" className="space-y-4">
+          {tab === "today" ? <TodayOverview employees={source.data?.employees ?? []} canEdit={canEdit} onGo={goFromToday} /> : null}
+        </TabsContent>
 
         <TabsContent value="attendance" className="space-y-4">
           <UploadCard source={source} canEdit={canEdit} onImported={setPeriodId} />
@@ -193,9 +213,14 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
               data={source.data}
               source={source}
               canEdit={canEdit}
-              onOpenEmployees={() => setTab("employees")}
+              onOpenEmployees={() => goSettings("employees")}
               onApproved={() => setTab("payroll")}
             />
+          ) : null}
+          {canEdit ? (
+            <Section id="board" title="Xem ngày khác · xếp hạng đúng giờ" open={boardOpen} onToggle={() => setBoardOpen((value) => !value)}>
+              <AttendanceBoard />
+            </Section>
           ) : null}
         </TabsContent>
 
@@ -221,13 +246,11 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
           )}
         </TabsContent>
 
-        <TabsContent value="employees" className="space-y-4">
+        <TabsContent value="settings" className="space-y-3">
           {canEdit && current && !current.period ? (
             <Card className="border-amber-300" data-open-period>
               <CardContent className="flex flex-col gap-3 py-4 text-sm sm:flex-row sm:items-center sm:justify-between">
-                <span>
-                  Chưa có kỳ lương tháng {currentMonthLabel}. Mở kỳ để thêm, sửa nhân viên ngay; danh sách được chép từ kỳ trước, bỏ người đã nghỉ.
-                </span>
+                <span>Chưa có kỳ lương tháng {currentMonthLabel}. Mở kỳ để thêm, sửa nhân viên (chép từ kỳ trước).</span>
                 <Button className="gap-2 self-start sm:self-auto" onClick={() => void openCurrent()} disabled={opening} data-open-period-run>
                   {opening ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />}
                   Mở kỳ tháng {currentMonthLabel}
@@ -238,43 +261,34 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
           {canEdit && current?.period && selected && selected.id !== current.period.id && selected.status === "locked" ? (
             <Card className="border-amber-300" data-switch-period>
               <CardContent className="flex flex-col gap-3 py-4 text-sm sm:flex-row sm:items-center sm:justify-between">
-                <span>
-                  Đang xem kỳ {selected.code} đã chốt nên không thêm được nhân viên ở đây. Thêm, sửa nhân viên ở kỳ đang mở {current.period.code}.
-                </span>
+                <span>Kỳ {selected.code} đã chốt, không sửa được. Sửa nhân viên ở kỳ đang mở {current.period.code}.</span>
                 <Button variant="outline" className="self-start sm:self-auto" onClick={() => setPeriodId(current.period ? current.period.id : null)} data-switch-period-run>
                   Sang kỳ {current.period.code}
                 </Button>
               </CardContent>
             </Card>
           ) : null}
-          {source.data ? (
-            <CatalogSection data={source.data} source={source} canEdit={canEdit} canManagePhones={canEdit} />
-          ) : (
-            <EmptyCard text="Chưa có hồ sơ nhân viên. Mở kỳ lương tháng này để bắt đầu thêm nhân viên." />
-          )}
+          <Section id="employees" title="Hồ sơ nhân viên" open={openSections.has("employees")} onToggle={() => toggleSection("employees")}>
+            {source.data ? (
+              <CatalogSection data={source.data} source={source} canEdit={canEdit} canManagePhones={canEdit} />
+            ) : (
+              <EmptyCard text="Chưa có hồ sơ nhân viên. Mở kỳ lương tháng này để bắt đầu thêm nhân viên." />
+            )}
+          </Section>
+          <Section id="delivery" title="Giao hàng · phân công điểm · công tháng" open={openSections.has("delivery")} onToggle={() => toggleSection("delivery")}>
+            <DeliveryAdmin employees={source.data?.employees ?? []} canEdit={canEdit} />
+          </Section>
+          {canEdit ? (
+            <Section id="shifts" title="Xếp ca bếp" open={openSections.has("shifts")} onToggle={() => toggleSection("shifts")}>
+              <ShiftBoard />
+            </Section>
+          ) : null}
+          {canEdit ? (
+            <Section id="gps" title="Chấm công GPS · duyệt ngày công · máy" open={openSections.has("gps")} onToggle={() => toggleSection("gps")}>
+              <GpsAttendanceAdmin employees={source.data?.employees ?? []} />
+            </Section>
+          ) : null}
         </TabsContent>
-
-        <TabsContent value="delivery" className="space-y-4">
-          {tab === "delivery" ? <DeliveryAdmin employees={source.data?.employees ?? []} canEdit={canEdit} /> : null}
-        </TabsContent>
-
-        {canEdit ? (
-          <TabsContent value="board" className="space-y-4">
-            {tab === "board" ? <AttendanceBoard /> : null}
-          </TabsContent>
-        ) : null}
-
-        {canEdit ? (
-          <TabsContent value="shifts" className="space-y-4">
-            <ShiftBoard />
-          </TabsContent>
-        ) : null}
-
-        {canEdit ? (
-          <TabsContent value="gps" className="space-y-4">
-            <GpsAttendanceAdmin employees={source.data?.employees ?? []} />
-          </TabsContent>
-        ) : null}
       </Tabs>
 
       <AlertDialog open={confirmLock} onOpenChange={setConfirmLock}>
@@ -301,6 +315,27 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+/** Collapsible group: only the header line until opened; content mounts on open. */
+function Section({ id, title, open, onToggle, children }: { id: string; title: string; open: boolean; onToggle: () => void; children: ReactNode }) {
+  return (
+    <section id={`payroll-section-${id}`} className="scroll-mt-4" data-payroll-section={id}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className={cn(
+          "flex w-full items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 text-left text-sm font-semibold hover:bg-muted/40",
+          open && "rounded-b-none border-b-0",
+        )}
+      >
+        {title}
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} aria-hidden />
+      </button>
+      {open ? <div className="rounded-b-xl border border-t-0 p-2 sm:p-3 [&>*]:shadow-none">{children}</div> : null}
+    </section>
   );
 }
 
