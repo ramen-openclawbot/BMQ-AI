@@ -1,6 +1,6 @@
 import { Suspense, lazy, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { FileSearch, FileText, Search, Upload, X } from "lucide-react";
+import { FileText, Search, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading";
 import { useToast } from "@/hooks/use-toast";
@@ -9,7 +9,8 @@ import { foodCertFileUrl, useArchiveFoodCert, useFoodCerts } from "@/hooks/useKh
 import { FOOD_CERT_TYPE_LABELS, expiryTone, type FoodCert } from "@/lib/kho-lots";
 import { searchKey } from "@/lib/kho-items";
 import { cn } from "@/lib/utils";
-import { KhoTraceDialog } from "@/components/kho/KhoTraceDialog";
+import { KhoTracePanel } from "@/components/kho/KhoTraceDialog";
+import { TraceOverview, type TraceTab } from "@/components/kho/TraceOverview";
 import { AttpChecklist, type AttpAction } from "@/components/kho/AttpChecklist";
 import { AttpUploadDialog } from "@/components/kho/AttpUploadDialog";
 import { useKhoConfirm } from "@/components/kho/KhoConfirm";
@@ -17,8 +18,8 @@ import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-kho.css";
 
 type View = "all" | "soon" | "expired";
-type Page = "checklist" | "papers" | "haccp";
-const PAGES: Page[] = ["checklist", "papers", "haccp"];
+const TABS: TraceTab[] = ["overview", "papers", "haccp", "trace"];
+const TAB_LABELS: Record<TraceTab, string> = { overview: "Tổng quan", papers: "Giấy tờ", haccp: "Hồ sơ HACCP", trace: "Truy xuất" };
 // The HACCP workbook (owner 28/11) lives here as a tab; load its exporter only when opened.
 const HaccpDossierRoute = lazy(() => import("@/pages/HaccpDossierRoute"));
 const dmy = (iso?: string | null) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "");
@@ -45,10 +46,11 @@ export default function KhoCerts() {
   const archive = useArchiveFoodCert();
   const [view, setView] = useState<View>("all");
   const [query, setQuery] = useState("");
-  const [tracing, setTracing] = useState(false);
   const [params, setParams] = useSearchParams();
-  const page: Page = PAGES.includes(params.get("tab") as Page) ? (params.get("tab") as Page) : "checklist";
-  const setPage = (next: Page) => setParams(next === "checklist" ? {} : { tab: next }, { replace: true });
+  const tab: TraceTab = TABS.includes(params.get("tab") as TraceTab) ? (params.get("tab") as TraceTab) : "overview";
+  const paperView: "checklist" | "all" = params.get("xem") === "all" ? "all" : "checklist";
+  const setTab = (next: TraceTab) => { setParams(next === "overview" ? {} : { tab: next }, { replace: true }); window.scrollTo(0, 0); };
+  const setPaperView = (next: "checklist" | "all") => setParams(next === "all" ? { tab: "papers", xem: "all" } : { tab: "papers" }, { replace: true });
   const [attp, setAttp] = useState<AttpAction | "new" | null>(null);
   const rows = certs.data ?? [];
   const soon = rows.filter((c) => expiryTone(c.days_left) === "soon").length;
@@ -76,34 +78,32 @@ export default function KhoCerts() {
   };
 
   return (
-    <div className="d3-wh d3-kho min-w-0" data-bmq-kho-certs>
+    <div className="d3-wh d3-kho min-w-0" data-bmq-kho-certs data-bmq-tx="v1">
       <header className="d3-wh-head">
         <div className="min-w-0">
-          <h1>An toàn thực phẩm</h1>
-          <p className="d3-wh-tag">{page === "haccp" ? "Hồ sơ HACCP bếp Quận 7 gửi đơn vị tư vấn ISO" : certs.isLoading ? "Đang đọc hồ sơ…" : certs.isError ? "Chưa đọc được" : `${rows.length} giấy tờ${soon ? ` · ${soon} sắp hết hạn` : ""}${expired ? ` · ${expired} đã hết hạn` : ""}`}</p>
+          <h1>Truy xuất <b>nguồn gốc</b></h1>
+          <p className="d3-wh-tag">Bếp Quận 7 · chuẩn bị hồ sơ HACCP, giữ giấy tờ còn hạn và truy xuất từng mẻ bánh về nguyên liệu, lô, nhà cung cấp</p>
         </div>
-        <div className="d3-kho-head-acts">
-          <Button variant={canEdit ? "outline" : "default"} onClick={() => setTracing(true)} data-bmq-trace-open><FileSearch className="mr-1.5 h-4 w-4" />Truy xuất</Button>
-          {canEdit && page !== "haccp" ? <Button onClick={() => setAttp("new")} data-bmq-attp-new><Upload className="mr-1.5 h-4 w-4" />Tải giấy lên</Button> : null}
-        </div>
+        {canEdit && tab === "papers" ? <div className="d3-kho-head-acts"><Button onClick={() => setAttp("new")} data-bmq-attp-new><Upload className="mr-1.5 h-4 w-4" />Tải giấy lên</Button></div> : null}
       </header>
 
-      <div className="d3-kho-tabs d3-fs-tabs" role="tablist" aria-label="An toàn thực phẩm">
-        {([["attp", "Giấy tờ ATTP"], ["haccp", "Hồ sơ HACCP"]] as const).map(([id, label]) => {
-          const on = id === "haccp" ? page === "haccp" : page !== "haccp";
-          return <button key={id} type="button" role="tab" aria-selected={on} className={cn(on && "is-on")} onClick={() => setPage(id === "haccp" ? "haccp" : "checklist")} data-bmq-fs-tab={id}>{label}</button>;
-        })}
+      <div className="d3-kho-tabs d3-tx-tabs" role="tablist" aria-label="Truy xuất nguồn gốc">
+        {TABS.map((id) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} className={cn(tab === id && "is-on")} onClick={() => setTab(id)} data-bmq-tx-tab={id}>
+            {TAB_LABELS[id]}{id === "papers" && (expired || soon) ? <small className="d3-tx-dot" aria-label={`${expired + soon} giấy cần chú ý`}>{expired + soon}</small> : null}
+          </button>
+        ))}
       </div>
 
-      {page !== "haccp" ? (
+      {tab === "papers" ? (
         <div className="d3-kho-seg is-small d3-attp-pages" role="group" aria-label="Cách xem giấy tờ">
-          {([["checklist", "Checklist"], ["papers", `Tất cả giấy${certs.data ? ` (${rows.length})` : ""}`]] as const).map(([id, label]) => (
-            <button key={id} type="button" aria-pressed={page === id} className={cn(page === id && "is-on")} onClick={() => setPage(id)} data-bmq-attp-page={id}>{label}</button>
+          {([["checklist", "Checklist"], ["all", `Tất cả giấy${certs.data ? ` (${rows.length})` : ""}`]] as const).map(([id, label]) => (
+            <button key={id} type="button" aria-pressed={paperView === id} className={cn(paperView === id && "is-on")} onClick={() => setPaperView(id)} data-bmq-attp-page={id === "all" ? "papers" : "checklist"}>{label}</button>
           ))}
         </div>
       ) : null}
 
-      {page === "haccp" ? <Suspense fallback={<LoadingState label="Đang mở hồ sơ HACCP" />}><HaccpDossierRoute embedded /></Suspense> : page === "checklist" ? <AttpChecklist canEdit={canEdit} onAction={setAttp} /> : (
+      {tab === "overview" ? <TraceOverview onOpen={setTab} /> : tab === "trace" ? <KhoTracePanel /> : tab === "haccp" ? <Suspense fallback={<LoadingState label="Đang mở hồ sơ HACCP" />}><HaccpDossierRoute embedded /></Suspense> : paperView === "checklist" ? <AttpChecklist canEdit={canEdit} onAction={setAttp} /> : (
 
       <section className="d3-wh-card d3-kho-card">
         <div className="d3-kho-tabs" role="tablist" aria-label="Lọc theo hạn">
@@ -120,7 +120,7 @@ export default function KhoCerts() {
             {query ? <button type="button" onClick={() => setQuery("")} aria-label="Xóa tìm kiếm"><X /></button> : null}
           </span>
         </div>
-        <p className="d3-kho-hint">Giấy chứng nhận cơ sở đủ điều kiện ATTP, phiếu kiểm nghiệm và bản công bố của nhà sản xuất từng nguyên liệu. Nút “Truy xuất” dựng báo cáo theo mẫu KFM cho từng lệnh sản xuất và đính kèm các giấy này.</p>
+        <p className="d3-kho-hint">Giấy chứng nhận cơ sở đủ điều kiện ATTP, phiếu kiểm nghiệm và bản công bố của nhà sản xuất từng nguyên liệu. Tab “Truy xuất” dựng báo cáo theo mẫu KFM cho từng lệnh sản xuất và đính kèm các giấy này.</p>
 
         {certs.isLoading ? <LoadingState label="Đang đọc hồ sơ" /> : certs.isError ? (
           <div className="d3-kho-failed" role="alert">
@@ -157,7 +157,6 @@ export default function KhoCerts() {
       </section>
       )}
       {attp ? <AttpUploadDialog action={attp === "new" ? null : attp} onClose={() => setAttp(null)} /> : null}
-      {tracing ? <KhoTraceDialog onClose={() => setTracing(false)} /> : null}
       {dialog}
     </div>
   );

@@ -35,7 +35,7 @@ export function haccpErrorText(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? "");
   const has = (key: string) => code === key || message.includes(key);
   if (has("supplier_read_only") || has("supplier_papers_in_attp")) {
-    return message && !/^supplier_/.test(message) ? message : "Nhà cung cấp lấy từ danh mục: chỉ quản lý sửa được điện thoại, địa chỉ, người liên hệ; giấy tờ tải ở tab Giấy tờ ATTP.";
+    return message && !/^supplier_/.test(message) ? message : "Nhà cung cấp lấy từ danh mục: chỉ quản lý sửa được điện thoại, địa chỉ, người liên hệ; giấy tờ tải ở tab Giấy tờ.";
   }
   if (has("stale_version")) return "Có người vừa sửa dòng này. Đóng lại, mở lại dòng rồi sửa tiếp.";
   if (has("insufficient_privilege")) return "Tài khoản này chưa có quyền sửa (Kho hoặc danh mục Nhà cung cấp).";

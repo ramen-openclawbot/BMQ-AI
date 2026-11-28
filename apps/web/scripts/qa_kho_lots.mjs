@@ -429,7 +429,17 @@ const READY = "[data-bmq-kho-certs]";
 try {
   for (const vp of VIEWPORTS) {
     const { context, page, errors } = await open({ role: "owner" }, "/warehouse/ho-so-attp", vp, READY);
+    // Old link (Zalo reminders) lands on Truy xuất nguồn gốc → Tổng quan.
+    assert.match(page.url(), /\/warehouse\/truy-xuat$/, "old link redirected");
+    await page.waitForSelector("[data-bmq-tx-tasks] [data-bmq-tx-task]");
+    assert.equal(await page.locator("[data-bmq-tx-tab]").count(), 4, "four tabs");
+    assert.ok(await page.locator("[data-bmq-tx-task='expired']").isVisible(), "expired paper is a task");
+    await noSpill(page, "tx-overview", vp);
+    await shot(page, `tx-overview-${vp.width}.png`);
+    await page.locator("[data-bmq-tx-task='expired']").click();
     await page.waitForSelector("[data-bmq-attp-sum]");
+    assert.match(page.url(), /tab=papers/, "task opens the papers tab");
+    pass(`Tổng quan: tabs, tasks, task opens its tab ${vp.width}`);
     await attpChecks(page, vp);
     await page.locator("[data-bmq-attp-page='papers']").click();
     await page.waitForSelector("[data-bmq-cert-list] li");
@@ -446,9 +456,8 @@ try {
     assert.equal(await page.locator("[data-bmq-cert-list] li").count(), 1, "search by owner");
     await page.locator("[data-bmq-cert-search]").fill("");
     pass(`Hồ sơ ATTP list, filters, search ${vp.width}`);
-    await page.locator("[data-bmq-trace-open]").click();
+    await page.locator("[data-bmq-tx-tab='trace']").click();
     await page.waitForSelector("[data-bmq-trace-list] li");
-    await dialogInView(page, "[data-bmq-trace]", vp);
     assert.equal(await page.locator("[data-bmq-trace-list] li").count(), 2, "two production orders to trace");
     await noSpill(page, "trace-list", vp);
     await shot(page, `trace-list-${vp.width}.png`, false);
@@ -467,12 +476,9 @@ try {
     if (vp.width === 1440) { await xlsx.saveAs(`${EVIDENCE}/trace.xlsx`); await zip.saveAs(`${EVIDENCE}/trace.zip`); }
     await page.locator("[data-bmq-trace-back]").click();
     await page.waitForSelector("[data-bmq-trace-list]");
-    await page.keyboard.press("Escape");
-    await page.waitForSelector("[data-bmq-trace]", { state: "detached" });
     pass(`Truy xuất pick → report → Excel + zip ${vp.width}`);
-    assert.equal(await page.locator("[data-bmq-cert-add], [data-bmq-attp-page='haccp']").count(), 0, "no manual-entry button and no third tab");
-    assert.equal(await page.locator("[data-bmq-fs-tab]").count(), 2, "two feature tabs");
-    pass(`one way to add a paper, two tabs ${vp.width}`);
+    assert.equal(await page.locator("[data-bmq-cert-add]").count(), 0, "no manual-entry button");
+    pass(`one way to add a paper ${vp.width}`);
     assert.deepEqual(errors, [], `page errors ${vp.width}`);
     await context.close();
 
@@ -487,7 +493,7 @@ try {
     assert.deepEqual(cat.errors, [], `catalog page errors ${vp.width}`);
     await cat.context.close();
   }
-  const empty = await open({ role: "owner", data: "empty" }, "/warehouse/ho-so-attp", VIEWPORTS[1], READY);
+  const empty = await open({ role: "owner", data: "empty" }, "/warehouse/truy-xuat?tab=papers", VIEWPORTS[1], READY);
   await empty.page.waitForSelector("[data-bmq-attp-empty]");
   await shot(empty.page, "attp-empty-390.png", false);
   await empty.page.locator("[data-bmq-attp-page='papers']").click();

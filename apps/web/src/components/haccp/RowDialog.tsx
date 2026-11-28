@@ -18,7 +18,7 @@ const dmy = (iso?: string | null) => (iso ? iso.slice(0, 10).split("-").reverse(
 export function SupplierPapers({ papers }: { papers?: HaccpSupplierPapers }) {
   return (
     <div className="hc-papers" data-hc-papers>
-      <p><b>Giấy tờ ATTP{papers && papers.total ? ` · đủ ${papers.done}/${papers.total}` : ""}</b><small>Tải và cập nhật ở tab Giấy tờ ATTP; file xuất ZIP tự kèm các giấy này.</small></p>
+      <p><b>Giấy tờ ATTP{papers && papers.total ? ` · đủ ${papers.done}/${papers.total}` : ""}</b><small>Tải và cập nhật ở tab Giấy tờ; file xuất ZIP tự kèm các giấy này.</small></p>
       {papers?.papers.length ? (
         <ul>
           {papers.papers.map((p) => (
@@ -29,7 +29,7 @@ export function SupplierPapers({ papers }: { papers?: HaccpSupplierPapers }) {
             </li>
           ))}
         </ul>
-      ) : <p className="hc-papers-none">Chưa có giấy nào. <a href="/warehouse/ho-so-attp">Mở Giấy tờ ATTP</a></p>}
+      ) : <p className="hc-papers-none">Chưa có giấy nào. <a href="/warehouse/truy-xuat?tab=papers">Mở Giấy tờ</a></p>}
     </div>
   );
 }

@@ -147,6 +147,12 @@ function AuthzErrorFallback({ moduleLabel, onRetry }: { moduleLabel: string; onR
   );
 }
 
+/** Redirect that keeps ?tab=… so old bookmarks and Zalo links land on the same view. */
+function KeepQueryRedirect({ to }: { to: string }) {
+  const { search } = useLocation();
+  return <Navigate to={`${to}${search}`} replace />;
+}
+
 function ModuleRoute({ moduleKey, children }: { moduleKey: string; children: React.ReactNode }) {
   const { user, loading, authzLoaded, authzError, canAccessModule, refreshRoles } = useAuth();
   const moduleLabels: Record<string, string> = {
@@ -313,9 +319,11 @@ export function AppRoutes() {
         <Route path="/warehouse/cho-duyet" element={<Navigate to="/warehouse/tru-kho" replace />} />
         <Route path="/warehouse/tru-kho-demo" element={<Navigate to="/warehouse/tru-kho" replace />} />
         <Route path="/warehouse/ra-soat" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoReview /></Suspense></ModuleRoute>} />
-        <Route path="/warehouse/ho-so-attp" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoCerts /></Suspense></ModuleRoute>} />
+        {/* Truy xuất nguồn gốc (owner 28/11) replaces Hồ sơ ATTP / An toàn thực phẩm; old links (Zalo reminders) keep their query. */}
+        <Route path="/warehouse/truy-xuat" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoCerts /></Suspense></ModuleRoute>} />
+        <Route path="/warehouse/ho-so-attp" element={<KeepQueryRedirect to="/warehouse/truy-xuat" />} />
         {/* Hồ sơ HACCP is a tab of An toàn thực phẩm (owner 28/11); the old link lands on it. */}
-        <Route path="/warehouse/ho-so-haccp" element={<Navigate to="/warehouse/ho-so-attp?tab=haccp" replace />} />
+        <Route path="/warehouse/ho-so-haccp" element={<Navigate to="/warehouse/truy-xuat?tab=haccp" replace />} />
         <Route path="/warehouse/stock-ledger" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockLedger /></Suspense></ModuleRoute>} />
         {/* Owner 22/10: Mua so với dùng and Giá vốn → Kho removed (decisions go through chat); old links land on Danh mục kho. */}
         <Route path="/warehouse/purchase-usage" element={<Navigate to="/warehouse/danh-muc" replace />} />

@@ -41,49 +41,62 @@ function fileBase(report: KhoTraceReport) {
  * with every gap named, adjust the semi-finished rows, then download Excel or the
  * full bundle (Excel + PDF + the ATTP papers of the manufacturers involved).
  */
+/** The trace picker and report as a page section (Truy xuất nguồn gốc → Truy xuất). */
+export function KhoTracePanel() {
+  return (
+    <section className="d3-wh-card d3-kho-card d3-trace-panel" data-bmq-trace>
+      <p className="d3-kho-hint">Chọn một lệnh sản xuất để xem mẻ bánh dùng nguyên liệu nào, lô nào, hạn dùng và nhà cung cấp, rồi tải báo cáo theo mẫu KFM kèm giấy ATTP.</p>
+      <TraceBody />
+    </section>
+  );
+}
+
 export function KhoTraceDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <KhoDialog title="Truy xuất nguồn gốc" sub="Chọn lệnh sản xuất để dựng báo cáo theo mẫu KFM" onClose={onClose} wide data={{ "data-bmq-trace": "" }}>
+      <TraceBody />
+    </KhoDialog>
+  );
+}
+
+function TraceBody() {
   const today = todayIso();
   const [from, setFrom] = useState(shiftDays(today, -14));
   const [to, setTo] = useState(today);
   const [picked, setPicked] = useState<string | null>(null);
   const candidates = useTraceCandidates(from, to);
 
+  if (picked) return <TraceReportView itemId={picked} onBack={() => setPicked(null)} />;
   return (
-    <KhoDialog title="Truy xuất nguồn gốc" sub="Chọn lệnh sản xuất để dựng báo cáo theo mẫu KFM" onClose={onClose} wide data={{ "data-bmq-trace": "" }}>
-      {picked ? (
-        <TraceReportView itemId={picked} onBack={() => setPicked(null)} />
-      ) : (
-        <>
-          <div className="d3-cert-grid">
-            <label className="d3-kho-field"><span>Từ ngày</span><Input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} data-bmq-trace-from /></label>
-            <label className="d3-kho-field"><span>Đến ngày</span><Input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} data-bmq-trace-to /></label>
-          </div>
-          {candidates.isLoading ? <LoadingState label="Đang đọc lệnh sản xuất" /> : candidates.isError ? (
-            <div className="d3-kho-failed" role="alert">
-              <p>Không tải được lệnh sản xuất.</p>
-              <Button variant="outline" onClick={() => void candidates.refetch()}>Thử lại</Button>
-            </div>
-          ) : candidates.data?.length ? (
-            <ul className="d3-kho-list d3-trace-picks" data-bmq-trace-list>
-              {candidates.data.map((c) => (
-                <li key={c.production_order_item_id} className="d3-kho-row is-link">
-                  <button type="button" className="d3-kho-row-main" onClick={() => setPicked(c.production_order_item_id)} data-bmq-trace-pick={c.production_order_item_id}>
-                    <b>{c.product_name}</b>
-                    <small>
-                      <span>{dmy(c.production_date)}</span>
-                      <span>{c.production_number}</span>
-                      {c.qty ? <span>{num(c.qty)} {c.unit ?? ""}</span> : null}
-                      {!c.has_issue ? <span className="is-flag">chưa có phiếu xuất NVL</span> : null}
-                    </small>
-                    <span className="d3-kho-row-act" aria-hidden="true">Xem</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : <p className="d3-kho-empty" data-bmq-trace-empty>Không có lệnh sản xuất nào trong khoảng ngày này.</p>}
-        </>
-      )}
-    </KhoDialog>
+    <>
+      <div className="d3-cert-grid">
+        <label className="d3-kho-field"><span>Từ ngày</span><Input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} data-bmq-trace-from /></label>
+        <label className="d3-kho-field"><span>Đến ngày</span><Input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} data-bmq-trace-to /></label>
+      </div>
+      {candidates.isLoading ? <LoadingState label="Đang đọc lệnh sản xuất" /> : candidates.isError ? (
+        <div className="d3-kho-failed" role="alert">
+          <p>Không tải được lệnh sản xuất.</p>
+          <Button variant="outline" onClick={() => void candidates.refetch()}>Thử lại</Button>
+        </div>
+      ) : candidates.data?.length ? (
+        <ul className="d3-kho-list d3-trace-picks" data-bmq-trace-list>
+          {candidates.data.map((c) => (
+            <li key={c.production_order_item_id} className="d3-kho-row is-link">
+              <button type="button" className="d3-kho-row-main" onClick={() => setPicked(c.production_order_item_id)} data-bmq-trace-pick={c.production_order_item_id}>
+                <b>{c.product_name}</b>
+                <small>
+                  <span>{dmy(c.production_date)}</span>
+                  <span>{c.production_number}</span>
+                  {c.qty ? <span>{num(c.qty)} {c.unit ?? ""}</span> : null}
+                  {!c.has_issue ? <span className="is-flag">chưa có phiếu xuất NVL</span> : null}
+                </small>
+                <span className="d3-kho-row-act" aria-hidden="true">Xem</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="d3-kho-empty" data-bmq-trace-empty>Không có lệnh sản xuất nào trong khoảng ngày này.</p>}
+    </>
   );
 }
 

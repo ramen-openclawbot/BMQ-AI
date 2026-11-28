@@ -36,7 +36,7 @@ html.bmq-d3 :is(.hc, .d3-kho-dialog) .hc-icon-btn:hover { background: var(--d3-p
 :is(.hc, .d3-kho-dialog) :is(button, input, textarea):focus-visible { outline: 2px solid var(--d3-blue); outline-offset: 2px; }
 
 .hc-head-acts { display: flex; flex-wrap: wrap; gap: 8px; }
-/* Inside the An toàn thực phẩm page: only the dossier actions, right-aligned under the tabs. */
+/* Inside the Truy xuất nguồn gốc page: only the dossier actions, right-aligned under the tabs. */
 .hc-embedded-head { justify-content: flex-end; padding: 0; }
 
 /* ---------- hero: overall + seven sheet tiles ---------- */

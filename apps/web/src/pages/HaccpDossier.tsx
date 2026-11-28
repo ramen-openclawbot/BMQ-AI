@@ -14,7 +14,7 @@ import "@/styles/bmq-haccp.css";
 /** Hồ sơ HACCP bếp Quận 7: seven sheets, one place to fill them, one button to export. */
 export default function HaccpDossier({ store, who, onOpenStaff, onDownload, embedded = false, supplierPapers = {} }: {
   supplierPapers?: Record<string, HaccpSupplierPapers>;
-  /** Shown as a tab of "An toàn thực phẩm": that page owns the title. */
+  /** Shown as a tab of "Truy xuất nguồn gốc": that page owns the title. */
   embedded?: boolean;
   store: HaccpStore;
   who: string;
